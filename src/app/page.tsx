@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 const milestones = [
   ["01", "四杆实验室", "拖动铰点、播放运动并观察连杆点轨迹。"],
   ["02", "目标轨迹拟合", "绘制目标曲线，自动搜索并比较候选机构。"],
@@ -24,8 +26,8 @@ export default function Home() {
             并逐步探索机器人腿与绳驱动手指。
           </p>
           <div className="actions">
-            <a className="primary" href="#roadmap">查看开发路线</a>
-            <a className="secondary" href="https://github.com" target="_blank" rel="noreferrer">GitHub</a>
+            <Link className="primary" href="/lab">打开四杆实验室</Link>
+            <a className="secondary" href="https://github.com/tutao0123/open-linkage" target="_blank" rel="noreferrer">GitHub</a>
           </div>
         </div>
 

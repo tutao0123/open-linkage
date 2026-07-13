@@ -15,7 +15,7 @@ npm run dev
 
 ## 路线图
 
-- 0.1：四杆机构编辑、动画、轨迹和 Grashof 判断
+- 0.1：四杆机构参数编辑、动画、轨迹、装配分支和 Grashof 判断（开发中）
 - 0.2：通用平面约束机构
 - 0.3：手绘轨迹与四杆自动拟合
 - 0.4：Klann / Stephenson 腿部模板
@@ -24,3 +24,8 @@ npm run dev
 ## 许可证
 
 Apache-2.0
+
+## 在线体验
+
+- 官网：https://linkage.wtt.autos
+- 四杆实验室：https://linkage.wtt.autos/lab

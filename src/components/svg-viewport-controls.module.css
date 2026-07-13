@@ -1,0 +1,40 @@
+.controls {
+  position: absolute;
+  z-index: 3;
+  top: 14px;
+  right: 14px;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 6px;
+  border: 1px solid #b7bab2;
+  background: rgb(242 241 235 / 94%);
+  box-shadow: 0 8px 25px rgb(40 45 38 / 8%);
+}
+
+.controls button {
+  min-width: 32px;
+  height: 31px;
+  padding: 0 8px;
+  border: 1px solid #c7c9c1;
+  background: transparent;
+  color: #242927;
+  cursor: pointer;
+  font: 14px "Cascadia Mono", Consolas, monospace;
+}
+
+.controls button + button { border-left: 0; }
+.controls button:hover { background: #e1e5d9; }
+.controls .zoomValue { min-width: 58px; font-size: 10px; }
+
+.controls span {
+  margin-left: 9px;
+  color: #6c716c;
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+@media (max-width: 900px) {
+  .controls { top: auto; right: 7px; bottom: 7px; }
+  .controls span { display: none; }
+}

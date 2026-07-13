@@ -29,6 +29,10 @@
   touch-action: none;
 }
 
+.panning {
+  cursor: grabbing !important;
+}
+
 .canvasSurface {
   position: relative;
 }

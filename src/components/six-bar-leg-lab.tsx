@@ -15,6 +15,9 @@ import {
   type SynthesisPriority,
 } from "@/lib/six-bar-synthesis";
 import { analyzeSixBarLeg, solveSixBarLeg, type SixBarParameters } from "@/lib/six-bar";
+import { SvgViewportControls } from "./svg-viewport-controls";
+import { useSvgViewport } from "./use-svg-viewport";
+import editorStyles from "./four-bar-editor.module.css";
 import styles from "./six-bar-leg-lab.module.css";
 
 const DEFAULT_PARAMETERS: SixBarParameters = {
@@ -185,7 +188,13 @@ export function SixBarLegLab() {
     parameters.secondRocker,
     180,
   );
-  const viewBox = `${-maximumLength * 1.25} ${-maximumLength * 1.45} ${maximumLength * 3.4} ${maximumLength * 2.9}`;
+  const baseView = useMemo(() => ({
+    x: -maximumLength * 1.25,
+    y: -maximumLength * 1.45,
+    width: maximumLength * 3.4,
+    height: maximumLength * 2.9,
+  }), [maximumLength]);
+  const viewport = useSvgViewport(baseView);
   const landingSpeed = selectedCandidate
     ? selectedCandidate.landingVelocityPerRadian * speed * Math.PI * 2 / 60
     : null;
@@ -331,6 +340,7 @@ export function SixBarLegLab() {
     setSelectedCandidateId(null);
     setPriority("balanced");
     setEditorMode("inspect");
+    viewport.resetView();
     setMessage("已恢复默认六杆腿");
   };
 
@@ -387,33 +397,19 @@ export function SixBarLegLab() {
             <button onClick={reset} type="button">恢复默认</button>
           </div>
 
-          <div className={styles.modeTabs} role="group" aria-label="编辑模式">
-            <button className={editorMode === "inspect" ? styles.activeTab : ""} type="button" onClick={() => setEditorMode("inspect")}>机构参数</button>
-            <button className={editorMode === "trajectory" ? styles.activeTab : ""} type="button" onClick={() => setEditorMode("trajectory")}>绘制足迹</button>
+          <div className={styles.fields}>
+            {LENGTH_FIELDS.map((field) => (
+              <label key={field.key}>
+                <span>{field.label}<b>{field.code}</b></span>
+                <input
+                  type="number"
+                  step={field.step ?? 1}
+                  value={Number(parameters[field.key].toFixed(2))}
+                  onChange={(event) => update(field.key, Number(event.target.value))}
+                />
+              </label>
+            ))}
           </div>
-
-          {editorMode === "inspect" ? (
-            <div className={styles.fields}>
-              {LENGTH_FIELDS.map((field) => (
-                <label key={field.key}>
-                  <span>{field.label}<b>{field.code}</b></span>
-                  <input
-                    type="number"
-                    step={field.step ?? 1}
-                    value={Number(parameters[field.key].toFixed(2))}
-                    onChange={(event) => update(field.key, Number(event.target.value))}
-                  />
-                </label>
-              ))}
-            </div>
-          ) : (
-            <div className={styles.targetTools}>
-              <p>在中间画布按住拖动，画出一条闭合足端轨迹。蓝线是目标，绿色虚线是当前机构轨迹。</p>
-              <button type="button" onClick={createGaitPreset}>生成推荐马蹄轨迹</button>
-              <button type="button" onClick={() => { setTargetPoints([]); setCandidates([]); setSelectedCandidateId(null); }} disabled={!targetPoints.length}>清除目标轨迹</button>
-              <div className={styles.pathStats}><span>原始轨迹点</span><strong>{targetPoints.length}</strong></div>
-            </div>
-          )}
 
           <div className={styles.synthesisBox}>
             <label>优化侧重
@@ -421,11 +417,8 @@ export function SixBarLegLab() {
                 {PRIORITY_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
               </select>
             </label>
-            <button className={styles.synthesizeButton} type="button" onClick={() => void runSynthesis()} disabled={targetPoints.length < 12 || fitting}>
-              {fitting ? `全局搜索 ${Math.round(fitProgress * 100)}%` : "生成 5 套六杆方案"}
-            </button>
             {fitting && <div className={styles.progress}><i style={{ width: `${fitProgress * 100}%` }} /></div>}
-            <small>{message}</small>
+            <small>{targetPoints.length ? `目标轨迹 ${targetPoints.length} 点 · ${message}` : message}</small>
           </div>
 
           <div className={styles.projectTools}>
@@ -451,18 +444,45 @@ export function SixBarLegLab() {
             <span>{editorMode === "trajectory" ? "按住画布绘制" : "WATT 6-BAR"}</span>
           </div>
           <div className={`${styles.canvas} ${editorMode === "trajectory" ? styles.drawingCanvas : ""}`}>
+            <div className={editorStyles.canvasActions}>
+              <div className={editorStyles.modeSwitch} role="group" aria-label="编辑模式">
+                <button className={editorMode === "inspect" ? editorStyles.selected : ""} type="button" onClick={() => setEditorMode("inspect")}>编辑机构</button>
+                <button className={editorMode === "trajectory" ? editorStyles.selected : ""} type="button" onClick={() => setEditorMode("trajectory")}>绘制轨迹</button>
+              </div>
+              <button type="button" onClick={createGaitPreset}>推荐马蹄轨迹</button>
+              <button type="button" onClick={() => { setTargetPoints([]); setCandidates([]); setSelectedCandidateId(null); }} disabled={!targetPoints.length}>清除轨迹</button>
+              <button className={editorStyles.fitButton} type="button" onClick={() => void runSynthesis()} disabled={targetPoints.length < 12 || fitting}>
+                {fitting ? `搜索 ${Math.round(fitProgress * 100)}%` : "生成 5 套方案"}
+              </button>
+            </div>
+            <SvgViewportControls
+              zoom={viewport.zoom}
+              onZoomIn={viewport.zoomIn}
+              onZoomOut={viewport.zoomOut}
+              onReset={viewport.resetView}
+            />
             <svg
               ref={svgRef}
-              viewBox={viewBox}
+              className={viewport.isPanning ? editorStyles.panning : undefined}
+              viewBox={viewport.viewBox}
               role="img"
               aria-label="Watt 类六杆机械腿运动学与目标足迹画布"
-              onPointerDown={startDrawing}
-              onPointerMove={movePointer}
-              onPointerUp={stopDrawing}
-              onPointerCancel={stopDrawing}
+              onWheel={viewport.handleWheel}
+              onPointerDown={(event) => {
+                if (!viewport.startPan(event)) startDrawing(event);
+              }}
+              onPointerMove={(event) => {
+                if (!viewport.movePan(event)) movePointer(event);
+              }}
+              onPointerUp={(event) => {
+                if (!viewport.endPan(event)) stopDrawing(event);
+              }}
+              onPointerCancel={(event) => {
+                if (!viewport.endPan(event)) stopDrawing(event);
+              }}
             >
               <defs><pattern id="leg-grid" width="25" height="25" patternUnits="userSpaceOnUse"><path d="M25 0H0V25" className={styles.grid} /></pattern></defs>
-              <rect x={-maximumLength * 1.25} y={-maximumLength * 1.45} width={maximumLength * 3.4} height={maximumLength * 2.9} fill="url(#leg-grid)" />
+              <rect x={viewport.view.x} y={viewport.view.y} width={viewport.view.width} height={viewport.view.height} fill="url(#leg-grid)" />
               <path d={`M0,0 L${parameters.groundPivot},0 L${parameters.rearPivotX},${-parameters.rearPivotY} Z`} className={styles.ground} />
               {analysis.trailPath && <path d={analysis.trailPath} className={styles.trail} />}
               {targetPathData && <path d={targetPathData} className={styles.targetPath} />}

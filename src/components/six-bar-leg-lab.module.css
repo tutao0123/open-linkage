@@ -126,6 +126,7 @@
 .modeTabs .activeTab { background: #111515; color: #c8ff3d; }
 
 .fields {
+  margin-top: 16px;
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;

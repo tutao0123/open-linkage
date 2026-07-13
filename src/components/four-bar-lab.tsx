@@ -11,6 +11,8 @@ import {
   type Point,
 } from "@/lib/four-bar";
 import { fitFourBarToClosedPath, type PathFitResult } from "@/lib/path-synthesis";
+import { SvgViewportControls } from "./svg-viewport-controls";
+import { useSvgViewport } from "./use-svg-viewport";
 import styles from "./four-bar-lab.module.css";
 import editorStyles from "./four-bar-editor.module.css";
 
@@ -131,7 +133,13 @@ export function FourBarLab() {
   const maximumLength = Math.max(parameters.ground, parameters.input, parameters.coupler, parameters.output);
   const horizontalPadding = Math.max(90, maximumLength * 0.65);
   const verticalExtent = Math.max(210, (parameters.input + parameters.couplerPointOffset) * 1.8);
-  const viewBox = `${-horizontalPadding} ${-verticalExtent} ${parameters.ground + horizontalPadding * 2} ${verticalExtent * 2}`;
+  const baseView = useMemo(() => ({
+    x: -horizontalPadding,
+    y: -verticalExtent,
+    width: parameters.ground + horizontalPadding * 2,
+    height: verticalExtent * 2,
+  }), [horizontalPadding, parameters.ground, verticalExtent]);
+  const viewport = useSvgViewport(baseView);
 
   const updateLength = (key: keyof FourBarParameters, value: number) => {
     setParameters((current) => ({ ...current, [key]: Math.max(1, value || 1) }));
@@ -199,6 +207,7 @@ export function FourBarLab() {
   };
 
   const startDrag = (target: DragTarget, event: ReactPointerEvent<SVGGElement | SVGCircleElement>) => {
+    if (event.button === 1 || event.altKey) return;
     event.preventDefault();
     event.stopPropagation();
     setPlaying(false);
@@ -300,6 +309,7 @@ export function FourBarLab() {
     setTargetPoints([]);
     setFitResult(null);
     setEditorMode("mechanism");
+    viewport.resetView();
     setProjectMessage("已恢复默认项目");
   };
 
@@ -398,7 +408,7 @@ export function FourBarLab() {
 
           <div className={styles.note}>
             <span>提示</span>
-            机构模式可拖动绿色手柄；轨迹模式可徒手绘制一条闭合目标曲线，再点击自动拟合。
+            机构模式可拖动绿色手柄；轨迹模式可徒手绘制闭合曲线。滚轮缩放，Alt 或中键拖动画布。
           </div>
         </aside>
 
@@ -425,23 +435,38 @@ export function FourBarLab() {
                 {fitting ? `拟合 ${Math.round(fitProgress * 100)}%` : "自动拟合"}
               </button>
             </div>
+            <SvgViewportControls
+              zoom={viewport.zoom}
+              onZoomIn={viewport.zoomIn}
+              onZoomOut={viewport.zoomOut}
+              onReset={viewport.resetView}
+            />
             <svg
               ref={svgRef}
-              className={editorStyles.editableSvg}
-              viewBox={viewBox}
+              className={`${editorStyles.editableSvg} ${viewport.isPanning ? editorStyles.panning : ""}`}
+              viewBox={viewport.viewBox}
               role="img"
               aria-label="四杆机构运动学画布"
-              onPointerDown={startDrawing}
-              onPointerMove={handlePointerMove}
-              onPointerUp={finishInteraction}
-              onPointerCancel={finishInteraction}
+              onWheel={viewport.handleWheel}
+              onPointerDown={(event) => {
+                if (!viewport.startPan(event)) startDrawing(event);
+              }}
+              onPointerMove={(event) => {
+                if (!viewport.movePan(event)) handlePointerMove(event);
+              }}
+              onPointerUp={(event) => {
+                if (!viewport.endPan(event)) finishInteraction();
+              }}
+              onPointerCancel={(event) => {
+                if (!viewport.endPan(event)) finishInteraction();
+              }}
             >
               <defs>
                 <pattern id="grid" width="25" height="25" patternUnits="userSpaceOnUse">
                   <path d="M 25 0 L 0 0 0 25" className={styles.gridLine} />
                 </pattern>
               </defs>
-              <rect x={-horizontalPadding} y={-verticalExtent} width={parameters.ground + horizontalPadding * 2} height={verticalExtent * 2} fill="url(#grid)" />
+              <rect x={viewport.view.x} y={viewport.view.y} width={viewport.view.width} height={viewport.view.height} fill="url(#grid)" />
               <line x1="0" y1="0" x2={parameters.ground} y2="0" className={styles.groundLink} />
               <g className={editorStyles.dimensions} aria-hidden="true">
                 <line x1="0" y1="24" x2={parameters.ground} y2="24" />

@@ -89,6 +89,7 @@ export function FreeMechanismDesigner() {
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(42);
   const [phase, setPhase] = useState(() => driverPhase(project));
+  const [solveResult, setSolveResult] = useState<"idle" | "success" | "warning">("idle");
   const [message, setMessage] = useState("四杆模板已就绪。可直接播放，或继续添加移动副、杆件和尺寸约束。");
   const viewportBase = useMemo(() => ({ x: -420, y: -300, width: 840, height: 600 }), []);
   const viewport = useSvgViewport(viewportBase);
@@ -113,6 +114,7 @@ export function FreeMechanismDesigner() {
   const stopMotion = useCallback(() => {
     setPlaying(false);
     setTrail([]);
+    setSolveResult("idle");
   }, []);
 
   useEffect(() => {
@@ -416,13 +418,18 @@ export function FreeMechanismDesigner() {
   };
 
   const solveOnce = () => {
+    const wasPlaying = playing;
+    stopMotion();
     checkpoint();
     const next = { ...project, joints: solveFreeMechanism(project, phaseRef.current, 160) };
     replace(next);
     setTrail([]);
     const error = maximumConstraintError(next, phaseRef.current);
     setPhase(phaseRef.current);
-    setMessage(error < 0.1 ? "自由拓扑已自动收敛。" : `求解完成，剩余最大约束误差 ${error.toFixed(2)} mm。`);
+    setSolveResult(error < 0.1 ? "success" : "warning");
+    setMessage(error < 0.1
+      ? `${wasPlaying ? "已暂停运动并完成求解。" : "自由拓扑已自动收敛。"} 最大约束误差 ${error.toFixed(3)} mm。`
+      : `求解已执行，剩余最大约束误差 ${error.toFixed(2)} mm；请检查是否过约束或无法装配。`);
   };
 
   const togglePlaying = () => {
@@ -499,7 +506,14 @@ export function FreeMechanismDesigner() {
               <button type="button" className={tool === "slider" ? styles.canvasActive : ""} onClick={() => changeTool("slider")}>移动副</button>
               <button type="button" className={tool === "bar" ? styles.canvasActive : ""} onClick={() => changeTool("bar")}>杆件</button>
               <button type="button" className={tool === "dimension" ? styles.canvasActive : ""} onClick={() => changeTool("dimension")}>尺寸</button>
-              <button type="button" onClick={solveOnce}>自动求解</button>
+              <button
+                type="button"
+                aria-live="polite"
+                className={`${styles.solveButton} ${solveResult === "success" ? styles.solveSuccess : ""} ${solveResult === "warning" ? styles.solveWarning : ""}`}
+                onClick={solveOnce}
+              >
+                {solveResult === "success" ? "已求解 ✓" : solveResult === "warning" ? "检查残差 !" : "自动求解"}
+              </button>
             </div>
             <SvgViewportControls zoom={viewport.zoom} onZoomIn={viewport.zoomIn} onZoomOut={viewport.zoomOut} onReset={viewport.resetView} />
             <svg

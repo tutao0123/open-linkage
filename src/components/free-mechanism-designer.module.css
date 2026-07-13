@@ -46,10 +46,14 @@
 .warning { background:#efc7b4; color:#5f2d24; }
 .canvas { min-height:520px; padding:18px; display:flex; position:relative; align-items:center; justify-content:center; overflow:hidden; }
 .canvas svg { width:100%; height:100%; max-height:720px; touch-action:none; }
-.canvasActions { position:absolute; z-index:3; top:14px; left:14px; display:flex; border:1px solid #aeb1a8; box-shadow:0 2px 8px rgb(20 24 21 / 8%); }
+.canvasActions { position:absolute; z-index:4; top:14px; left:14px; max-width:calc(100% - 205px); display:flex; flex-wrap:wrap; border:1px solid #aeb1a8; box-shadow:0 2px 8px rgb(20 24 21 / 8%); }
 .canvasActions button { padding:8px 10px; border:0; border-right:1px solid #c5c7bf; background:#f3f2ec; color:#555b56; cursor:pointer; font-size:10px; }
 .canvasActions button:last-child { border-right:0; }
 .canvasActions .canvasActive { background:#111515; color:#c8ff3d; }
+.canvasActions .solveButton { min-width:76px; background:#e5efd0; color:#27331b; font-weight:680; }
+.canvasActions .solveButton:hover { background:#d8e9b8; }
+.canvasActions .solveSuccess { background:#c8ff3d; color:#172000; }
+.canvasActions .solveWarning { background:#efc7b4; color:#5f2d24; }
 .creationCursor { cursor:crosshair; }
 .panning { cursor:grabbing!important; }
 .gridLine { fill:none; stroke:#c5c7bf; stroke-width:.75; }
@@ -113,4 +117,5 @@
 .healthWarn { border-color:#d5a48d; background:#f2ddd2; }
 .healthGood p,.healthWarn p { margin:8px 0 0; line-height:1.55; }
 @media(max-width:1220px){.layout{grid-template-columns:280px 1fr}.inspector{grid-column:1/-1;border-left:0;border-top:1px solid #c5c6be}.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:0 18px}.healthGood,.healthWarn{max-width:520px}}
+@media(max-width:900px){.canvasActions{max-width:calc(100% - 28px)}}
 @media(max-width:760px){.header nav span{display:none}.layout{display:block}.panel,.inspector{border:0;border-bottom:1px solid #c5c6be}.stage{grid-template-rows:54px minmax(430px,1fr) auto auto}.canvas{min-height:430px;padding:5px}.canvasActions{max-width:calc(100% - 28px);flex-wrap:wrap}.messageBar{min-height:42px}.messageBar span:last-child{display:none}.transport{flex-wrap:wrap}.metrics{display:block}}

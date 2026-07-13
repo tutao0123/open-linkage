@@ -14,6 +14,9 @@
 .panelTitle span { color:#777c77; font:10px "Cascadia Mono",Consolas,monospace; }
 .panelTitle h1,.panelTitle h2 { margin:0; font-size:18px; }
 .panelTitle button { border:0; background:transparent; color:#686d68; cursor:pointer; font-size:11px; text-decoration:underline; }
+.historyBar { margin-top:14px; display:grid; grid-template-columns:1fr 1fr; gap:7px; }
+.historyBar button { padding:8px; border:1px solid #c3c5bd; background:#f4f3ed; color:#343936; cursor:pointer; font-size:11px; }
+.historyBar button:disabled { opacity:.38; cursor:not-allowed; }
 .toolList { margin-top:16px; display:grid; gap:7px; }
 .toolList button { padding:12px; display:flex; flex-direction:column; gap:3px; align-items:flex-start; border:1px solid #c9cbc3; background:#e8e8e1; color:#252927; cursor:pointer; text-align:left; }
 .toolList button span { font-weight:680; }
@@ -22,7 +25,16 @@
 .toolList .activeTool small { color:#aeb5ac; }
 .workflowHint { margin-top:18px; padding:14px; border:1px solid #c9cbc3; color:#626862; font-size:11px; }
 .workflowHint b { color:#242927; }
+.workflowHint p { margin:8px 0 0; line-height:1.6; }
 .workflowHint ol { margin:10px 0 0; padding-left:18px; line-height:1.8; }
+.templateSection { margin-top:18px; }
+.sectionLabel { margin-bottom:8px; display:flex; align-items:center; justify-content:space-between; color:#313633; font-size:11px; }
+.sectionLabel small { color:#777c77; font-size:9px; }
+.templateGrid { display:grid; grid-template-columns:1fr 1fr; gap:7px; }
+.templateGrid button { min-height:66px; padding:10px; display:flex; flex-direction:column; align-items:flex-start; gap:4px; border:1px solid #c7c9c1; background:#e8e8e1; color:#252a27; cursor:pointer; text-align:left; }
+.templateGrid button:hover { border-color:#858b85; background:#f4f3ed; }
+.templateGrid b { font-size:11px; }
+.templateGrid small { color:#737873; font-size:9px; line-height:1.35; }
 .projectTools { margin-top:14px; display:grid; grid-template-columns:1fr 1fr; gap:7px; }
 .projectTools button { padding:9px; border:1px solid #bfc1b9; background:#f4f3ed; cursor:pointer; font-size:11px; }
 .projectTools button:first-child { grid-column:1/-1; }
@@ -47,6 +59,8 @@
 .link { stroke:#222725; stroke-width:13; stroke-linecap:round; pointer-events:none; }
 .driverLink { stroke:#92c52b; }
 .selectedLink { stroke:#287fa8; }
+.telescopicLink { stroke-dasharray:14 5; }
+.telescopicSleeve { stroke:#f2f1eb; stroke-width:7; stroke-linecap:round; pointer-events:none; }
 .linkLabel,.jointLabel { fill:#5e655f; font:10px "Cascadia Mono",Consolas,monospace; user-select:none; pointer-events:none; }
 .jointGroup { cursor:grab; }
 .jointGroup:active { cursor:grabbing; }
@@ -55,6 +69,12 @@
 .selectedJoint { stroke:#287fa8; stroke-width:5; }
 .pin { fill:#111515; pointer-events:none; }
 .groundMark { fill:none; stroke:#6d736d; stroke-width:3; pointer-events:none; }
+.sliderGuide { fill:none; stroke:#747b75; stroke-width:2; stroke-dasharray:7 5; pointer-events:none; }
+.sliderBlock { fill:#e4eed0; stroke:#151918; stroke-width:4; }
+.dimensionGroup { fill:none; stroke:#8a6e48; stroke-width:1.5; stroke-dasharray:5 4; cursor:pointer; }
+.dimensionGroup text { fill:#795e3c; stroke:none; font:10px "Cascadia Mono",Consolas,monospace; text-anchor:middle; }
+.selectedDimension { stroke:#287fa8; stroke-width:2.5; }
+.selectedDimension text { fill:#287fa8; }
 .emptyCanvas { position:absolute; display:flex; flex-direction:column; gap:7px; align-items:center; color:#676d67; pointer-events:none; }
 .emptyCanvas b { color:#252a27; font-size:20px; }
 .emptyCanvas span { font-size:12px; }
@@ -74,7 +94,7 @@
 .selectionTitle b { font:18px "Cascadia Mono",Consolas,monospace; }
 .selectionCard>p { margin:0; color:#676d67; font:11px "Cascadia Mono",Consolas,monospace; }
 .selectionCard label { display:flex; align-items:center; justify-content:space-between; color:#616761; font-size:11px; }
-.selectionCard input { width:112px; padding:7px; border:1px solid #c4c6be; background:#f4f3ed; font:12px "Cascadia Mono",Consolas,monospace; }
+.selectionCard input,.selectionCard select { width:128px; padding:7px; border:1px solid #c4c6be; background:#f4f3ed; color:#202522; font:11px "Cascadia Mono",Consolas,monospace; }
 .selectionCard button { padding:9px; border:1px solid #bfc1b9; background:#f4f3ed; cursor:pointer; }
 .selectionCard button:disabled { cursor:not-allowed; opacity:.45; }
 .selectionCard .selectedAction { border-color:#8dbb36; background:#e6f2cf; }

@@ -321,6 +321,9 @@ export function FourBarLab() {
           OpenLinkage
         </Link>
         <div className={styles.headerMeta}>
+          <Link href="/straight-line">直线机构</Link>
+          <Link href="/leg">六杆腿设计</Link>
+          <Link href="/designer">自由设计</Link>
           <span>FOUR-BAR LAB</span>
           <span className={styles.liveDot}>LIVE SOLVER</span>
         </div>

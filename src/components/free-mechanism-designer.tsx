@@ -97,8 +97,13 @@ function driverPhase(project: FreeMechanismProject) {
   return driver ? Math.atan2(driver.driven.y - driver.pivot.y, driver.driven.x - driver.pivot.x) : 0;
 }
 
-export function FreeMechanismDesigner() {
-  const history = useMechanismHistory(DEMO_PROJECT);
+type FreeMechanismDesignerProps = {
+  initialTemplateId?: string;
+};
+
+export function FreeMechanismDesigner({ initialTemplateId }: FreeMechanismDesignerProps) {
+  const initialTemplate = MECHANISM_TEMPLATES.find((template) => template.id === initialTemplateId);
+  const history = useMechanismHistory(initialTemplate?.project ?? DEMO_PROJECT);
   const { project, projectRef, replace, checkpoint, commit, undo, redo, canUndo, canRedo } = history;
   const [tool, setTool] = useState<Tool>("select");
   const [selection, setSelection] = useState<Selection>({ kind: "joint", id: "J3" });
@@ -111,7 +116,9 @@ export function FreeMechanismDesigner() {
   const [solveResult, setSolveResult] = useState<"idle" | "success" | "warning">("idle");
   const [cycleReport, setCycleReport] = useState<CycleAnalysis | null>(null);
   const [loadReport, setLoadReport] = useState<HydraulicLoadAnalysis | null>(null);
-  const [message, setMessage] = useState("四杆模板已就绪。可直接播放，或继续添加移动副、杆件和尺寸约束。");
+  const [message, setMessage] = useState(initialTemplate
+    ? `${initialTemplate.name}模板已载入，可直接播放或继续修改拓扑。`
+    : "四杆模板已就绪。可直接播放，或继续添加移动副、杆件和尺寸约束。");
   const viewportBase = useMemo(() => ({ x: -420, y: -300, width: 840, height: 600 }), []);
   const viewport = useSvgViewport(viewportBase);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -732,7 +739,7 @@ export function FreeMechanismDesigner() {
     <main className={styles.workspace}>
       <header className={styles.header}>
         <Link className={styles.brand} href="/"><span className={styles.brandMark} />OpenLinkage</Link>
-        <nav><Link href="/lab">四杆设计</Link><Link href="/leg">六杆腿设计</Link><span>自由机构设计器 · 0.7</span></nav>
+        <nav><Link href="/lab">四杆设计</Link><Link href="/straight-line">直线机构</Link><Link href="/leg">六杆腿设计</Link><span>自由机构设计器 · 0.7</span></nav>
       </header>
 
       <div className={styles.layout}>

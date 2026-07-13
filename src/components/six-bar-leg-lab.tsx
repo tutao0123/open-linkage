@@ -387,7 +387,7 @@ export function SixBarLegLab() {
     <div className={styles.workspace}>
       <header className={styles.header}>
         <Link className={styles.brand} href="/"><span className={styles.brandMark} />OpenLinkage</Link>
-        <nav><Link href="/lab">四杆实验室</Link><span>六杆腿轨迹综合 · BETA</span></nav>
+        <nav><Link href="/lab">四杆设计</Link><Link href="/straight-line">直线机构</Link><Link href="/designer">自由设计</Link><span>六杆腿轨迹综合 · BETA</span></nav>
       </header>
 
       <div className={styles.layout}>

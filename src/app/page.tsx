@@ -21,6 +21,15 @@ const workbenches = [
   },
   {
     number: "03",
+    eyebrow: "STRAIGHT-LINE MECHANISMS",
+    title: "经典直线机构",
+    text: "比较瓦特、彻比雪夫、霍肯和波塞利耶机构，自动识别最佳直线段并评价行程与误差。",
+    href: "/straight-line",
+    action: "进入直线机构工作台",
+    status: "经典机构 · 直线性能",
+  },
+  {
+    number: "04",
     eyebrow: "FREE MECHANISM",
     title: "自由机构设计器",
     text: "像搭积木一样添加铰点与杆件，指定主动杆，实时观察任意平面机构的运动和轨迹。",

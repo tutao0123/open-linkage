@@ -7,6 +7,11 @@ export const metadata: Metadata = {
   description: "自由添加铰点和杆件，搭建、驱动并观察平面 N 杆机构的运动轨迹。",
 };
 
-export default function DesignerPage() {
-  return <FreeMechanismDesigner />;
+export default async function DesignerPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ template?: string }>;
+}) {
+  const { template } = await searchParams;
+  return <FreeMechanismDesigner initialTemplateId={template} />;
 }

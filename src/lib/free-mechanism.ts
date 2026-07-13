@@ -22,6 +22,8 @@ export type FreeBar = {
   type?: FreeBarType;
   minLength?: number;
   maxLength?: number;
+  minAngle?: number;
+  maxAngle?: number;
 };
 
 export type DimensionType = "distance" | "horizontal" | "vertical";
@@ -34,16 +36,34 @@ export type FreeDimension = {
   value: number;
 };
 
-export type DriverMode = "rotation" | "length";
+export type RigidBodyPair = {
+  a: string;
+  b: string;
+  length: number;
+};
+
+export type FreeRigidBody = {
+  id: string;
+  jointIds: string[];
+  pairs: RigidBodyPair[];
+};
+
+export type FreeTracer =
+  | { id: string; kind: "joint"; jointId: string }
+  | { id: string; kind: "body"; bodyId: string; localX: number; localY: number };
+
+export type DriverMode = "rotation" | "oscillation" | "length";
 
 export type FreeMechanismProject = {
-  version: 2;
+  version: 3;
   joints: FreeJoint[];
   bars: FreeBar[];
   dimensions: FreeDimension[];
+  bodies: FreeRigidBody[];
+  tracers: FreeTracer[];
+  activeTracerId: string | null;
   driverId: string | null;
   driverMode: DriverMode;
-  tracerId: string | null;
 };
 
 export type MechanismTemplate = {
@@ -53,8 +73,18 @@ export type MechanismTemplate = {
   project: FreeMechanismProject;
 };
 
+export type CycleAnalysis = {
+  valid: boolean;
+  samples: number;
+  maxConstraintError: number;
+  maxJointStep: number;
+  closureError: number;
+  branchSwitches: number;
+  failedPhases: number[];
+};
+
 export const FOUR_BAR_PROJECT: FreeMechanismProject = {
-  version: 2,
+  version: 3,
   joints: [
     { id: "J1", x: -220, y: 120, fixed: true },
     { id: "J2", x: -140, y: 60, fixed: false },
@@ -67,13 +97,15 @@ export const FOUR_BAR_PROJECT: FreeMechanismProject = {
     { id: "L3", a: "J3", b: "J4", length: 220, type: "rigid" },
   ],
   dimensions: [],
+  bodies: [],
+  tracers: [{ id: "T1", kind: "joint", jointId: "J3" }],
+  activeTracerId: "T1",
   driverId: "L1",
   driverMode: "rotation",
-  tracerId: "J3",
 };
 
 export const SLIDER_CRANK_PROJECT: FreeMechanismProject = {
-  version: 2,
+  version: 3,
   joints: [
     { id: "J1", x: -230, y: 40, fixed: true },
     { id: "J2", x: -145, y: -5, fixed: false },
@@ -84,13 +116,15 @@ export const SLIDER_CRANK_PROJECT: FreeMechanismProject = {
     { id: "L2", a: "J2", b: "J3", length: 268.8, type: "rigid" },
   ],
   dimensions: [],
+  bodies: [],
+  tracers: [{ id: "T1", kind: "joint", jointId: "J3" }],
+  activeTracerId: "T1",
   driverId: "L1",
   driverMode: "rotation",
-  tracerId: "J3",
 };
 
 export const PARALLELOGRAM_PROJECT: FreeMechanismProject = {
-  version: 2,
+  version: 3,
   joints: [
     { id: "J1", x: -210, y: 120, fixed: true },
     { id: "J2", x: -130, y: 10, fixed: false },
@@ -103,13 +137,15 @@ export const PARALLELOGRAM_PROJECT: FreeMechanismProject = {
     { id: "L3", a: "J3", b: "J4", length: 136, type: "rigid" },
   ],
   dimensions: [],
+  bodies: [],
+  tracers: [{ id: "T1", kind: "joint", jointId: "J3" }],
+  activeTracerId: "T1",
   driverId: "L1",
   driverMode: "rotation",
-  tracerId: "J3",
 };
 
 export const TELESCOPIC_PROJECT: FreeMechanismProject = {
-  version: 2,
+  version: 3,
   joints: [
     { id: "J1", x: -210, y: 30, fixed: true },
     { id: "J2", x: 30, y: 30, fixed: false, slider: { originX: 30, originY: 30, angle: 0 } },
@@ -118,9 +154,131 @@ export const TELESCOPIC_PROJECT: FreeMechanismProject = {
     { id: "L1", a: "J1", b: "J2", length: 240, type: "telescopic", minLength: 150, maxLength: 330 },
   ],
   dimensions: [],
+  bodies: [],
+  tracers: [{ id: "T1", kind: "joint", jointId: "J2" }],
+  activeTracerId: "T1",
   driverId: "L1",
   driverMode: "length",
-  tracerId: "J2",
+};
+
+export function createRigidBody(id: string, jointIds: string[], joints: FreeJoint[]): FreeRigidBody {
+  const byId = new Map(joints.map((joint) => [joint.id, joint]));
+  const uniqueIds = [...new Set(jointIds)].filter((jointId) => byId.has(jointId));
+  const pairs: RigidBodyPair[] = [];
+  for (let first = 0; first < uniqueIds.length; first += 1) {
+    for (let second = first + 1; second < uniqueIds.length; second += 1) {
+      const a = byId.get(uniqueIds[first]);
+      const b = byId.get(uniqueIds[second]);
+      if (a && b) pairs.push({ a: a.id, b: b.id, length: distance(a, b) });
+    }
+  }
+  return { id, jointIds: uniqueIds, pairs };
+}
+
+export const MULTI_JOINT_BODY_PROJECT: FreeMechanismProject = {
+  version: 3,
+  joints: [
+    { id: "J1", x: -220, y: 120, fixed: true },
+    { id: "J2", x: -140, y: 60, fixed: false },
+    { id: "J3", x: 107.60650546413214, y: -90.96694489801627, fixed: false },
+    { id: "J4", x: 170, y: 120, fixed: true },
+    { id: "J5", x: -15, y: -105, fixed: false },
+  ],
+  bars: [
+    { id: "L1", a: "J1", b: "J2", length: 100, type: "rigid" },
+    { id: "L2", a: "J3", b: "J4", length: 220, type: "rigid" },
+  ],
+  dimensions: [],
+  bodies: [createRigidBody("B1", ["J2", "J3", "J5"], [
+    { id: "J2", x: -140, y: 60, fixed: false },
+    { id: "J3", x: 107.60650546413214, y: -90.96694489801627, fixed: false },
+    { id: "J5", x: -15, y: -105, fixed: false },
+  ])],
+  tracers: [{ id: "T1", kind: "body", bodyId: "B1", localX: 150, localY: 55 }],
+  activeTracerId: "T1",
+  driverId: "L1",
+  driverMode: "rotation",
+};
+
+const WATT_JOINTS: FreeJoint[] = [
+  { id: "J1", x: -180, y: -100, fixed: true },
+  { id: "J2", x: -270, y: 55.8845726812, fixed: false },
+  { id: "J3", x: 69.7271882728, y: 42.2670270786, fixed: false },
+  { id: "J4", x: 180, y: -100, fixed: true },
+  { id: "J5", x: -101.537, y: 14.078, fixed: false },
+];
+
+export const WATT_PROJECT: FreeMechanismProject = {
+  version: 3,
+  joints: WATT_JOINTS,
+  bars: [
+    { id: "L1", a: "J1", b: "J2", length: 180, type: "rigid", minAngle: Math.PI / 3, maxAngle: Math.PI * 2 / 3 },
+    { id: "L2", a: "J3", b: "J4", length: 180, type: "rigid" },
+  ],
+  dimensions: [],
+  bodies: [createRigidBody("B1", ["J2", "J3", "J5"], WATT_JOINTS)],
+  tracers: [{ id: "T1", kind: "body", bodyId: "B1", localX: 170, localY: 0 }],
+  activeTracerId: "T1",
+  driverId: "L1",
+  driverMode: "oscillation",
+};
+
+const CHEBYSHEV_JOINTS: FreeJoint[] = [
+  { id: "J1", x: -180, y: 80, fixed: true },
+  { id: "J2", x: -130, y: -6.6025403784, fixed: false },
+  { id: "J3", x: 62.2603939956, y: 239.8076211353, fixed: false },
+  { id: "J4", x: 20, y: 80, fixed: true },
+  { id: "J5", x: -57.225, y: 135.08, fixed: false },
+];
+
+function chebyshevProject(tracerX: number): FreeMechanismProject {
+  return {
+    version: 3,
+    joints: CHEBYSHEV_JOINTS.map((joint) => ({ ...joint })),
+    bars: [
+      { id: "L1", a: "J1", b: "J2", length: 100, type: "rigid" },
+      { id: "L2", a: "J3", b: "J4", length: 250, type: "rigid" },
+    ],
+    dimensions: [],
+    bodies: [createRigidBody("B1", ["J2", "J3", "J5"], CHEBYSHEV_JOINTS)],
+    tracers: [{ id: "T1", kind: "body", bodyId: "B1", localX: tracerX, localY: 0 }],
+    activeTracerId: "T1",
+    driverId: "L1",
+    driverMode: "rotation",
+  };
+}
+
+export const CHEBYSHEV_PROJECT = chebyshevProject(200);
+export const HOEKENS_PROJECT = chebyshevProject(375);
+
+const KLANN_JOINTS: FreeJoint[] = [
+  { id: "J1", x: 95.16, y: -205.16, fixed: true },
+  { id: "J2", x: 2.34, y: 0.76, fixed: true },
+  { id: "J3", x: 155.74, y: -45, fixed: true },
+  { id: "J4", x: -67.34, y: -45, fixed: false },
+  { id: "J5", x: 86.06, y: -45, fixed: false },
+  { id: "J6", x: -260, y: 150, fixed: false },
+  { id: "J7", x: -199.68, y: -75.16, fixed: false },
+  { id: "J8", x: -34.84, y: -240, fixed: false },
+];
+
+export const KLANN_PROJECT: FreeMechanismProject = {
+  version: 3,
+  joints: KLANN_JOINTS,
+  bars: [
+    { id: "L1", a: "J3", b: "J5", length: 69.68, type: "rigid" },
+    { id: "L2", a: "J2", b: "J4", length: 83.36, type: "rigid" },
+    { id: "L3", a: "J1", b: "J8", length: 134.58, type: "rigid" },
+  ],
+  dimensions: [],
+  bodies: [
+    createRigidBody("B1", ["J4", "J5", "J7"], KLANN_JOINTS),
+    createRigidBody("B2", ["J6", "J7", "J8"], KLANN_JOINTS),
+  ],
+  tracers: [{ id: "T1", kind: "joint", jointId: "J6" }],
+  activeTracerId: "T1",
+  driverId: "L1",
+  driverMode: "rotation",
 };
 
 export const DEMO_PROJECT = FOUR_BAR_PROJECT;
@@ -130,6 +288,11 @@ export const MECHANISM_TEMPLATES: MechanismTemplate[] = [
   { id: "slider-crank", name: "曲柄滑块", description: "转动副与水平移动副组合", project: SLIDER_CRANK_PROJECT },
   { id: "parallelogram", name: "平行四边形", description: "保持连杆姿态的平行机构", project: PARALLELOGRAM_PROJECT },
   { id: "telescopic", name: "伸缩执行器", description: "可变长度杆驱动直线滑块", project: TELESCOPIC_PROJECT },
+  { id: "rigid-body", name: "多铰点刚体", description: "三元连杆与刚体轨迹铰点", project: MULTI_JOINT_BODY_PROJECT },
+  { id: "watt", name: "瓦特连杆", description: "双摇杆与近似直线中点轨迹", project: WATT_PROJECT },
+  { id: "chebyshev", name: "彻比雪夫连杆", description: "经典比例的近似直线导向", project: CHEBYSHEV_PROJECT },
+  { id: "hoekens", name: "霍肯连杆", description: "长直线段与快速返回轨迹", project: HOEKENS_PROJECT },
+  { id: "klann", name: "克兰步行腿", description: "六连杆仿生足端闭合轨迹", project: KLANN_PROJECT },
 ];
 
 export function cloneProject(project: FreeMechanismProject): FreeMechanismProject {
@@ -141,6 +304,12 @@ export function cloneProject(project: FreeMechanismProject): FreeMechanismProjec
     })),
     bars: project.bars.map((bar) => ({ ...bar })),
     dimensions: project.dimensions.map((dimension) => ({ ...dimension })),
+    bodies: project.bodies.map((body) => ({
+      ...body,
+      jointIds: [...body.jointIds],
+      pairs: body.pairs.map((pair) => ({ ...pair })),
+    })),
+    tracers: project.tracers.map((tracer) => ({ ...tracer })),
   };
 }
 
@@ -148,17 +317,59 @@ export function migrateProject(value: unknown): FreeMechanismProject | null {
   if (!value || typeof value !== "object") return null;
   const project = value as Record<string, unknown>;
   if (!Array.isArray(project.joints) || !Array.isArray(project.bars)) return null;
-  if (project.version !== 1 && project.version !== 2) return null;
+  if (project.version !== 1 && project.version !== 2 && project.version !== 3) return null;
   const joints = project.joints as FreeJoint[];
   const bars = (project.bars as FreeBar[]).map((bar) => ({ ...bar, type: bar.type ?? "rigid" }));
+  const legacyTracerId = typeof project.tracerId === "string" ? project.tracerId : null;
+  const tracers = Array.isArray(project.tracers)
+    ? project.tracers as FreeTracer[]
+    : legacyTracerId
+      ? [{ id: "T1", kind: "joint" as const, jointId: legacyTracerId }]
+      : [];
   return {
-    version: 2,
+    version: 3,
     joints,
     bars,
     dimensions: Array.isArray(project.dimensions) ? project.dimensions as FreeDimension[] : [],
+    bodies: Array.isArray(project.bodies) ? project.bodies as FreeRigidBody[] : [],
+    tracers,
+    activeTracerId: typeof project.activeTracerId === "string" ? project.activeTracerId : tracers[0]?.id ?? null,
     driverId: typeof project.driverId === "string" ? project.driverId : null,
-    driverMode: project.driverMode === "length" ? "length" : "rotation",
-    tracerId: typeof project.tracerId === "string" ? project.tracerId : null,
+    driverMode: project.driverMode === "length" ? "length" : project.driverMode === "oscillation" ? "oscillation" : "rotation",
+  };
+}
+
+export function bodyPointToLocal(body: FreeRigidBody, joints: FreeJoint[], x: number, y: number) {
+  const origin = joints.find((joint) => joint.id === body.jointIds[0]);
+  const axisPoint = joints.find((joint) => joint.id === body.jointIds[1]);
+  if (!origin || !axisPoint) return null;
+  const length = Math.hypot(axisPoint.x - origin.x, axisPoint.y - origin.y);
+  if (length < 0.0001) return null;
+  const cosine = (axisPoint.x - origin.x) / length;
+  const sine = (axisPoint.y - origin.y) / length;
+  const dx = x - origin.x;
+  const dy = y - origin.y;
+  return { localX: dx * cosine + dy * sine, localY: -dx * sine + dy * cosine };
+}
+
+export function resolveTracerPoint(project: FreeMechanismProject, tracerId = project.activeTracerId) {
+  const tracer = project.tracers.find((item) => item.id === tracerId);
+  if (!tracer) return null;
+  if (tracer.kind === "joint") {
+    const joint = project.joints.find((item) => item.id === tracer.jointId);
+    return joint ? { x: joint.x, y: joint.y } : null;
+  }
+  const body = project.bodies.find((item) => item.id === tracer.bodyId);
+  const origin = project.joints.find((joint) => joint.id === body?.jointIds[0]);
+  const axisPoint = project.joints.find((joint) => joint.id === body?.jointIds[1]);
+  if (!body || !origin || !axisPoint) return null;
+  const length = Math.hypot(axisPoint.x - origin.x, axisPoint.y - origin.y);
+  if (length < 0.0001) return null;
+  const cosine = (axisPoint.x - origin.x) / length;
+  const sine = (axisPoint.y - origin.y) / length;
+  return {
+    x: origin.x + tracer.localX * cosine - tracer.localY * sine,
+    y: origin.y + tracer.localX * sine + tracer.localY * cosine,
   };
 }
 
@@ -166,7 +377,12 @@ export function distance(a: FreeJoint, b: FreeJoint) {
   return Math.hypot(b.x - a.x, b.y - a.y);
 }
 
-export function estimateDof(joints: FreeJoint[], bars: FreeBar[], dimensions: FreeDimension[] = []) {
+export function estimateDof(
+  joints: FreeJoint[],
+  bars: FreeBar[],
+  dimensions: FreeDimension[] = [],
+  bodies: FreeRigidBody[] = [],
+) {
   const movingCoordinates = joints.filter((joint) => !joint.fixed).length * 2;
   const sliderConstraints = joints.filter((joint) => !joint.fixed && joint.slider).length;
   const barConstraints = bars.filter((bar) => {
@@ -179,7 +395,8 @@ export function estimateDof(joints: FreeJoint[], bars: FreeBar[], dimensions: Fr
     const b = joints.find((joint) => joint.id === dimension.b);
     return a && b && !(a.fixed && b.fixed);
   }).length;
-  return Math.max(0, movingCoordinates - sliderConstraints - barConstraints - dimensionConstraints);
+  const bodyConstraints = bodies.reduce((total, body) => total + Math.max(0, body.jointIds.length * 2 - 3), 0);
+  return Math.max(0, movingCoordinates - sliderConstraints - barConstraints - dimensionConstraints - bodyConstraints);
 }
 
 export function getRotationDriver(joints: FreeJoint[], bars: FreeBar[], driverId: string | null) {
@@ -294,11 +511,14 @@ export function solveFreeMechanism(
   const byId = new Map(next.map((joint) => [joint.id, joint]));
   const locked = new Set(next.filter((joint) => joint.fixed).map((joint) => joint.id));
 
-  if (project.driverMode === "rotation") {
+  if (project.driverMode !== "length") {
     const driver = getRotationDriver(next, project.bars, project.driverId);
     if (driver) {
-      driver.driven.x = driver.pivot.x + driver.bar.length * Math.cos(phase);
-      driver.driven.y = driver.pivot.y + driver.bar.length * Math.sin(phase);
+      const angle = project.driverMode === "oscillation"
+        ? (driver.bar.minAngle ?? -Math.PI / 3) + ((driver.bar.maxAngle ?? Math.PI / 3) - (driver.bar.minAngle ?? -Math.PI / 3)) * (0.5 + 0.5 * Math.cos(phase))
+        : phase;
+      driver.driven.x = driver.pivot.x + driver.bar.length * Math.cos(angle);
+      driver.driven.y = driver.pivot.y + driver.bar.length * Math.sin(angle);
       locked.add(driver.driven.id);
     }
   }
@@ -335,9 +555,31 @@ export function solveFreeMechanism(
       if (dimension.type === "distance") projectDistance(a, b, dimension.value, locked);
       else projectAxisDimension(a, b, dimension.type === "horizontal" ? "y" : "x", dimension.value, locked);
     }
+    for (const body of project.bodies) {
+      for (const pair of body.pairs) {
+        const a = byId.get(pair.a);
+        const b = byId.get(pair.b);
+        if (a && b) projectDistance(a, b, pair.length, locked);
+      }
+    }
     for (const joint of next) projectSlider(joint);
   }
   return next;
+}
+
+export function predictJointPositions(current: FreeJoint[], previous: FreeJoint[] | null) {
+  if (!previous) return current.map((joint) => ({ ...joint, slider: joint.slider ? { ...joint.slider } : undefined }));
+  const previousById = new Map(previous.map((joint) => [joint.id, joint]));
+  return current.map((joint) => {
+    const before = previousById.get(joint.id);
+    if (!before || joint.fixed) return { ...joint, slider: joint.slider ? { ...joint.slider } : undefined };
+    return {
+      ...joint,
+      x: joint.x + (joint.x - before.x),
+      y: joint.y + (joint.y - before.y),
+      slider: joint.slider ? { ...joint.slider } : undefined,
+    };
+  });
 }
 
 export function maximumConstraintError(project: FreeMechanismProject, phase = 0) {
@@ -355,6 +597,13 @@ export function maximumConstraintError(project: FreeMechanismProject, phase = 0)
     const actual = dimension.type === "distance" ? distance(a, b) : dimension.type === "horizontal" ? b.y - a.y : b.x - a.x;
     maximum = Math.max(maximum, Math.abs(actual - dimension.value));
   }
+  for (const body of project.bodies) {
+    for (const pair of body.pairs) {
+      const a = byId.get(pair.a);
+      const b = byId.get(pair.b);
+      if (a && b) maximum = Math.max(maximum, Math.abs(distance(a, b) - pair.length));
+    }
+  }
   for (const joint of project.joints) {
     if (!joint.slider) continue;
     const normalX = -Math.sin(joint.slider.angle);
@@ -363,4 +612,97 @@ export function maximumConstraintError(project: FreeMechanismProject, phase = 0)
     maximum = Math.max(maximum, error);
   }
   return maximum;
+}
+
+function branchSignatures(project: FreeMechanismProject) {
+  const byId = new Map(project.joints.map((joint) => [joint.id, joint]));
+  const rotationDriver = project.driverMode !== "length" ? getRotationDriver(project.joints, project.bars, project.driverId) : null;
+  const neighbors = new Map<string, string[]>();
+  for (const bar of project.bars) {
+    neighbors.set(bar.a, [...(neighbors.get(bar.a) ?? []), bar.b]);
+    neighbors.set(bar.b, [...(neighbors.get(bar.b) ?? []), bar.a]);
+  }
+  const signatures = new Map<string, number>();
+  for (const joint of project.joints) {
+    if (joint.fixed || joint.id === rotationDriver?.driven.id) continue;
+    const adjacent = [...new Set(neighbors.get(joint.id) ?? [])].sort();
+    if (adjacent.length < 2) continue;
+    const first = byId.get(adjacent[0]);
+    const second = byId.get(adjacent[1]);
+    if (!first || !second) continue;
+    const cross = (second.x - first.x) * (joint.y - first.y) - (second.y - first.y) * (joint.x - first.x);
+    const scale = Math.max(1, distance(first, second) * Math.max(distance(first, joint), distance(second, joint)));
+    signatures.set(`${adjacent[0]}:${joint.id}:${adjacent[1]}`, cross / scale);
+  }
+  return signatures;
+}
+
+export function analyzeMechanismCycle(
+  project: FreeMechanismProject,
+  samples = 144,
+  iterations = 160,
+  tolerance = 0.1,
+): CycleAnalysis {
+  const sampleCount = Math.max(12, Math.round(samples));
+  const rotationDriver = project.driverMode !== "length" ? getRotationDriver(project.joints, project.bars, project.driverId) : null;
+  const startPhase = rotationDriver && project.driverMode === "rotation"
+    ? Math.atan2(rotationDriver.driven.y - rotationDriver.pivot.y, rotationDriver.driven.x - rotationDriver.pivot.x)
+    : 0;
+  let state = cloneProject(project);
+  state.joints = solveFreeMechanism(state, startPhase, iterations);
+  state = { ...state, joints: state.joints };
+  const startJoints = state.joints.map((joint) => ({ ...joint }));
+  let beforePreviousJoints: FreeJoint[] | null = null;
+  let previousJoints = startJoints;
+  let previousSignatures = branchSignatures(state);
+  let maxConstraintError = maximumConstraintError(state, startPhase);
+  let maxJointStep = 0;
+  let branchSwitches = 0;
+  const failedPhases: number[] = [];
+
+  if (!Number.isFinite(maxConstraintError) || maxConstraintError > tolerance) failedPhases.push(0);
+
+  for (let index = 1; index <= sampleCount; index += 1) {
+    const phase = startPhase + index * Math.PI * 2 / sampleCount;
+    const seed = { ...state, joints: predictJointPositions(state.joints, beforePreviousJoints) };
+    const joints = solveFreeMechanism(seed, phase, iterations);
+    const next = { ...state, joints };
+    const error = maximumConstraintError(next, phase);
+    if (!Number.isFinite(error) || error > tolerance) failedPhases.push(index * 360 / sampleCount);
+    maxConstraintError = Math.max(maxConstraintError, Number.isFinite(error) ? error : Number.POSITIVE_INFINITY);
+
+    for (const joint of joints) {
+      const previous = previousJoints.find((item) => item.id === joint.id);
+      if (previous) maxJointStep = Math.max(maxJointStep, distance(previous, joint));
+    }
+
+    const signatures = branchSignatures(next);
+    for (const [key, value] of signatures) {
+      const previous = previousSignatures.get(key);
+      if (previous === undefined) continue;
+      if (Math.abs(previous) > 0.08 && Math.abs(value) > 0.08 && Math.sign(previous) !== Math.sign(value)) {
+        branchSwitches += 1;
+      }
+    }
+    previousSignatures = signatures;
+    beforePreviousJoints = previousJoints;
+    previousJoints = joints;
+    state = next;
+  }
+
+  let closureError = 0;
+  for (const joint of state.joints) {
+    const initial = startJoints.find((item) => item.id === joint.id);
+    if (initial) closureError = Math.max(closureError, distance(initial, joint));
+  }
+
+  return {
+    valid: failedPhases.length === 0 && branchSwitches === 0 && closureError <= Math.max(tolerance * 5, 0.25),
+    samples: sampleCount,
+    maxConstraintError,
+    maxJointStep,
+    closureError,
+    branchSwitches,
+    failedPhases,
+  };
 }

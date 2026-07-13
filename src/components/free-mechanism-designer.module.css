@@ -50,15 +50,24 @@
 .canvasActions button { padding:8px 10px; border:0; border-right:1px solid #c5c7bf; background:#f3f2ec; color:#555b56; cursor:pointer; font-size:10px; }
 .canvasActions button:last-child { border-right:0; }
 .canvasActions .canvasActive { background:#111515; color:#c8ff3d; }
+.canvasActions .finishBodyButton { background:#dce9ef; color:#17445a; font-weight:680; }
+.canvasActions .finishBodyButton:disabled { opacity:.42; cursor:not-allowed; }
 .canvasActions .solveButton { min-width:76px; background:#e5efd0; color:#27331b; font-weight:680; }
 .canvasActions .solveButton:hover { background:#d8e9b8; }
 .canvasActions .solveSuccess { background:#c8ff3d; color:#172000; }
 .canvasActions .solveWarning { background:#efc7b4; color:#5f2d24; }
+.canvasActions .cycleButton { background:#dce9ef; color:#17445a; font-weight:680; }
+.canvasActions .cycleButton:hover { background:#cce1eb; }
 .creationCursor { cursor:crosshair; }
 .panning { cursor:grabbing!important; }
 .gridLine { fill:none; stroke:#c5c7bf; stroke-width:.75; }
 .axis { stroke:#aeb1a9; stroke-width:1.2; stroke-dasharray:8 6; pointer-events:none; }
 .trail { fill:none; stroke:#287fa8; stroke-width:3; stroke-dasharray:7 4; pointer-events:none; }
+.bodyDraft { fill:none; stroke:#287fa8; stroke-width:2.5; stroke-dasharray:8 5; pointer-events:none; }
+.rigidBodyGroup { cursor:pointer; }
+.rigidBodyGroup polygon { fill:rgb(62 119 141 / 18%); stroke:#3e778d; stroke-width:3; stroke-linejoin:round; }
+.rigidBodyGroup text { fill:#25566a; font:700 12px "Cascadia Mono",Consolas,monospace; text-anchor:middle; dominant-baseline:middle; pointer-events:none; }
+.selectedBody polygon { fill:rgb(40 127 168 / 28%); stroke:#287fa8; stroke-width:5; }
 .linkHit { stroke:transparent; stroke-width:30; cursor:pointer; }
 .link { stroke:#222725; stroke-width:13; stroke-linecap:round; pointer-events:none; }
 .driverLink { stroke:#92c52b; }
@@ -71,6 +80,14 @@
 .joint { fill:#f1f1eb; stroke:#151918; stroke-width:4; }
 .fixedJoint { fill:#c8ff3d; }
 .selectedJoint { stroke:#287fa8; stroke-width:5; }
+.bodyDraftJoint { fill:#dce9ef; stroke:#287fa8; }
+.tracerPoint { cursor:pointer; }
+.tracerPoint path { fill:#f2f1eb; stroke:#287fa8; stroke-width:3; }
+.tracerPoint circle { fill:#287fa8; pointer-events:none; }
+.tracerPoint text { fill:#287fa8; font:700 10px "Cascadia Mono",Consolas,monospace; pointer-events:none; }
+.activeTracer path { fill:#c8ff3d; stroke:#172000; }
+.activeTracer circle { fill:#172000; }
+.selectedTracer path { stroke:#d16b2f; stroke-width:5; }
 .pin { fill:#111515; pointer-events:none; }
 .groundMark { fill:none; stroke:#6d736d; stroke-width:3; pointer-events:none; }
 .sliderGuide { fill:none; stroke:#747b75; stroke-width:2; stroke-dasharray:7 5; pointer-events:none; }
@@ -103,6 +120,9 @@
 .selectionCard button:disabled { cursor:not-allowed; opacity:.45; }
 .selectionCard .selectedAction { border-color:#8dbb36; background:#e6f2cf; }
 .selectionCard small { color:#747974; line-height:1.5; }
+.bodyStats { display:grid; grid-template-columns:1fr 1fr; gap:7px; }
+.bodyStats span { padding:9px; display:flex; flex-direction:column; gap:3px; border:1px solid #c7c9c1; color:#6a706b; font-size:9px; }
+.bodyStats b { color:#202522; font:16px "Cascadia Mono",Consolas,monospace; }
 .noSelection { margin-top:16px; padding:18px; border:1px dashed #bfc2b8; color:#646a64; }
 .noSelection b { color:#242a27; font-size:13px; }
 .noSelection p { margin:8px 0 0; font-size:11px; line-height:1.6; }
@@ -112,10 +132,20 @@
 .metrics span { color:#676c67; font-size:11px; }
 .metrics strong { font:19px "Cascadia Mono",Consolas,monospace; }
 .metrics small { margin-left:4px; color:#777d77; font-size:9px; }
+.cycleReport { margin-top:16px; padding:13px; border:1px solid; }
+.cyclePass { border-color:#a8c56b; background:#e5efd0; }
+.cycleFail { border-color:#d5a48d; background:#f2ddd2; }
+.cycleReportTitle { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+.cycleReportTitle span { color:#687067; font:9px "Cascadia Mono",Consolas,monospace; }
+.cycleReportTitle b { font-size:12px; }
+.cycleReportGrid { margin-top:10px; display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+.cycleReportGrid span { padding:8px; display:flex; flex-direction:column; gap:4px; border:1px solid rgb(70 80 70 / 18%); color:#687067; font-size:9px; }
+.cycleReportGrid strong { color:#202522; font:12px "Cascadia Mono",Consolas,monospace; }
+.cycleReport p { margin:10px 0 0; color:#555d56; font-size:10px; line-height:1.55; }
 .healthGood,.healthWarn { margin-top:18px; padding:14px; border:1px solid; font-size:11px; }
 .healthGood { border-color:#b9cf8b; background:#e5efd0; }
 .healthWarn { border-color:#d5a48d; background:#f2ddd2; }
 .healthGood p,.healthWarn p { margin:8px 0 0; line-height:1.55; }
-@media(max-width:1220px){.layout{grid-template-columns:280px 1fr}.inspector{grid-column:1/-1;border-left:0;border-top:1px solid #c5c6be}.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:0 18px}.healthGood,.healthWarn{max-width:520px}}
+@media(max-width:1220px){.layout{grid-template-columns:280px 1fr}.inspector{grid-column:1/-1;border-left:0;border-top:1px solid #c5c6be}.metrics{display:grid;grid-template-columns:repeat(6,1fr);gap:0 18px}.healthGood,.healthWarn{max-width:520px}}
 @media(max-width:900px){.canvasActions{max-width:calc(100% - 28px)}}
 @media(max-width:760px){.header nav span{display:none}.layout{display:block}.panel,.inspector{border:0;border-bottom:1px solid #c5c6be}.stage{grid-template-rows:54px minmax(430px,1fr) auto auto}.canvas{min-height:430px;padding:5px}.canvasActions{max-width:calc(100% - 28px);flex-wrap:wrap}.messageBar{min-height:42px}.messageBar span:last-child{display:none}.transport{flex-wrap:wrap}.metrics{display:block}}

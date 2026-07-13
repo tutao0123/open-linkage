@@ -15,7 +15,10 @@ import {
 import {
   DEMO_PROJECT,
   MECHANISM_TEMPLATES,
+  analyzeMechanismCycle,
+  bodyPointToLocal,
   cloneProject,
+  createRigidBody,
   distance,
   estimateDof,
   getLengthDriver,
@@ -23,6 +26,8 @@ import {
   hasValidDriver,
   maximumConstraintError,
   migrateProject,
+  predictJointPositions,
+  resolveTracerPoint,
   solveFreeMechanism,
   type DimensionType,
   type DriverMode,
@@ -30,14 +35,17 @@ import {
   type FreeDimension,
   type FreeJoint,
   type FreeMechanismProject,
+  type FreeRigidBody,
+  type FreeTracer,
+  type CycleAnalysis,
 } from "@/lib/free-mechanism";
 import { SvgViewportControls } from "./svg-viewport-controls";
 import { useMechanismHistory } from "./use-mechanism-history";
 import { useSvgViewport } from "./use-svg-viewport";
 import styles from "./free-mechanism-designer.module.css";
 
-type Tool = "select" | "fixed" | "moving" | "slider" | "bar" | "dimension";
-type Selection = { kind: "joint" | "bar" | "dimension"; id: string } | null;
+type Tool = "select" | "fixed" | "moving" | "slider" | "bar" | "body" | "tracer" | "dimension";
+type Selection = { kind: "joint" | "bar" | "body" | "tracer" | "dimension"; id: string } | null;
 
 const TOOL_LABELS: Array<{ id: Tool; label: string; hint: string }> = [
   { id: "select", label: "选择 / 拖动", hint: "编辑已有铰点、杆件与尺寸" },
@@ -45,6 +53,8 @@ const TOOL_LABELS: Array<{ id: Tool; label: string; hint: string }> = [
   { id: "moving", label: "活动转动副", hint: "添加可自由运动的铰点" },
   { id: "slider", label: "移动副", hint: "添加沿导轨运动的滑块铰点" },
   { id: "bar", label: "连接杆件", hint: "依次选择两个铰点建立杆件" },
+  { id: "body", label: "多铰点刚体", hint: "选择三个或更多铰点后完成刚体" },
+  { id: "tracer", label: "刚体轨迹点", hint: "选中刚体后，在画布放置任意轨迹点" },
   { id: "dimension", label: "尺寸约束", hint: "依次选择两个铰点建立距离或对齐约束" },
 ];
 
@@ -75,6 +85,7 @@ function driverPhase(project: FreeMechanismProject) {
     const ratio = Math.min(1, Math.max(0, (bar.length - minimum) / Math.max(0.0001, maximum - minimum)));
     return Math.acos(1 - 2 * ratio);
   }
+  if (project.driverMode === "oscillation") return 0;
   const driver = getRotationDriver(project.joints, project.bars, project.driverId);
   return driver ? Math.atan2(driver.driven.y - driver.pivot.y, driver.driven.x - driver.pivot.x) : 0;
 }
@@ -85,11 +96,13 @@ export function FreeMechanismDesigner() {
   const [tool, setTool] = useState<Tool>("select");
   const [selection, setSelection] = useState<Selection>({ kind: "joint", id: "J3" });
   const [pairStart, setPairStart] = useState<string | null>(null);
+  const [bodyDraft, setBodyDraft] = useState<string[]>([]);
   const [trail, setTrail] = useState<Array<{ x: number; y: number }>>([]);
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(42);
   const [phase, setPhase] = useState(() => driverPhase(project));
   const [solveResult, setSolveResult] = useState<"idle" | "success" | "warning">("idle");
+  const [cycleReport, setCycleReport] = useState<CycleAnalysis | null>(null);
   const [message, setMessage] = useState("四杆模板已就绪。可直接播放，或继续添加移动副、杆件和尺寸约束。");
   const viewportBase = useMemo(() => ({ x: -420, y: -300, width: 840, height: 600 }), []);
   const viewport = useSvgViewport(viewportBase);
@@ -97,6 +110,7 @@ export function FreeMechanismDesigner() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragRef = useRef<{ id: string; pointerId: number } | null>(null);
   const phaseRef = useRef(driverPhase(project));
+  const previousMotionJointsRef = useRef<FreeJoint[] | null>(null);
 
   const syncPhase = useCallback((nextProject: FreeMechanismProject) => {
     const nextPhase = driverPhase(nextProject);
@@ -107,14 +121,19 @@ export function FreeMechanismDesigner() {
   const selectedJoint = selection?.kind === "joint" ? project.joints.find((joint) => joint.id === selection.id) ?? null : null;
   const selectedBar = selection?.kind === "bar" ? project.bars.find((bar) => bar.id === selection.id) ?? null : null;
   const selectedDimension = selection?.kind === "dimension" ? project.dimensions.find((dimension) => dimension.id === selection.id) ?? null : null;
+  const selectedBody = selection?.kind === "body" ? project.bodies.find((body) => body.id === selection.id) ?? null : null;
+  const selectedTracer = selection?.kind === "tracer" ? project.tracers.find((tracer) => tracer.id === selection.id) ?? null : null;
+  const activeTracer = project.tracers.find((tracer) => tracer.id === project.activeTracerId) ?? null;
   const driverReady = hasValidDriver(project);
-  const dof = estimateDof(project.joints, project.bars, project.dimensions);
+  const dof = estimateDof(project.joints, project.bars, project.dimensions, project.bodies);
   const constraintError = maximumConstraintError(project, phase);
 
   const stopMotion = useCallback(() => {
     setPlaying(false);
     setTrail([]);
     setSolveResult("idle");
+    setCycleReport(null);
+    previousMotionJointsRef.current = null;
   }, []);
 
   useEffect(() => {
@@ -129,6 +148,7 @@ export function FreeMechanismDesigner() {
           syncPhase(restored);
           setSelection(null);
           setPairStart(null);
+          setBodyDraft([]);
           setMessage(event.shiftKey ? "已重做一步。" : "已撤销一步。");
         }
       } else if (key === "y") {
@@ -139,6 +159,7 @@ export function FreeMechanismDesigner() {
           syncPhase(restored);
           setSelection(null);
           setPairStart(null);
+          setBodyDraft([]);
           setMessage("已重做一步。");
         }
       }
@@ -162,13 +183,13 @@ export function FreeMechanismDesigner() {
       phaseRef.current += elapsed * speed * Math.PI / 180;
       setPhase(phaseRef.current);
       const current = projectRef.current;
-      const solvedJoints = solveFreeMechanism(current, phaseRef.current);
+      const seeded = { ...current, joints: predictJointPositions(current.joints, previousMotionJointsRef.current) };
+      const solvedJoints = solveFreeMechanism(seeded, phaseRef.current);
       const next = { ...current, joints: solvedJoints };
+      previousMotionJointsRef.current = current.joints.map((joint) => ({ ...joint, slider: joint.slider ? { ...joint.slider } : undefined }));
       replace(next);
-      if (current.tracerId) {
-        const tracer = solvedJoints.find((joint) => joint.id === current.tracerId);
-        if (tracer) setTrail((points) => [...points.slice(-699), { x: tracer.x, y: tracer.y }]);
-      }
+      const tracerPoint = resolveTracerPoint(next);
+      if (tracerPoint) setTrail((points) => [...points.slice(-699), tracerPoint]);
       animationFrame = requestAnimationFrame(tick);
     };
     animationFrame = requestAnimationFrame(tick);
@@ -189,6 +210,7 @@ export function FreeMechanismDesigner() {
     stopMotion();
     setTool(nextTool);
     setPairStart(null);
+    setBodyDraft([]);
     setMessage(TOOL_LABELS.find((item) => item.id === nextTool)?.hint ?? "");
   };
 
@@ -198,6 +220,7 @@ export function FreeMechanismDesigner() {
     syncPhase(nextProject);
     setSelection(null);
     setPairStart(null);
+    setBodyDraft([]);
     setTool("select");
     viewport.resetView();
     setMessage(`${label}已载入，可直接播放或修改拓扑。`);
@@ -217,9 +240,72 @@ export function FreeMechanismDesigner() {
   };
 
   const handleCanvasClick = (event: ReactMouseEvent<SVGSVGElement>) => {
-    if (playing || event.altKey || tool === "select" || tool === "bar" || tool === "dimension") return;
+    if (playing || event.altKey || tool === "select" || tool === "bar" || tool === "body" || tool === "dimension") return;
     const point = canvasPoint(event.clientX, event.clientY);
-    if (point) addJoint(point.x, point.y, tool);
+    if (!point) return;
+    if (tool === "tracer") {
+      if (!selectedBody) {
+        setMessage("请先选中一个多铰点刚体，再使用“刚体轨迹点”工具。");
+        return;
+      }
+      const local = bodyPointToLocal(selectedBody, project.joints, point.x, point.y);
+      if (!local) {
+        setMessage("刚体局部坐标系无效，无法放置轨迹点。");
+        return;
+      }
+      const tracer: FreeTracer = {
+        id: nextId("T", project.tracers.map((item) => item.id)),
+        kind: "body",
+        bodyId: selectedBody.id,
+        ...local,
+      };
+      commit({ ...project, tracers: [...project.tracers, tracer], activeTracerId: tracer.id });
+      setSelection({ kind: "tracer", id: tracer.id });
+      setTool("select");
+      setTrail([]);
+      setMessage(`${tracer.id} 已固定在 ${selectedBody.id} 的局部坐标 (${round(local.localX)}, ${round(local.localY)})。`);
+      return;
+    }
+    addJoint(point.x, point.y, tool);
+  };
+
+  const toggleBodyDraftJoint = (jointId: string) => {
+    const next = bodyDraft.includes(jointId) ? bodyDraft.filter((id) => id !== jointId) : [...bodyDraft, jointId];
+    setBodyDraft(next);
+    setMessage(next.length < 3
+      ? `已选择 ${next.length} 个铰点；多铰点刚体至少需要 3 个非共线铰点。`
+      : `已选择 ${next.length} 个铰点；点击“完成刚体”建立刚性构件。`);
+  };
+
+  const finishRigidBody = () => {
+    if (bodyDraft.length < 3) {
+      setMessage("多铰点刚体至少需要 3 个非共线铰点。");
+      return;
+    }
+    const selectedJoints = bodyDraft
+      .map((id) => project.joints.find((joint) => joint.id === id))
+      .filter((joint): joint is FreeJoint => Boolean(joint));
+    const center = selectedJoints.reduce((sum, joint) => ({ x: sum.x + joint.x, y: sum.y + joint.y }), { x: 0, y: 0 });
+    center.x /= selectedJoints.length;
+    center.y /= selectedJoints.length;
+    const orderedIds = [...selectedJoints]
+      .sort((a, b) => Math.atan2(a.y - center.y, a.x - center.x) - Math.atan2(b.y - center.y, b.x - center.x))
+      .map((joint) => joint.id);
+    const polygonArea = orderedIds.reduce((area, id, index) => {
+      const a = project.joints.find((joint) => joint.id === id)!;
+      const b = project.joints.find((joint) => joint.id === orderedIds[(index + 1) % orderedIds.length])!;
+      return area + a.x * b.y - b.x * a.y;
+    }, 0) * 0.5;
+    if (Math.abs(polygonArea) < 1) {
+      setMessage("所选铰点接近共线，无法定义稳定的二维刚体。请调整点位后重试。");
+      return;
+    }
+    const body = createRigidBody(nextId("B", project.bodies.map((item) => item.id)), orderedIds, project.joints);
+    commit({ ...project, bodies: [...project.bodies, body] });
+    setSelection({ kind: "body", id: body.id });
+    setBodyDraft([]);
+    setTool("select");
+    setMessage(`${body.id} 已建立，${body.jointIds.length} 个铰点现在保持为同一刚体。`);
   };
 
   const addPairObject = (endId: string) => {
@@ -267,7 +353,8 @@ export function FreeMechanismDesigner() {
 
   const handleJointClick = (joint: FreeJoint) => {
     if (playing) return;
-    if (tool === "bar" || tool === "dimension") addPairObject(joint.id);
+    if (tool === "body") toggleBodyDraftJoint(joint.id);
+    else if (tool === "bar" || tool === "dimension") addPairObject(joint.id);
     else setSelection({ kind: "joint", id: joint.id });
   };
 
@@ -292,10 +379,14 @@ export function FreeMechanismDesigner() {
         maxLength: bar.type === "telescopic" ? Math.max(bar.maxLength ?? length, length) : bar.maxLength,
       };
     });
-    const next = { ...current, joints, bars };
+    const bodies = current.bodies.map((body) => body.jointIds.includes(id)
+      ? createRigidBody(body.id, body.jointIds, joints)
+      : body);
+    const next = { ...current, joints, bars, bodies };
     replace(next);
     syncPhase(next);
     setTrail([]);
+    setCycleReport(null);
   };
 
   const startJointDrag = (event: ReactPointerEvent<SVGGElement>, joint: FreeJoint) => {
@@ -328,10 +419,46 @@ export function FreeMechanismDesigner() {
 
   const updateSelectedJoint = (updates: Partial<FreeJoint>) => {
     if (!selectedJoint) return;
+    updateProject((current) => {
+      const joints = current.joints.map((joint) => joint.id === selectedJoint.id ? { ...joint, ...updates } : joint);
+      const bodies = current.bodies.map((body) => body.jointIds.includes(selectedJoint.id)
+        ? createRigidBody(body.id, body.jointIds, joints)
+        : body);
+      return { ...current, joints, bodies };
+    });
+  };
+
+  const updateSelectedBody = (updates: Partial<FreeRigidBody>) => {
+    if (!selectedBody) return;
     updateProject((current) => ({
       ...current,
-      joints: current.joints.map((joint) => joint.id === selectedJoint.id ? { ...joint, ...updates } : joint),
+      bodies: current.bodies.map((body) => body.id === selectedBody.id ? { ...body, ...updates } : body),
     }));
+  };
+
+  const updateSelectedTracer = (updates: Partial<FreeTracer>) => {
+    if (!selectedTracer) return;
+    updateProject((current) => ({
+      ...current,
+      tracers: current.tracers.map((tracer) => tracer.id === selectedTracer.id ? { ...tracer, ...updates } as FreeTracer : tracer),
+    }));
+    setTrail([]);
+  };
+
+  const trackJoint = (jointId: string) => {
+    const existing = project.tracers.find((tracer) => tracer.kind === "joint" && tracer.jointId === jointId);
+    const tracer: FreeTracer = existing ?? {
+      id: nextId("T", project.tracers.map((item) => item.id)),
+      kind: "joint",
+      jointId,
+    };
+    updateProject((current) => ({
+      ...current,
+      tracers: existing ? current.tracers : [...current.tracers, tracer],
+      activeTracerId: tracer.id,
+    }));
+    setTrail([]);
+    setMessage(`${tracer.id} 已设为当前轨迹点。`);
   };
 
   const updateSelectedBar = (updates: Partial<FreeBar>) => {
@@ -355,13 +482,19 @@ export function FreeMechanismDesigner() {
     updateProject((current) => {
       if (selection.kind === "joint") {
         const removedBars = current.bars.filter((bar) => bar.a === selection.id || bar.b === selection.id).map((bar) => bar.id);
+        const removedBodies = current.bodies.filter((body) => body.jointIds.includes(selection.id)).map((body) => body.id);
+        const tracers = current.tracers.filter((tracer) =>
+          !(tracer.kind === "joint" && tracer.jointId === selection.id)
+          && !(tracer.kind === "body" && removedBodies.includes(tracer.bodyId)));
         return {
           ...current,
           joints: current.joints.filter((joint) => joint.id !== selection.id),
           bars: current.bars.filter((bar) => !removedBars.includes(bar.id)),
           dimensions: current.dimensions.filter((dimension) => dimension.a !== selection.id && dimension.b !== selection.id),
+          bodies: current.bodies.filter((body) => !removedBodies.includes(body.id)),
+          tracers,
+          activeTracerId: tracers.some((tracer) => tracer.id === current.activeTracerId) ? current.activeTracerId : tracers[0]?.id ?? null,
           driverId: removedBars.includes(current.driverId ?? "") ? null : current.driverId,
-          tracerId: current.tracerId === selection.id ? null : current.tracerId,
         };
       }
       if (selection.kind === "bar") return {
@@ -369,6 +502,23 @@ export function FreeMechanismDesigner() {
         bars: current.bars.filter((bar) => bar.id !== selection.id),
         driverId: current.driverId === selection.id ? null : current.driverId,
       };
+      if (selection.kind === "body") {
+        const tracers = current.tracers.filter((tracer) => !(tracer.kind === "body" && tracer.bodyId === selection.id));
+        return {
+          ...current,
+          bodies: current.bodies.filter((body) => body.id !== selection.id),
+          tracers,
+          activeTracerId: tracers.some((tracer) => tracer.id === current.activeTracerId) ? current.activeTracerId : tracers[0]?.id ?? null,
+        };
+      }
+      if (selection.kind === "tracer") {
+        const tracers = current.tracers.filter((tracer) => tracer.id !== selection.id);
+        return {
+          ...current,
+          tracers,
+          activeTracerId: current.activeTracerId === selection.id ? tracers[0]?.id ?? null : current.activeTracerId,
+        };
+      }
       return { ...current, dimensions: current.dimensions.filter((dimension) => dimension.id !== selection.id) };
     });
     setSelection(null);
@@ -377,19 +527,22 @@ export function FreeMechanismDesigner() {
 
   const clearProject = () => {
     const blank: FreeMechanismProject = {
-      version: 2,
+      version: 3,
       joints: [],
       bars: [],
       dimensions: [],
+      bodies: [],
+      tracers: [],
+      activeTracerId: null,
       driverId: null,
       driverMode: "rotation",
-      tracerId: null,
     };
     stopMotion();
     commit(blank);
     syncPhase(blank);
     setSelection(null);
     setPairStart(null);
+    setBodyDraft([]);
     setTool("fixed");
     setMessage("空白项目已创建。先放置固定转动副或移动副。 ");
   };
@@ -411,7 +564,7 @@ export function FreeMechanismDesigner() {
       const imported = migrateProject(JSON.parse(await file.text()));
       if (!imported) throw new Error("invalid project");
       loadProject(imported, "项目");
-      setMessage(`已导入 ${imported.joints.length} 个铰点、${imported.bars.length} 根杆件和 ${imported.dimensions.length} 个尺寸。`);
+      setMessage(`已导入 ${imported.joints.length} 个铰点、${imported.bars.length} 根杆件、${imported.bodies.length} 个刚体和 ${imported.dimensions.length} 个尺寸。`);
     } catch {
       setMessage("项目文件无法读取，请确认它是 OpenLinkage 导出的 JSON。");
     }
@@ -432,6 +585,19 @@ export function FreeMechanismDesigner() {
       : `求解已执行，剩余最大约束误差 ${error.toFixed(2)} mm；请检查是否过约束或无法装配。`);
   };
 
+  const checkFullCycle = () => {
+    stopMotion();
+    if (!driverReady) {
+      setMessage("整周检查需要先指定有效的旋转主动杆或周期伸缩驱动。");
+      return;
+    }
+    const report = analyzeMechanismCycle(project, 144, 400, 0.1);
+    setCycleReport(report);
+    setMessage(report.valid
+      ? `整周 144 点检查通过：无不可达相位、无装配分支跳变，首尾误差 ${report.closureError.toFixed(3)} mm。`
+      : `整周检查发现 ${report.failedPhases.length} 个不可达采样和 ${report.branchSwitches} 次分支变化，请查看右侧诊断。`);
+  };
+
   const togglePlaying = () => {
     if (!driverReady) {
       setMessage("请先选择可用的旋转主动杆，或一根伸缩活动杆作为长度驱动。");
@@ -442,10 +608,20 @@ export function FreeMechanismDesigner() {
   };
 
   const setDriver = (barId: string, mode: DriverMode) => {
-    updateProject((current) => ({ ...current, driverId: barId, driverMode: mode }));
-    phaseRef.current = driverPhase({ ...project, driverId: barId, driverMode: mode });
+    const driver = getRotationDriver(project.joints, project.bars, barId);
+    const currentAngle = driver ? Math.atan2(driver.driven.y - driver.pivot.y, driver.driven.x - driver.pivot.x) : 0;
+    const nextProject = {
+      ...project,
+      driverId: barId,
+      driverMode: mode,
+      bars: mode === "oscillation"
+        ? project.bars.map((bar) => bar.id === barId ? { ...bar, minAngle: currentAngle - Math.PI * 2 / 3, maxAngle: currentAngle } : bar)
+        : project.bars,
+    };
+    updateProject(() => nextProject);
+    phaseRef.current = driverPhase(nextProject);
     setPhase(phaseRef.current);
-    setMessage(mode === "rotation" ? "已设为旋转主动杆。" : "已设为周期伸缩驱动。 ");
+    setMessage(mode === "rotation" ? "已设为连续旋转主动杆。" : mode === "oscillation" ? "已设为往复摆动主动杆，可调整角度范围。" : "已设为周期伸缩驱动。 ");
   };
 
   const tracePath = trail.length > 1 ? `M ${trail.map((point) => `${point.x} ${point.y}`).join(" L ")}` : "";
@@ -454,7 +630,7 @@ export function FreeMechanismDesigner() {
     <main className={styles.workspace}>
       <header className={styles.header}>
         <Link className={styles.brand} href="/"><span className={styles.brandMark} />OpenLinkage</Link>
-        <nav><Link href="/lab">四杆设计</Link><Link href="/leg">六杆腿设计</Link><span>自由机构设计器 · 0.2</span></nav>
+        <nav><Link href="/lab">四杆设计</Link><Link href="/leg">六杆腿设计</Link><span>自由机构设计器 · 0.4</span></nav>
       </header>
 
       <div className={styles.layout}>
@@ -482,8 +658,8 @@ export function FreeMechanismDesigner() {
             </div>
           </section>
           <div className={styles.workflowHint}>
-            <b>杆件类型说明</b>
-            <p>刚性定长杆与伸缩活动杆都可以运动；区别仅在于两铰点中心距是否保持不变。</p>
+            <b>经典机构与自由拓扑</b>
+            <p>模板可直接载入瓦特、彻比雪夫、霍肯和克兰机构；普通杆件与多铰点刚体仍可继续拆解、重组和修改。</p>
           </div>
           <div className={styles.projectTools}>
             <button type="button" onClick={clearProject}>新建空白项目</button>
@@ -495,7 +671,7 @@ export function FreeMechanismDesigner() {
 
         <section className={styles.stage}>
           <div className={styles.stageHeader}>
-            <span>FREE TOPOLOGY / XY PLANE</span><span>{project.joints.length} JOINTS</span><span>{project.bars.length} LINKS</span><span>{project.dimensions.length} DIMS</span>
+            <span>FREE TOPOLOGY / XY PLANE</span><span>{project.joints.length} J / {project.bars.length} L / {project.bodies.length} B / {project.tracers.length} T / {project.dimensions.length} D</span>
             <b className={constraintError < 0.25 ? styles.ready : styles.warning}>{constraintError < 0.25 ? "CONSTRAINTS SOLVED" : "NEEDS SOLVE"}</b>
           </div>
           <div className={styles.canvas}>
@@ -505,6 +681,9 @@ export function FreeMechanismDesigner() {
               <button type="button" className={tool === "moving" ? styles.canvasActive : ""} onClick={() => changeTool("moving")}>转动副</button>
               <button type="button" className={tool === "slider" ? styles.canvasActive : ""} onClick={() => changeTool("slider")}>移动副</button>
               <button type="button" className={tool === "bar" ? styles.canvasActive : ""} onClick={() => changeTool("bar")}>杆件</button>
+              <button type="button" className={tool === "body" ? styles.canvasActive : ""} onClick={() => changeTool("body")}>刚体</button>
+              {tool === "body" && <button type="button" className={styles.finishBodyButton} disabled={bodyDraft.length < 3} onClick={finishRigidBody}>完成刚体 {bodyDraft.length}</button>}
+              <button type="button" className={tool === "tracer" ? styles.canvasActive : ""} onClick={() => changeTool("tracer")}>轨迹点</button>
               <button type="button" className={tool === "dimension" ? styles.canvasActive : ""} onClick={() => changeTool("dimension")}>尺寸</button>
               <button
                 type="button"
@@ -514,6 +693,7 @@ export function FreeMechanismDesigner() {
               >
                 {solveResult === "success" ? "已求解 ✓" : solveResult === "warning" ? "检查残差 !" : "自动求解"}
               </button>
+              <button type="button" className={styles.cycleButton} onClick={checkFullCycle}>整周检查</button>
             </div>
             <SvgViewportControls zoom={viewport.zoom} onZoomIn={viewport.zoomIn} onZoomOut={viewport.zoomOut} onReset={viewport.resetView} />
             <svg
@@ -534,6 +714,11 @@ export function FreeMechanismDesigner() {
               <line x1="0" y1={viewport.view.y} x2="0" y2={viewport.view.y + viewport.view.height} className={styles.axis} />
               {tracePath && <path d={tracePath} className={styles.trail} />}
 
+              {bodyDraft.length > 1 && <polyline
+                points={bodyDraft.map((id) => project.joints.find((joint) => joint.id === id)).filter(Boolean).map((joint) => `${joint!.x},${joint!.y}`).join(" ")}
+                className={styles.bodyDraft}
+              />}
+
               {project.joints.filter((joint) => joint.slider).map((joint) => {
                 const guide = joint.slider!;
                 const dx = Math.cos(guide.angle) * 240;
@@ -541,6 +726,21 @@ export function FreeMechanismDesigner() {
                 return <g key={`guide-${joint.id}`} className={styles.sliderGuide}>
                   <line x1={guide.originX - dx} y1={guide.originY - dy} x2={guide.originX + dx} y2={guide.originY + dy} />
                   <line x1={guide.originX - dx} y1={guide.originY - dy + 8} x2={guide.originX + dx} y2={guide.originY + dy + 8} />
+                </g>;
+              })}
+
+              {project.bodies.map((body) => {
+                const points = body.jointIds
+                  .map((id) => project.joints.find((joint) => joint.id === id))
+                  .filter((joint): joint is FreeJoint => Boolean(joint));
+                if (points.length < 3) return null;
+                const selected = selection?.kind === "body" && selection.id === body.id;
+                const center = points.reduce((sum, point) => ({ x: sum.x + point.x, y: sum.y + point.y }), { x: 0, y: 0 });
+                center.x /= points.length;
+                center.y /= points.length;
+                return <g key={body.id} data-testid={`body-${body.id}`} className={`${styles.rigidBodyGroup} ${selected ? styles.selectedBody : ""}`} onClick={(event) => { event.stopPropagation(); setSelection({ kind: "body", id: body.id }); }}>
+                  <polygon points={points.map((point) => `${point.x},${point.y}`).join(" ")} />
+                  <text x={center.x} y={center.y}>{body.id}</text>
                 </g>;
               })}
 
@@ -588,11 +788,28 @@ export function FreeMechanismDesigner() {
                   >
                     {joint.fixed && <path d={`M ${joint.x - 20} ${joint.y + 19} L ${joint.x + 20} ${joint.y + 19} M ${joint.x - 15} ${joint.y + 19} l -8 12 M ${joint.x} ${joint.y + 19} l -8 12 M ${joint.x + 15} ${joint.y + 19} l -8 12`} className={styles.groundMark} />}
                     {joint.slider && <rect x={joint.x - 18} y={joint.y - 13} width="36" height="26" rx="4" className={`${styles.sliderBlock} ${selected ? styles.selectedJoint : ""}`} transform={`rotate(${joint.slider.angle * 180 / Math.PI} ${joint.x} ${joint.y})`} />}
-                    {!joint.slider && <circle cx={joint.x} cy={joint.y} r={selected || pairStart === joint.id ? 16 : 13} className={`${styles.joint} ${joint.fixed ? styles.fixedJoint : ""} ${selected ? styles.selectedJoint : ""}`} />}
+                    {!joint.slider && <circle cx={joint.x} cy={joint.y} r={selected || pairStart === joint.id || bodyDraft.includes(joint.id) ? 16 : 13} className={`${styles.joint} ${joint.fixed ? styles.fixedJoint : ""} ${selected ? styles.selectedJoint : ""} ${bodyDraft.includes(joint.id) ? styles.bodyDraftJoint : ""}`} />}
                     <circle cx={joint.x} cy={joint.y} r="4" className={styles.pin} />
                     <text x={joint.x + 16} y={joint.y - 15} className={styles.jointLabel}>{joint.id}</text>
                   </g>
                 );
+              })}
+
+              {project.tracers.map((tracer) => {
+                const point = resolveTracerPoint(project, tracer.id);
+                if (!point) return null;
+                const selected = selection?.kind === "tracer" && selection.id === tracer.id;
+                const active = project.activeTracerId === tracer.id;
+                return <g
+                  key={tracer.id}
+                  data-testid={`tracer-${tracer.id}`}
+                  className={`${styles.tracerPoint} ${active ? styles.activeTracer : ""} ${selected ? styles.selectedTracer : ""}`}
+                  onClick={(event) => { event.stopPropagation(); setSelection({ kind: "tracer", id: tracer.id }); }}
+                >
+                  <path d={`M ${point.x} ${point.y - 11} L ${point.x + 11} ${point.y} L ${point.x} ${point.y + 11} L ${point.x - 11} ${point.y} Z`} />
+                  <circle cx={point.x} cy={point.y} r="3" />
+                  <text x={point.x + 14} y={point.y + 4}>{tracer.id}</text>
+                </g>;
               })}
             </svg>
             {project.joints.length === 0 && <div className={styles.emptyCanvas}><b>空白机构</b><span>选择“固定转动副”，然后在画布上单击。</span></div>}
@@ -600,7 +817,7 @@ export function FreeMechanismDesigner() {
           <div className={styles.messageBar}><span>{message}</span><span>滚轮缩放 · Alt / 中键平移 · Ctrl+Z 撤销</span></div>
           <div className={styles.transport}>
             <button type="button" onClick={togglePlaying} aria-label={playing ? "暂停运动" : "播放运动"}>{playing ? "Ⅱ" : "▶"}</button>
-            <div><span>{project.driverMode === "length" ? "伸缩驱动" : "旋转驱动"}</span><b>{project.driverId ?? "未设置"}</b></div>
+            <div><span>{project.driverMode === "length" ? "伸缩驱动" : project.driverMode === "oscillation" ? "摆动驱动" : "旋转驱动"}</span><b>{project.driverId ?? "未设置"}</b></div>
             <label>速度 <input type="range" min="5" max="160" value={speed} onChange={(event) => setSpeed(Number(event.target.value))} /><b>{speed}°/s</b></label>
             <button className={styles.clearTrail} type="button" onClick={() => setTrail([])}>清除轨迹</button>
           </div>
@@ -622,9 +839,38 @@ export function FreeMechanismDesigner() {
                 {selectedJoint.slider ? "改为活动转动副" : selectedJoint.fixed ? "改为活动转动副" : "改为移动副"}
               </button>
               {!selectedJoint.slider && <button type="button" onClick={() => updateSelectedJoint({ fixed: !selectedJoint.fixed, slider: undefined })}>{selectedJoint.fixed ? "解除机架固定" : "固定到机架"}</button>}
-              <button type="button" className={project.tracerId === selectedJoint.id ? styles.selectedAction : ""} onClick={() => updateProject((current) => ({ ...current, tracerId: selectedJoint.id }))}>
-                {project.tracerId === selectedJoint.id ? "当前轨迹点" : "跟踪此铰点轨迹"}
+              <button type="button" className={activeTracer?.kind === "joint" && activeTracer.jointId === selectedJoint.id ? styles.selectedAction : ""} onClick={() => trackJoint(selectedJoint.id)}>
+                {activeTracer?.kind === "joint" && activeTracer.jointId === selectedJoint.id ? "当前轨迹点" : "跟踪此铰点轨迹"}
               </button>
+            </section>
+          )}
+
+          {selectedBody && (
+            <section className={styles.selectionCard}>
+              <div className={styles.selectionTitle}><span>RIGID BODY</span><b>{selectedBody.id}</b></div>
+              <p>{selectedBody.jointIds.join(" · ")}</p>
+              <div className={styles.bodyStats}>
+                <span><b>{selectedBody.jointIds.length}</b> 个铰点</span>
+                <span><b>{selectedBody.pairs.length}</b> 个内部距离</span>
+              </div>
+              <button type="button" onClick={() => updateSelectedBody(createRigidBody(selectedBody.id, selectedBody.jointIds, project.joints))}>以当前点位重定义刚体</button>
+              <button type="button" onClick={() => { setTool("tracer"); setMessage(`请在画布上单击，为 ${selectedBody.id} 放置任意局部轨迹点。`); }}>在刚体上放置轨迹点</button>
+              <small>刚体内部所有铰点距离会同时参与求解；删除刚体只解除刚性关系，不会删除铰点。</small>
+            </section>
+          )}
+
+          {selectedTracer && (
+            <section className={styles.selectionCard}>
+              <div className={styles.selectionTitle}><span>TRACER</span><b>{selectedTracer.id}</b></div>
+              <p>{selectedTracer.kind === "joint" ? `铰点 ${selectedTracer.jointId}` : `刚体 ${selectedTracer.bodyId}`}</p>
+              {selectedTracer.kind === "body" && <>
+                <label>局部 X <input type="number" value={round(selectedTracer.localX)} onChange={(event) => updateSelectedTracer({ localX: Number(event.target.value) })} /></label>
+                <label>局部 Y <input type="number" value={round(selectedTracer.localY)} onChange={(event) => updateSelectedTracer({ localY: Number(event.target.value) })} /></label>
+              </>}
+              <button type="button" className={project.activeTracerId === selectedTracer.id ? styles.selectedAction : ""} onClick={() => updateProject((current) => ({ ...current, activeTracerId: selectedTracer.id }))}>
+                {project.activeTracerId === selectedTracer.id ? "当前轨迹点" : "设为当前轨迹点"}
+              </button>
+              <small>{selectedTracer.kind === "body" ? "局部坐标随刚体平移和旋转，可位于刚体轮廓内部或外部。" : "该轨迹点与铰点位置完全重合。"}</small>
             </section>
           )}
 
@@ -645,6 +891,13 @@ export function FreeMechanismDesigner() {
               <button type="button" disabled={!getRotationDriver(project.joints, project.bars, selectedBar.id)} className={project.driverId === selectedBar.id && project.driverMode === "rotation" ? styles.selectedAction : ""} onClick={() => setDriver(selectedBar.id, "rotation")}>
                 {project.driverId === selectedBar.id && project.driverMode === "rotation" ? "当前旋转主动杆" : "设为旋转主动杆"}
               </button>
+              <button type="button" disabled={!getRotationDriver(project.joints, project.bars, selectedBar.id)} className={project.driverId === selectedBar.id && project.driverMode === "oscillation" ? styles.selectedAction : ""} onClick={() => setDriver(selectedBar.id, "oscillation")}>
+                {project.driverId === selectedBar.id && project.driverMode === "oscillation" ? "当前摆动主动杆" : "设为摆动主动杆"}
+              </button>
+              {project.driverId === selectedBar.id && project.driverMode === "oscillation" && <>
+                <label>最小角度 <input type="number" value={round((selectedBar.minAngle ?? -Math.PI / 3) * 180 / Math.PI)} onChange={(event) => updateSelectedBar({ minAngle: Number(event.target.value) * Math.PI / 180 })} /></label>
+                <label>最大角度 <input type="number" value={round((selectedBar.maxAngle ?? Math.PI / 3) * 180 / Math.PI)} onChange={(event) => updateSelectedBar({ maxAngle: Number(event.target.value) * Math.PI / 180 })} /></label>
+              </>}
               {!getRotationDriver(project.joints, project.bars, selectedBar.id) && <small>旋转主动杆必须连接一个固定铰点与一个活动铰点。</small>}
             </section>
           )}
@@ -667,9 +920,28 @@ export function FreeMechanismDesigner() {
             <h3>机构状态</h3>
             <div><span>自由度估算</span><strong>{dof}</strong></div>
             <div><span>移动副</span><strong>{project.joints.filter((joint) => joint.slider).length}</strong></div>
+            <div><span>多铰点刚体</span><strong>{project.bodies.length}</strong></div>
+            <div><span>轨迹点</span><strong>{project.tracers.length}</strong></div>
             <div><span>最大约束误差</span><strong>{constraintError.toFixed(2)}<small> mm</small></strong></div>
             <div><span>轨迹采样</span><strong>{trail.length}</strong></div>
           </section>
+          {cycleReport && (
+            <section className={`${styles.cycleReport} ${cycleReport.valid ? styles.cyclePass : styles.cycleFail}`} aria-live="polite">
+              <div className={styles.cycleReportTitle}>
+                <span>FULL CYCLE · {cycleReport.samples} SAMPLES</span>
+                <b>{cycleReport.valid ? "整周连续" : "需要检查"}</b>
+              </div>
+              <div className={styles.cycleReportGrid}>
+                <span>不可达采样<strong>{cycleReport.failedPhases.length}</strong></span>
+                <span>分支变化<strong>{cycleReport.branchSwitches}</strong></span>
+                <span>首尾误差<strong>{cycleReport.closureError.toFixed(3)} mm</strong></span>
+                <span>峰值残差<strong>{cycleReport.maxConstraintError.toFixed(3)} mm</strong></span>
+              </div>
+              <p>{cycleReport.failedPhases.length > 0
+                ? `首个异常输入相位约 ${cycleReport.failedPhases[0].toFixed(1)}°；请调整杆长、固定铰点或装配初态。`
+                : `相邻采样最大铰点位移 ${cycleReport.maxJointStep.toFixed(2)} mm，闭环首尾姿态已复核。`}</p>
+            </section>
+          )}
           <div className={driverReady ? styles.healthGood : styles.healthWarn}>
             <b>{driverReady ? "驱动已就绪" : "还需要指定有效驱动"}</b>
             <p>{driverReady ? "通用投影求解器会同时保持杆长、尺寸与导轨约束，并连续跟踪当前装配分支。" : "旋转驱动需要机架铰点；长度驱动需要一根伸缩活动杆。"}</p>

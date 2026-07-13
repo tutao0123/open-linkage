@@ -3,7 +3,7 @@ import Link from "next/link";
 const milestones = [
   ["01", "四杆实验室", "拖动铰点、播放运动并观察连杆点轨迹。"],
   ["02", "目标轨迹拟合", "绘制目标曲线，自动搜索并比较候选机构。"],
-  ["03", "机器人机构", "扩展六杆腿、可变几何腿和绳驱动手指。"],
+  ["03", "六杆腿模板", "双闭环腿部运动、足迹、步长和连续装配分析。"],
 ];
 
 export default function Home() {
@@ -27,6 +27,7 @@ export default function Home() {
           </p>
           <div className="actions">
             <Link className="primary" href="/lab">打开四杆实验室</Link>
+            <Link className="secondary" href="/leg">六杆腿实验室</Link>
             <a className="secondary" href="https://github.com/tutao0123/open-linkage" target="_blank" rel="noreferrer">GitHub</a>
           </div>
         </div>

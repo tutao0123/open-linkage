@@ -18,7 +18,7 @@ npm run dev
 - 0.1：四杆机构参数编辑、画布拖动、动画、轨迹、工程分析和项目 JSON（已上线）
 - 0.2：通用平面约束机构
 - 0.3：手绘闭合轨迹与浏览器端四杆自动拟合（基础版已上线）
-- 0.4：Klann / Stephenson 腿部模板
+- 0.4：Watt 类六杆腿模板、足迹和连续装配分析（基础版已上线）
 - 0.5：可变几何机构的多轨迹综合
 
 ## 许可证
@@ -29,3 +29,4 @@ Apache-2.0
 
 - 官网：https://linkage.wtt.autos
 - 四杆实验室：https://linkage.wtt.autos/lab
+- 六杆腿实验室：https://linkage.wtt.autos/leg

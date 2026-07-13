@@ -52,6 +52,7 @@ export type FreeRigidBody = {
 
 export type FreeTracer =
   | { id: string; kind: "joint"; jointId: string }
+  | { id: string; kind: "bar"; barId: string; localX: number; localY: number }
   | { id: string; kind: "body"; bodyId: string; localX: number; localY: number };
 
 export type DriverMode = "rotation" | "oscillation" | "length" | "hydraulic";
@@ -516,6 +517,16 @@ export function migrateProject(value: unknown): FreeMechanismProject | null {
 export function bodyPointToLocal(body: FreeRigidBody, joints: FreeJoint[], x: number, y: number) {
   const origin = joints.find((joint) => joint.id === body.jointIds[0]);
   const axisPoint = joints.find((joint) => joint.id === body.jointIds[1]);
+  return pointsToLocal(origin, axisPoint, x, y);
+}
+
+export function barPointToLocal(bar: FreeBar, joints: FreeJoint[], x: number, y: number) {
+  const origin = joints.find((joint) => joint.id === bar.a);
+  const axisPoint = joints.find((joint) => joint.id === bar.b);
+  return pointsToLocal(origin, axisPoint, x, y);
+}
+
+function pointsToLocal(origin: FreeJoint | undefined, axisPoint: FreeJoint | undefined, x: number, y: number) {
   if (!origin || !axisPoint) return null;
   const length = Math.hypot(axisPoint.x - origin.x, axisPoint.y - origin.y);
   if (length < 0.0001) return null;
@@ -533,10 +544,13 @@ export function resolveTracerPoint(project: FreeMechanismProject, tracerId = pro
     const joint = project.joints.find((item) => item.id === tracer.jointId);
     return joint ? { x: joint.x, y: joint.y } : null;
   }
-  const body = project.bodies.find((item) => item.id === tracer.bodyId);
-  const origin = project.joints.find((joint) => joint.id === body?.jointIds[0]);
-  const axisPoint = project.joints.find((joint) => joint.id === body?.jointIds[1]);
-  if (!body || !origin || !axisPoint) return null;
+  const body = tracer.kind === "body" ? project.bodies.find((item) => item.id === tracer.bodyId) : null;
+  const bar = tracer.kind === "bar" ? project.bars.find((item) => item.id === tracer.barId) : null;
+  const originId = body?.jointIds[0] ?? bar?.a;
+  const axisPointId = body?.jointIds[1] ?? bar?.b;
+  const origin = project.joints.find((joint) => joint.id === originId);
+  const axisPoint = project.joints.find((joint) => joint.id === axisPointId);
+  if ((!body && !bar) || !origin || !axisPoint) return null;
   const length = Math.hypot(axisPoint.x - origin.x, axisPoint.y - origin.y);
   if (length < 0.0001) return null;
   const cosine = (axisPoint.x - origin.x) / length;

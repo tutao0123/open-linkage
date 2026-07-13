@@ -17,6 +17,7 @@ import {
   MECHANISM_TEMPLATES,
   analyzeHydraulicLoads,
   analyzeMechanismCycle,
+  barPointToLocal,
   bodyPointToLocal,
   cloneProject,
   createRigidBody,
@@ -52,6 +53,10 @@ import styles from "./free-mechanism-designer.module.css";
 
 type Tool = "select" | "fixed" | "moving" | "slider" | "bar" | "body" | "tracer" | "dimension";
 type Selection = { kind: "joint" | "bar" | "body" | "tracer" | "dimension" | "load"; id: string } | null;
+type TrailPoint = { x: number; y: number };
+type TracerTrails = Record<string, TrailPoint[]>;
+
+const TRAIL_COLORS = ["#287fa8", "#d4663b", "#7b68b4", "#2f8f61", "#b38726", "#c34f83"];
 
 const TOOL_LABELS: Array<{ id: Tool; label: string; hint: string }> = [
   { id: "select", label: "选择 / 拖动", hint: "编辑已有铰点、杆件与尺寸" },
@@ -60,7 +65,7 @@ const TOOL_LABELS: Array<{ id: Tool; label: string; hint: string }> = [
   { id: "slider", label: "移动副", hint: "添加沿导轨运动的滑块铰点" },
   { id: "bar", label: "连接杆件", hint: "依次选择两个铰点建立杆件" },
   { id: "body", label: "多铰点刚体", hint: "选择三个或更多铰点后完成刚体" },
-  { id: "tracer", label: "刚体轨迹点", hint: "选中刚体后，在画布放置任意轨迹点" },
+  { id: "tracer", label: "附着轨迹点", hint: "可附着到铰点、普通杆件或多铰点刚体" },
   { id: "dimension", label: "尺寸约束", hint: "依次选择两个铰点建立距离或对齐约束" },
 ];
 
@@ -109,7 +114,7 @@ export function FreeMechanismDesigner({ initialTemplateId }: FreeMechanismDesign
   const [selection, setSelection] = useState<Selection>({ kind: "joint", id: "J3" });
   const [pairStart, setPairStart] = useState<string | null>(null);
   const [bodyDraft, setBodyDraft] = useState<string[]>([]);
-  const [trail, setTrail] = useState<Array<{ x: number; y: number }>>([]);
+  const [trails, setTrails] = useState<TracerTrails>({});
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(42);
   const [phase, setPhase] = useState(() => driverPhase(project));
@@ -142,7 +147,6 @@ export function FreeMechanismDesigner({ initialTemplateId }: FreeMechanismDesign
   const sliderReferenceBars = selectedJoint
     ? project.bars.filter((bar) => bar.a !== selectedJoint.id && bar.b !== selectedJoint.id)
     : [];
-  const activeTracer = project.tracers.find((tracer) => tracer.id === project.activeTracerId) ?? null;
   const driverReady = hasValidDriver(project);
   const hydraulicActuators = getHydraulicActuators(project);
   const selectedActuator = selectedBar ? (project.hydraulicActuators ?? []).find((actuator) => actuator.barId === selectedBar.id) ?? null : null;
@@ -151,7 +155,7 @@ export function FreeMechanismDesigner({ initialTemplateId }: FreeMechanismDesign
 
   const stopMotion = useCallback(() => {
     setPlaying(false);
-    setTrail([]);
+    setTrails({});
     setSolveResult("idle");
     setCycleReport(null);
     setLoadReport(null);
@@ -210,8 +214,14 @@ export function FreeMechanismDesigner({ initialTemplateId }: FreeMechanismDesign
       const next = { ...current, joints: solvedJoints };
       previousMotionJointsRef.current = current.joints.map((joint) => ({ ...joint, slider: joint.slider ? { ...joint.slider } : undefined }));
       replace(next);
-      const tracerPoint = resolveTracerPoint(next);
-      if (tracerPoint) setTrail((points) => [...points.slice(-699), tracerPoint]);
+      setTrails((currentTrails) => {
+        const nextTrails: TracerTrails = {};
+        for (const tracer of next.tracers) {
+          const point = resolveTracerPoint(next, tracer.id);
+          if (point) nextTrails[tracer.id] = [...(currentTrails[tracer.id] ?? []).slice(-699), point];
+        }
+        return nextTrails;
+      });
       animationFrame = requestAnimationFrame(tick);
     };
     animationFrame = requestAnimationFrame(tick);
@@ -261,31 +271,50 @@ export function FreeMechanismDesigner({ initialTemplateId }: FreeMechanismDesign
     setMessage(`${joint.id} 已添加。${kind === "slider" ? "可在右侧修改导轨角度。" : "可继续添加或连接杆件。"}`);
   };
 
+  const addBodyTracer = (body: FreeRigidBody, point: TrailPoint) => {
+    const local = bodyPointToLocal(body, project.joints, point.x, point.y);
+    if (!local) {
+      setMessage(`${body.id} 的局部坐标系无效，无法放置轨迹点。`);
+      return;
+    }
+    const tracer: FreeTracer = {
+      id: nextId("T", project.tracers.map((item) => item.id)),
+      kind: "body",
+      bodyId: body.id,
+      ...local,
+    };
+    commit({ ...project, tracers: [...project.tracers, tracer], activeTracerId: tracer.id });
+    setSelection({ kind: "tracer", id: tracer.id });
+    setTrails({});
+    setMessage(`${tracer.id} 已附着到刚体 ${body.id}；可继续点击其他铰点、杆件或刚体添加轨迹点。`);
+  };
+
+  const addBarTracer = (bar: FreeBar, point: TrailPoint) => {
+    const local = barPointToLocal(bar, project.joints, point.x, point.y);
+    if (!local) {
+      setMessage(`${bar.id} 的局部坐标系无效，无法放置轨迹点。`);
+      return;
+    }
+    const tracer: FreeTracer = {
+      id: nextId("T", project.tracers.map((item) => item.id)),
+      kind: "bar",
+      barId: bar.id,
+      ...local,
+    };
+    commit({ ...project, tracers: [...project.tracers, tracer], activeTracerId: tracer.id });
+    setSelection({ kind: "tracer", id: tracer.id });
+    setTrails({});
+    setMessage(`${tracer.id} 已附着到杆件 ${bar.id}；轨迹点可位于杆件中心线以内或延长线外。`);
+  };
+
   const handleCanvasClick = (event: ReactMouseEvent<SVGSVGElement>) => {
     if (playing || event.altKey || tool === "select" || tool === "bar" || tool === "body" || tool === "dimension") return;
     const point = canvasPoint(event.clientX, event.clientY);
     if (!point) return;
     if (tool === "tracer") {
-      if (!selectedBody) {
-        setMessage("请先选中一个多铰点刚体，再使用“刚体轨迹点”工具。");
-        return;
-      }
-      const local = bodyPointToLocal(selectedBody, project.joints, point.x, point.y);
-      if (!local) {
-        setMessage("刚体局部坐标系无效，无法放置轨迹点。");
-        return;
-      }
-      const tracer: FreeTracer = {
-        id: nextId("T", project.tracers.map((item) => item.id)),
-        kind: "body",
-        bodyId: selectedBody.id,
-        ...local,
-      };
-      commit({ ...project, tracers: [...project.tracers, tracer], activeTracerId: tracer.id });
-      setSelection({ kind: "tracer", id: tracer.id });
-      setTool("select");
-      setTrail([]);
-      setMessage(`${tracer.id} 已固定在 ${selectedBody.id} 的局部坐标 (${round(local.localX)}, ${round(local.localY)})。`);
+      if (selectedBody) addBodyTracer(selectedBody, point);
+      else if (selectedBar) addBarTracer(selectedBar, point);
+      else setMessage("轨迹点必须附着到运动对象：请点击铰点、杆件或多铰点刚体；不能在空白处创建独立轨迹点。");
       return;
     }
     addJoint(point.x, point.y, tool);
@@ -373,13 +402,6 @@ export function FreeMechanismDesigner({ initialTemplateId }: FreeMechanismDesign
     setPairStart(null);
   };
 
-  const handleJointClick = (joint: FreeJoint) => {
-    if (playing) return;
-    if (tool === "body") toggleBodyDraftJoint(joint.id);
-    else if (tool === "bar" || tool === "dimension") addPairObject(joint.id);
-    else setSelection({ kind: "joint", id: joint.id });
-  };
-
   const moveJoint = (id: string, x: number, y: number) => {
     const current = projectRef.current;
     const joints = current.joints.map((joint) => joint.id === id ? {
@@ -411,7 +433,7 @@ export function FreeMechanismDesigner({ initialTemplateId }: FreeMechanismDesign
     const next = { ...current, joints, bars, bodies };
     replace(next);
     syncPhase(next);
-    setTrail([]);
+    setTrails({});
     setCycleReport(null);
   };
 
@@ -441,7 +463,7 @@ export function FreeMechanismDesigner({ initialTemplateId }: FreeMechanismDesign
     const next = updater(project);
     commit(next);
     syncPhase(next);
-    setTrail([]);
+    setTrails({});
     setCycleReport(null);
     setSolveResult("idle");
     setMessage("设计参数已更新；请重新求解或执行整周检查。");
@@ -472,7 +494,7 @@ export function FreeMechanismDesigner({ initialTemplateId }: FreeMechanismDesign
       ...current,
       tracers: current.tracers.map((tracer) => tracer.id === selectedTracer.id ? { ...tracer, ...updates } as FreeTracer : tracer),
     }));
-    setTrail([]);
+    setTrails({});
   };
 
   const trackJoint = (jointId: string) => {
@@ -487,8 +509,17 @@ export function FreeMechanismDesigner({ initialTemplateId }: FreeMechanismDesign
       tracers: existing ? current.tracers : [...current.tracers, tracer],
       activeTracerId: tracer.id,
     }));
-    setTrail([]);
-    setMessage(`${tracer.id} 已设为当前轨迹点。`);
+    setSelection({ kind: "tracer", id: tracer.id });
+    setTrails({});
+    setMessage(`${tracer.id} 已附着到铰点 ${jointId}；播放时所有轨迹点都会同时显示。`);
+  };
+
+  const handleJointClick = (joint: FreeJoint) => {
+    if (playing) return;
+    if (tool === "body") toggleBodyDraftJoint(joint.id);
+    else if (tool === "bar" || tool === "dimension") addPairObject(joint.id);
+    else if (tool === "tracer") trackJoint(joint.id);
+    else setSelection({ kind: "joint", id: joint.id });
   };
 
   const updateSelectedBar = (updates: Partial<FreeBar>) => {
@@ -567,6 +598,7 @@ export function FreeMechanismDesigner({ initialTemplateId }: FreeMechanismDesign
         const removedBodies = current.bodies.filter((body) => body.jointIds.includes(selection.id)).map((body) => body.id);
         const tracers = current.tracers.filter((tracer) =>
           !(tracer.kind === "joint" && tracer.jointId === selection.id)
+          && !(tracer.kind === "bar" && removedBars.includes(tracer.barId))
           && !(tracer.kind === "body" && removedBodies.includes(tracer.bodyId)));
         const joints = current.joints
           .filter((joint) => joint.id !== selection.id)
@@ -586,15 +618,20 @@ export function FreeMechanismDesigner({ initialTemplateId }: FreeMechanismDesign
           loads: (current.loads ?? []).filter((load) => load.jointId !== selection.id),
         };
       }
-      if (selection.kind === "bar") return {
-        ...current,
-        joints: current.joints.map((joint) => joint.slider?.referenceBarId === selection.id
-          ? { ...joint, slider: { ...joint.slider, referenceBarId: undefined, offset: undefined, originX: joint.x, originY: joint.y } }
-          : joint),
-        bars: current.bars.filter((bar) => bar.id !== selection.id),
-        driverId: current.driverId === selection.id ? null : current.driverId,
-        hydraulicActuators: (current.hydraulicActuators ?? []).filter((actuator) => actuator.barId !== selection.id),
-      };
+      if (selection.kind === "bar") {
+        const tracers = current.tracers.filter((tracer) => !(tracer.kind === "bar" && tracer.barId === selection.id));
+        return {
+          ...current,
+          joints: current.joints.map((joint) => joint.slider?.referenceBarId === selection.id
+            ? { ...joint, slider: { ...joint.slider, referenceBarId: undefined, offset: undefined, originX: joint.x, originY: joint.y } }
+            : joint),
+          bars: current.bars.filter((bar) => bar.id !== selection.id),
+          tracers,
+          activeTracerId: tracers.some((tracer) => tracer.id === current.activeTracerId) ? current.activeTracerId : tracers[0]?.id ?? null,
+          driverId: current.driverId === selection.id ? null : current.driverId,
+          hydraulicActuators: (current.hydraulicActuators ?? []).filter((actuator) => actuator.barId !== selection.id),
+        };
+      }
       if (selection.kind === "body") {
         const tracers = current.tracers.filter((tracer) => !(tracer.kind === "body" && tracer.bodyId === selection.id));
         return {
@@ -693,7 +730,7 @@ export function FreeMechanismDesigner({ initialTemplateId }: FreeMechanismDesign
     checkpoint();
     const next = { ...project, joints: solveFreeMechanism(project, phaseRef.current, project.driverMode === "hydraulic" ? 800 : 160) };
     replace(next);
-    setTrail([]);
+    setTrails({});
     const error = maximumConstraintError(next, phaseRef.current);
     setPhase(phaseRef.current);
     setSolveResult(error < 0.1 ? "success" : "warning");
@@ -752,7 +789,15 @@ export function FreeMechanismDesigner({ initialTemplateId }: FreeMechanismDesign
     setMessage(`载荷分析完成：总外载 ${report.totalLoad.toFixed(1)} kN，最高油缸利用率 ${(report.maxUtilization * 100).toFixed(1)}%${report.maxUtilization > 1 ? "，已识别超载油缸。" : "。"}`);
   };
 
-  const tracePath = trail.length > 1 ? `M ${trail.map((point) => `${point.x} ${point.y}`).join(" L ")}` : "";
+  const tracePaths = project.tracers.map((tracer, index) => {
+    const points = trails[tracer.id] ?? [];
+    return {
+      id: tracer.id,
+      color: TRAIL_COLORS[index % TRAIL_COLORS.length],
+      path: points.length > 1 ? `M ${points.map((point) => `${point.x} ${point.y}`).join(" L ")}` : "",
+    };
+  });
+  const trailSampleCount = Object.values(trails).reduce((total, points) => total + points.length, 0);
 
   return (
     <main className={styles.workspace}>
@@ -820,7 +865,7 @@ export function FreeMechanismDesigner({ initialTemplateId }: FreeMechanismDesign
               <button type="button" className={tool === "bar" ? styles.canvasActive : ""} onClick={() => changeTool("bar")}>杆件</button>
               <button type="button" className={tool === "body" ? styles.canvasActive : ""} onClick={() => changeTool("body")}>刚体</button>
               {tool === "body" && <button type="button" className={styles.finishBodyButton} disabled={bodyDraft.length < 3} onClick={finishRigidBody}>完成刚体 {bodyDraft.length}</button>}
-              <button type="button" className={tool === "tracer" ? styles.canvasActive : ""} onClick={() => changeTool("tracer")}>轨迹点</button>
+              <button type="button" className={tool === "tracer" ? styles.canvasActive : ""} onClick={() => changeTool("tracer")}>附着轨迹点</button>
               <button type="button" className={tool === "dimension" ? styles.canvasActive : ""} onClick={() => changeTool("dimension")}>尺寸</button>
               <button
                 type="button"
@@ -852,7 +897,9 @@ export function FreeMechanismDesigner({ initialTemplateId }: FreeMechanismDesign
               <rect x={viewport.view.x} y={viewport.view.y} width={viewport.view.width} height={viewport.view.height} fill="url(#designer-grid)" />
               <line x1={viewport.view.x} y1="0" x2={viewport.view.x + viewport.view.width} y2="0" className={styles.axis} />
               <line x1="0" y1={viewport.view.y} x2="0" y2={viewport.view.y + viewport.view.height} className={styles.axis} />
-              {tracePath && <path d={tracePath} className={styles.trail} />}
+              {tracePaths.map((trace) => trace.path
+                ? <path key={trace.id} data-testid={`trail-${trace.id}`} d={trace.path} className={styles.trail} style={{ stroke: trace.color }} />
+                : null)}
 
               {bodyDraft.length > 1 && <polyline
                 points={bodyDraft.map((id) => project.joints.find((joint) => joint.id === id)).filter(Boolean).map((joint) => `${joint!.x},${joint!.y}`).join(" ")}
@@ -880,7 +927,12 @@ export function FreeMechanismDesigner({ initialTemplateId }: FreeMechanismDesign
                 const center = points.reduce((sum, point) => ({ x: sum.x + point.x, y: sum.y + point.y }), { x: 0, y: 0 });
                 center.x /= points.length;
                 center.y /= points.length;
-                return <g key={body.id} data-testid={`body-${body.id}`} className={`${styles.rigidBodyGroup} ${selected ? styles.selectedBody : ""}`} onClick={(event) => { event.stopPropagation(); setSelection({ kind: "body", id: body.id }); }}>
+                return <g key={body.id} data-testid={`body-${body.id}`} className={`${styles.rigidBodyGroup} ${selected ? styles.selectedBody : ""}`} onClick={(event) => {
+                  event.stopPropagation();
+                  const point = canvasPoint(event.clientX, event.clientY);
+                  if (tool === "tracer" && point) addBodyTracer(body, point);
+                  else setSelection({ kind: "body", id: body.id });
+                }}>
                   <polygon points={points.map((point) => `${point.x},${point.y}`).join(" ")} />
                   <text x={center.x} y={center.y}>{body.id}</text>
                 </g>;
@@ -906,7 +958,12 @@ export function FreeMechanismDesigner({ initialTemplateId }: FreeMechanismDesign
                 if (!a || !b) return null;
                 const selected = selection?.kind === "bar" && selection.id === bar.id;
                 return (
-                  <g key={bar.id} data-testid={`bar-${bar.id}`} onClick={(event) => { event.stopPropagation(); setSelection({ kind: "bar", id: bar.id }); }}>
+                  <g key={bar.id} data-testid={`bar-${bar.id}`} onClick={(event) => {
+                    event.stopPropagation();
+                    const point = canvasPoint(event.clientX, event.clientY);
+                    if (tool === "tracer" && point) addBarTracer(bar, point);
+                    else setSelection({ kind: "bar", id: bar.id });
+                  }}>
                     <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} className={styles.linkHit} />
                     <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} className={`${styles.link} ${project.driverId === bar.id || hydraulicActuators.some((actuator) => actuator.barId === bar.id) ? styles.driverLink : ""} ${selected ? styles.selectedLink : ""} ${bar.type === "telescopic" ? styles.telescopicLink : ""}`} />
                     {bar.type === "telescopic" && <line x1={a.x + (b.x - a.x) * 0.37} y1={a.y + (b.y - a.y) * 0.37} x2={a.x + (b.x - a.x) * 0.67} y2={a.y + (b.y - a.y) * 0.67} className={styles.telescopicSleeve} />}
@@ -954,20 +1011,21 @@ export function FreeMechanismDesigner({ initialTemplateId }: FreeMechanismDesign
                 </g>;
               })}
 
-              {project.tracers.map((tracer) => {
+              {project.tracers.map((tracer, index) => {
                 const point = resolveTracerPoint(project, tracer.id);
                 if (!point) return null;
                 const selected = selection?.kind === "tracer" && selection.id === tracer.id;
                 const active = project.activeTracerId === tracer.id;
+                const color = TRAIL_COLORS[index % TRAIL_COLORS.length];
                 return <g
                   key={tracer.id}
                   data-testid={`tracer-${tracer.id}`}
                   className={`${styles.tracerPoint} ${active ? styles.activeTracer : ""} ${selected ? styles.selectedTracer : ""}`}
                   onClick={(event) => { event.stopPropagation(); setSelection({ kind: "tracer", id: tracer.id }); }}
                 >
-                  <path d={`M ${point.x} ${point.y - 11} L ${point.x + 11} ${point.y} L ${point.x} ${point.y + 11} L ${point.x - 11} ${point.y} Z`} />
-                  <circle cx={point.x} cy={point.y} r="3" />
-                  <text x={point.x + 14} y={point.y + 4}>{tracer.id}</text>
+                  <path style={{ stroke: active ? "#172000" : selected ? "#d16b2f" : color }} d={`M ${point.x} ${point.y - 11} L ${point.x + 11} ${point.y} L ${point.x} ${point.y + 11} L ${point.x - 11} ${point.y} Z`} />
+                  <circle style={{ fill: active ? "#172000" : color }} cx={point.x} cy={point.y} r="3" />
+                  <text style={{ fill: active ? "#172000" : color }} x={point.x + 14} y={point.y + 4}>{tracer.id}</text>
                 </g>;
               })}
             </svg>
@@ -978,7 +1036,7 @@ export function FreeMechanismDesigner({ initialTemplateId }: FreeMechanismDesign
             <button type="button" onClick={togglePlaying} aria-label={playing ? "暂停运动" : "播放运动"}>{playing ? "Ⅱ" : "▶"}</button>
             <div><span>{project.driverMode === "hydraulic" ? "多缸液压驱动" : project.driverMode === "length" ? "伸缩驱动" : project.driverMode === "oscillation" ? "摆动驱动" : "旋转驱动"}</span><b>{project.driverMode === "hydraulic" ? `${hydraulicActuators.length} cylinders` : project.driverId ?? "未设置"}</b></div>
             <label>速度 <input type="range" min="5" max="160" value={speed} onChange={(event) => setSpeed(Number(event.target.value))} /><b>{speed}°/s</b></label>
-            <button className={styles.clearTrail} type="button" onClick={() => setTrail([])}>清除轨迹</button>
+            <button className={styles.clearTrail} type="button" onClick={() => setTrails({})}>清除轨迹</button>
           </div>
         </section>
 
@@ -1015,8 +1073,8 @@ export function FreeMechanismDesigner({ initialTemplateId }: FreeMechanismDesign
                 {selectedJoint.slider ? "改为活动转动副" : selectedJoint.fixed ? "改为活动转动副" : "改为移动副"}
               </button>
               {!selectedJoint.slider && <button type="button" onClick={() => updateSelectedJoint({ fixed: !selectedJoint.fixed, slider: undefined })}>{selectedJoint.fixed ? "解除机架固定" : "固定到机架"}</button>}
-              <button type="button" className={activeTracer?.kind === "joint" && activeTracer.jointId === selectedJoint.id ? styles.selectedAction : ""} onClick={() => trackJoint(selectedJoint.id)}>
-                {activeTracer?.kind === "joint" && activeTracer.jointId === selectedJoint.id ? "当前轨迹点" : "跟踪此铰点轨迹"}
+              <button type="button" className={project.tracers.some((tracer) => tracer.kind === "joint" && tracer.jointId === selectedJoint.id) ? styles.selectedAction : ""} onClick={() => trackJoint(selectedJoint.id)}>
+                {project.tracers.some((tracer) => tracer.kind === "joint" && tracer.jointId === selectedJoint.id) ? "已跟踪此铰点" : "跟踪此铰点轨迹"}
               </button>
               <button type="button" className={(project.loads ?? []).some((load) => load.jointId === selectedJoint.id) ? styles.selectedAction : ""} onClick={() => addJointLoad(selectedJoint.id)}>
                 {(project.loads ?? []).some((load) => load.jointId === selectedJoint.id) ? "编辑此处载荷" : "在此铰点添加载荷"}
@@ -1044,7 +1102,7 @@ export function FreeMechanismDesigner({ initialTemplateId }: FreeMechanismDesign
                 <span><b>{selectedBody.pairs.length}</b> 个内部距离</span>
               </div>
               <button type="button" onClick={() => updateSelectedBody(createRigidBody(selectedBody.id, selectedBody.jointIds, project.joints))}>以当前点位重定义刚体</button>
-              <button type="button" onClick={() => { setTool("tracer"); setMessage(`请在画布上单击，为 ${selectedBody.id} 放置任意局部轨迹点。`); }}>在刚体上放置轨迹点</button>
+              <button type="button" onClick={() => { changeTool("tracer"); setMessage(`请在 ${selectedBody.id} 上单击放置轨迹点；也可直接点击其他铰点、杆件或刚体继续添加。`); }}>在刚体上放置轨迹点</button>
               <small>刚体内部所有铰点距离会同时参与求解；删除刚体只解除刚性关系，不会删除铰点。</small>
             </section>
           )}
@@ -1052,15 +1110,23 @@ export function FreeMechanismDesigner({ initialTemplateId }: FreeMechanismDesign
           {selectedTracer && (
             <section className={styles.selectionCard}>
               <div className={styles.selectionTitle}><span>TRACER</span><b>{selectedTracer.id}</b></div>
-              <p>{selectedTracer.kind === "joint" ? `铰点 ${selectedTracer.jointId}` : `刚体 ${selectedTracer.bodyId}`}</p>
-              {selectedTracer.kind === "body" && <>
+              <p>{selectedTracer.kind === "joint"
+                ? `附着于铰点 ${selectedTracer.jointId}`
+                : selectedTracer.kind === "bar"
+                  ? `附着于杆件 ${selectedTracer.barId}`
+                  : `附着于刚体 ${selectedTracer.bodyId}`}</p>
+              {selectedTracer.kind !== "joint" && <>
                 <label>局部 X <input type="number" value={round(selectedTracer.localX)} onChange={(event) => updateSelectedTracer({ localX: Number(event.target.value) })} /></label>
                 <label>局部 Y <input type="number" value={round(selectedTracer.localY)} onChange={(event) => updateSelectedTracer({ localY: Number(event.target.value) })} /></label>
               </>}
               <button type="button" className={project.activeTracerId === selectedTracer.id ? styles.selectedAction : ""} onClick={() => updateProject((current) => ({ ...current, activeTracerId: selectedTracer.id }))}>
-                {project.activeTracerId === selectedTracer.id ? "当前轨迹点" : "设为当前轨迹点"}
+                {project.activeTracerId === selectedTracer.id ? "主轨迹点" : "设为主轨迹点"}
               </button>
-              <small>{selectedTracer.kind === "body" ? "局部坐标随刚体平移和旋转，可位于刚体轮廓内部或外部。" : "该轨迹点与铰点位置完全重合。"}</small>
+              <small>{selectedTracer.kind === "body"
+                ? "局部坐标随刚体平移和旋转，可位于刚体轮廓内部或外部。"
+                : selectedTracer.kind === "bar"
+                  ? "局部 X 沿杆件起点到终点方向，局部 Y 为法向偏置；轨迹点可以落在杆件延长区域。"
+                  : "该轨迹点与铰点位置完全重合。"} 所有轨迹点都会同时采样；主轨迹点仅用于高亮和默认分析对象。</small>
             </section>
           )}
 
@@ -1073,6 +1139,7 @@ export function FreeMechanismDesigner({ initialTemplateId }: FreeMechanismDesign
                 updateSelectedBar(type === "telescopic" ? { type, minLength: selectedBar.length * 0.7, maxLength: selectedBar.length * 1.3 } : { type, minLength: undefined, maxLength: undefined });
               }}><option value="rigid">刚性定长杆</option><option value="telescopic">伸缩活动杆</option></select></label>
               <label>中心距 <input type="number" min="1" value={round(selectedBar.length)} onChange={(event) => updateSelectedBar({ length: Number(event.target.value) })} /></label>
+              <button type="button" onClick={() => { changeTool("tracer"); setMessage(`请在 ${selectedBar.id} 上单击放置轨迹点；点可以位于杆件中心线或其附近。`); }}>在此杆件放置轨迹点</button>
               {selectedBar.type === "telescopic" && <>
                 <label>最短长度 <input type="number" min="1" value={round(selectedBar.minLength ?? selectedBar.length * 0.7)} onChange={(event) => updateSelectedBar({ minLength: Number(event.target.value) })} /></label>
                 <label>最长长度 <input type="number" min="1" value={round(selectedBar.maxLength ?? selectedBar.length * 1.3)} onChange={(event) => updateSelectedBar({ maxLength: Number(event.target.value) })} /></label>
@@ -1123,7 +1190,7 @@ export function FreeMechanismDesigner({ initialTemplateId }: FreeMechanismDesign
             <div><span>启用液压缸</span><strong>{hydraulicActuators.length}</strong></div>
             <div><span>外部载荷</span><strong>{(project.loads ?? []).length}</strong></div>
             <div><span>最大约束误差</span><strong>{constraintError.toFixed(2)}<small> mm</small></strong></div>
-            <div><span>轨迹采样</span><strong>{trail.length}</strong></div>
+            <div><span>轨迹总采样</span><strong>{trailSampleCount}</strong></div>
           </section>
           {cycleReport && (
             <section className={`${styles.cycleReport} ${cycleReport.valid ? styles.cyclePass : styles.cycleFail}`} aria-live="polite">

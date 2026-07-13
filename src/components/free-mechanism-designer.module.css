@@ -98,6 +98,13 @@
 .dimensionGroup text { fill:#795e3c; stroke:none; font:10px "Cascadia Mono",Consolas,monospace; text-anchor:middle; }
 .selectedDimension { stroke:#287fa8; stroke-width:2.5; }
 .selectedDimension text { fill:#287fa8; }
+.loadVector { cursor:pointer; }
+.loadVector line { stroke:#d15f35; stroke-width:4; }
+.loadVector .loadHit { stroke:transparent; stroke-width:24; pointer-events:stroke; }
+.loadVector text { fill:#a64225; font:700 10px "Cascadia Mono",Consolas,monospace; pointer-events:all; }
+.loadArrowHead { fill:#d15f35; }
+.selectedLoad line { stroke:#287fa8; stroke-width:6; }
+.selectedLoad text { fill:#287fa8; }
 .emptyCanvas { position:absolute; display:flex; flex-direction:column; gap:7px; align-items:center; color:#676d67; pointer-events:none; }
 .emptyCanvas b { color:#252a27; font-size:20px; }
 .emptyCanvas span { font-size:12px; }
@@ -122,6 +129,8 @@
 .selectionCard button:disabled { cursor:not-allowed; opacity:.45; }
 .selectionCard .selectedAction { border-color:#8dbb36; background:#e6f2cf; }
 .selectionCard small { color:#747974; line-height:1.5; }
+.selectionCard .checkboxLabel { justify-content:flex-start; gap:8px; }
+.selectionCard .checkboxLabel input { width:auto; accent-color:#111515; }
 .bodyStats { display:grid; grid-template-columns:1fr 1fr; gap:7px; }
 .bodyStats span { padding:9px; display:flex; flex-direction:column; gap:3px; border:1px solid #c7c9c1; color:#6a706b; font-size:9px; }
 .bodyStats b { color:#202522; font:16px "Cascadia Mono",Consolas,monospace; }
@@ -144,6 +153,24 @@
 .cycleReportGrid span { padding:8px; display:flex; flex-direction:column; gap:4px; border:1px solid rgb(70 80 70 / 18%); color:#687067; font-size:9px; }
 .cycleReportGrid strong { color:#202522; font:12px "Cascadia Mono",Consolas,monospace; }
 .cycleReport p { margin:10px 0 0; color:#555d56; font-size:10px; line-height:1.55; }
+.loadAnalysis { margin-top:16px; padding:13px; border:1px solid #9db5bd; background:#e3edf0; }
+.loadAnalysisTitle { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+.loadAnalysisTitle>div { display:flex; flex-direction:column; gap:3px; }
+.loadAnalysisTitle span { color:#62747a; font:9px "Cascadia Mono",Consolas,monospace; }
+.loadAnalysisTitle b { font-size:12px; }
+.loadAnalysisTitle button { padding:7px 9px; border:1px solid #77939e; background:#f4f8f9; color:#274b59; cursor:pointer; font-size:10px; }
+.loadSummary { margin-top:10px; display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+.loadSummary span { padding:8px; display:flex; flex-direction:column; gap:4px; border:1px solid rgb(49 86 99 / 18%); color:#62747a; font-size:9px; }
+.loadSummary strong { color:#20343b; font:12px "Cascadia Mono",Consolas,monospace; }
+.actuatorResults { margin-top:8px; display:grid; gap:5px; }
+.actuatorResults>div { padding:8px; display:grid; grid-template-columns:1.25fr 1fr 1fr; gap:3px 7px; border:1px solid rgb(49 86 99 / 20%); background:rgb(255 255 255 / 28%); font-size:9px; }
+.actuatorResults b { grid-column:1/-1; color:#20343b; }
+.actuatorResults span { color:#607077; }
+.actuatorResults strong { color:#315e6f; font:11px "Cascadia Mono",Consolas,monospace; }
+.actuatorResults .overloadedActuator { border-color:#d15f35; background:#f2ddd2; }
+.actuatorResults .overloadedActuator strong { color:#a64225; }
+.loadAnalysis p { margin:10px 0; color:#53666d; font-size:10px; line-height:1.55; }
+.loadAnalysis>small { display:block; margin-top:9px; color:#687b82; font-size:9px; line-height:1.5; }
 .healthGood,.healthWarn { margin-top:18px; padding:14px; border:1px solid; font-size:11px; }
 .healthGood { border-color:#b9cf8b; background:#e5efd0; }
 .healthWarn { border-color:#d5a48d; background:#f2ddd2; }

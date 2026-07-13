@@ -15,6 +15,7 @@ import {
 import {
   DEMO_PROJECT,
   MECHANISM_TEMPLATES,
+  analyzeHydraulicLoads,
   analyzeMechanismCycle,
   bodyPointToLocal,
   cloneProject,
@@ -22,6 +23,7 @@ import {
   distance,
   estimateDof,
   getLengthDriver,
+  getHydraulicActuators,
   getRotationDriver,
   hasValidDriver,
   maximumConstraintError,
@@ -35,9 +37,12 @@ import {
   type FreeBar,
   type FreeDimension,
   type FreeJoint,
+  type FreeJointLoad,
   type FreeMechanismProject,
   type FreeRigidBody,
   type FreeTracer,
+  type HydraulicActuator,
+  type HydraulicLoadAnalysis,
   type CycleAnalysis,
 } from "@/lib/free-mechanism";
 import { SvgViewportControls } from "./svg-viewport-controls";
@@ -46,7 +51,7 @@ import { useSvgViewport } from "./use-svg-viewport";
 import styles from "./free-mechanism-designer.module.css";
 
 type Tool = "select" | "fixed" | "moving" | "slider" | "bar" | "body" | "tracer" | "dimension";
-type Selection = { kind: "joint" | "bar" | "body" | "tracer" | "dimension"; id: string } | null;
+type Selection = { kind: "joint" | "bar" | "body" | "tracer" | "dimension" | "load"; id: string } | null;
 
 const TOOL_LABELS: Array<{ id: Tool; label: string; hint: string }> = [
   { id: "select", label: "选择 / 拖动", hint: "编辑已有铰点、杆件与尺寸" },
@@ -78,6 +83,7 @@ function round(value: number) {
 }
 
 function driverPhase(project: FreeMechanismProject) {
+  if (project.driverMode === "hydraulic") return 0;
   if (project.driverMode === "length") {
     const bar = getLengthDriver(project.bars, project.driverId);
     if (!bar) return 0;
@@ -104,6 +110,7 @@ export function FreeMechanismDesigner() {
   const [phase, setPhase] = useState(() => driverPhase(project));
   const [solveResult, setSolveResult] = useState<"idle" | "success" | "warning">("idle");
   const [cycleReport, setCycleReport] = useState<CycleAnalysis | null>(null);
+  const [loadReport, setLoadReport] = useState<HydraulicLoadAnalysis | null>(null);
   const [message, setMessage] = useState("四杆模板已就绪。可直接播放，或继续添加移动副、杆件和尺寸约束。");
   const viewportBase = useMemo(() => ({ x: -420, y: -300, width: 840, height: 600 }), []);
   const viewport = useSvgViewport(viewportBase);
@@ -124,11 +131,14 @@ export function FreeMechanismDesigner() {
   const selectedDimension = selection?.kind === "dimension" ? project.dimensions.find((dimension) => dimension.id === selection.id) ?? null : null;
   const selectedBody = selection?.kind === "body" ? project.bodies.find((body) => body.id === selection.id) ?? null : null;
   const selectedTracer = selection?.kind === "tracer" ? project.tracers.find((tracer) => tracer.id === selection.id) ?? null : null;
+  const selectedLoad = selection?.kind === "load" ? (project.loads ?? []).find((load) => load.id === selection.id) ?? null : null;
   const sliderReferenceBars = selectedJoint
     ? project.bars.filter((bar) => bar.a !== selectedJoint.id && bar.b !== selectedJoint.id)
     : [];
   const activeTracer = project.tracers.find((tracer) => tracer.id === project.activeTracerId) ?? null;
   const driverReady = hasValidDriver(project);
+  const hydraulicActuators = getHydraulicActuators(project);
+  const selectedActuator = selectedBar ? (project.hydraulicActuators ?? []).find((actuator) => actuator.barId === selectedBar.id) ?? null : null;
   const dof = estimateDof(project.joints, project.bars, project.dimensions, project.bodies);
   const constraintError = maximumConstraintError(project, phase);
 
@@ -137,6 +147,7 @@ export function FreeMechanismDesigner() {
     setTrail([]);
     setSolveResult("idle");
     setCycleReport(null);
+    setLoadReport(null);
     previousMotionJointsRef.current = null;
   }, []);
 
@@ -188,7 +199,7 @@ export function FreeMechanismDesigner() {
       setPhase(phaseRef.current);
       const current = projectRef.current;
       const seeded = { ...current, joints: predictJointPositions(current.joints, previousMotionJointsRef.current) };
-      const solvedJoints = solveFreeMechanism(seeded, phaseRef.current);
+      const solvedJoints = solveFreeMechanism(seeded, phaseRef.current, current.driverMode === "hydraulic" ? 500 : 90);
       const next = { ...current, joints: solvedJoints };
       previousMotionJointsRef.current = current.joints.map((joint) => ({ ...joint, slider: joint.slider ? { ...joint.slider } : undefined }));
       replace(next);
@@ -481,6 +492,57 @@ export function FreeMechanismDesigner() {
     }));
   };
 
+  const updateHydraulicActuator = (actuatorId: string, updates: Partial<HydraulicActuator>) => {
+    updateProject((current) => ({
+      ...current,
+      hydraulicActuators: (current.hydraulicActuators ?? []).map((actuator) => actuator.id === actuatorId ? { ...actuator, ...updates } : actuator),
+    }));
+  };
+
+  const toggleHydraulicActuator = (bar: FreeBar) => {
+    const existing = (project.hydraulicActuators ?? []).find((actuator) => actuator.barId === bar.id);
+    updateProject((current) => ({
+      ...current,
+      driverMode: "hydraulic",
+      driverId: null,
+      hydraulicActuators: existing
+        ? (current.hydraulicActuators ?? []).filter((actuator) => actuator.id !== existing.id)
+        : [...(current.hydraulicActuators ?? []), {
+          id: nextId("A", (current.hydraulicActuators ?? []).map((actuator) => actuator.id)),
+          barId: bar.id,
+          phaseOffset: 0,
+          cycleRatio: 1,
+          forceLimit: 100,
+          enabled: true,
+        }],
+    }));
+  };
+
+  const updateSelectedLoad = (updates: Partial<FreeJointLoad>) => {
+    if (!selectedLoad) return;
+    updateProject((current) => ({
+      ...current,
+      loads: (current.loads ?? []).map((load) => load.id === selectedLoad.id ? { ...load, ...updates } : load),
+    }));
+  };
+
+  const addJointLoad = (jointId: string) => {
+    const existing = (project.loads ?? []).find((load) => load.jointId === jointId);
+    if (existing) {
+      setSelection({ kind: "load", id: existing.id });
+      return;
+    }
+    const load: FreeJointLoad = {
+      id: nextId("F", (project.loads ?? []).map((item) => item.id)),
+      jointId,
+      fx: 0,
+      fy: 10,
+      label: "外部载荷",
+    };
+    updateProject((current) => ({ ...current, loads: [...(current.loads ?? []), load] }));
+    setSelection({ kind: "load", id: load.id });
+  };
+
   const updateSelectedDimension = (updates: Partial<FreeDimension>) => {
     if (!selectedDimension) return;
     updateProject((current) => ({
@@ -512,6 +574,8 @@ export function FreeMechanismDesigner() {
           tracers,
           activeTracerId: tracers.some((tracer) => tracer.id === current.activeTracerId) ? current.activeTracerId : tracers[0]?.id ?? null,
           driverId: removedBars.includes(current.driverId ?? "") ? null : current.driverId,
+          hydraulicActuators: (current.hydraulicActuators ?? []).filter((actuator) => !removedBars.includes(actuator.barId)),
+          loads: (current.loads ?? []).filter((load) => load.jointId !== selection.id),
         };
       }
       if (selection.kind === "bar") return {
@@ -521,6 +585,7 @@ export function FreeMechanismDesigner() {
           : joint),
         bars: current.bars.filter((bar) => bar.id !== selection.id),
         driverId: current.driverId === selection.id ? null : current.driverId,
+        hydraulicActuators: (current.hydraulicActuators ?? []).filter((actuator) => actuator.barId !== selection.id),
       };
       if (selection.kind === "body") {
         const tracers = current.tracers.filter((tracer) => !(tracer.kind === "body" && tracer.bodyId === selection.id));
@@ -539,6 +604,10 @@ export function FreeMechanismDesigner() {
           activeTracerId: current.activeTracerId === selection.id ? tracers[0]?.id ?? null : current.activeTracerId,
         };
       }
+      if (selection.kind === "load") return {
+        ...current,
+        loads: (current.loads ?? []).filter((load) => load.id !== selection.id),
+      };
       return { ...current, dimensions: current.dimensions.filter((dimension) => dimension.id !== selection.id) };
     });
     setSelection(null);
@@ -556,6 +625,8 @@ export function FreeMechanismDesigner() {
       activeTracerId: null,
       driverId: null,
       driverMode: "rotation",
+      hydraulicActuators: [],
+      loads: [],
     };
     stopMotion();
     commit(blank);
@@ -594,7 +665,7 @@ export function FreeMechanismDesigner() {
     const wasPlaying = playing;
     stopMotion();
     checkpoint();
-    const next = { ...project, joints: solveFreeMechanism(project, phaseRef.current, 160) };
+    const next = { ...project, joints: solveFreeMechanism(project, phaseRef.current, project.driverMode === "hydraulic" ? 800 : 160) };
     replace(next);
     setTrail([]);
     const error = maximumConstraintError(next, phaseRef.current);
@@ -608,10 +679,10 @@ export function FreeMechanismDesigner() {
   const checkFullCycle = () => {
     stopMotion();
     if (!driverReady) {
-      setMessage("整周检查需要先指定有效的旋转主动杆或周期伸缩驱动。");
+      setMessage("整周检查需要先指定旋转、伸缩或多缸液压驱动。");
       return;
     }
-    const report = analyzeMechanismCycle(project, 144, 400, 0.1, phaseRef.current);
+    const report = analyzeMechanismCycle(project, 144, project.driverMode === "hydraulic" ? 800 : 400, 0.1, phaseRef.current);
     setCycleReport(report);
     setMessage(report.valid
       ? `整周 144 点检查通过：无不可达相位、无装配分支跳变，首尾误差 ${report.closureError.toFixed(3)} mm。`
@@ -620,7 +691,7 @@ export function FreeMechanismDesigner() {
 
   const togglePlaying = () => {
     if (!driverReady) {
-      setMessage("请先选择可用的旋转主动杆，或一根伸缩活动杆作为长度驱动。");
+      setMessage("请先选择旋转主动杆、周期伸缩杆，或启用至少一个液压缸。");
       return;
     }
     setPlaying((current) => !current);
@@ -644,13 +715,24 @@ export function FreeMechanismDesigner() {
     setMessage(mode === "rotation" ? "已设为连续旋转主动杆。" : mode === "oscillation" ? "已设为往复摆动主动杆，可调整角度范围。" : "已设为周期伸缩驱动。 ");
   };
 
+  const calculateHydraulicLoads = () => {
+    stopMotion();
+    const report = analyzeHydraulicLoads(project, phaseRef.current);
+    setLoadReport(report);
+    if (!report.valid) {
+      setMessage(report.message ?? "当前姿态的液压载荷分析未收敛。");
+      return;
+    }
+    setMessage(`载荷分析完成：总外载 ${report.totalLoad.toFixed(1)} kN，最高油缸利用率 ${(report.maxUtilization * 100).toFixed(1)}%${report.maxUtilization > 1 ? "，已识别超载油缸。" : "。"}`);
+  };
+
   const tracePath = trail.length > 1 ? `M ${trail.map((point) => `${point.x} ${point.y}`).join(" L ")}` : "";
 
   return (
     <main className={styles.workspace}>
       <header className={styles.header}>
         <Link className={styles.brand} href="/"><span className={styles.brandMark} />OpenLinkage</Link>
-        <nav><Link href="/lab">四杆设计</Link><Link href="/leg">六杆腿设计</Link><span>自由机构设计器 · 0.6</span></nav>
+        <nav><Link href="/lab">四杆设计</Link><Link href="/leg">六杆腿设计</Link><span>自由机构设计器 · 0.7</span></nav>
       </header>
 
       <div className={styles.layout}>
@@ -678,8 +760,8 @@ export function FreeMechanismDesigner() {
             </div>
           </section>
           <div className={styles.workflowHint}>
-            <b>经典机构与自由拓扑</b>
-            <p>移动副既可固定在机架，也可绑定运动杆件；剪叉模板展示了随平台移动的相对导轨。</p>
+            <b>运动、液压与载荷</b>
+            <p>伸缩杆可组成多缸液压驱动；挖掘机模板展示三刚体、三油缸和斗齿载荷的完整工作流。</p>
           </div>
           <div className={styles.projectTools}>
             <button type="button" onClick={clearProject}>新建空白项目</button>
@@ -691,7 +773,7 @@ export function FreeMechanismDesigner() {
 
         <section className={styles.stage}>
           <div className={styles.stageHeader}>
-            <span>FREE TOPOLOGY / XY PLANE</span><span>{project.joints.length} J / {project.bars.length} L / {project.bodies.length} B / {project.tracers.length} T / {project.dimensions.length} D</span>
+            <span>FREE TOPOLOGY / XY PLANE</span><span>{project.joints.length} J / {project.bars.length} L / {project.bodies.length} B / {hydraulicActuators.length} A / {(project.loads ?? []).length} F</span>
             <b className={constraintError < 0.25 ? styles.ready : styles.warning}>{constraintError < 0.25 ? "CONSTRAINTS SOLVED" : "NEEDS SOLVE"}</b>
           </div>
           <div className={styles.canvas}>
@@ -728,7 +810,10 @@ export function FreeMechanismDesigner() {
               onPointerCancel={(event) => viewport.endPan(event)}
               aria-label="自由平面机构设计画布"
             >
-              <defs><pattern id="designer-grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" className={styles.gridLine} /></pattern></defs>
+              <defs>
+                <pattern id="designer-grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" className={styles.gridLine} /></pattern>
+                <marker id="load-arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L7,3 Z" className={styles.loadArrowHead} /></marker>
+              </defs>
               <rect x={viewport.view.x} y={viewport.view.y} width={viewport.view.width} height={viewport.view.height} fill="url(#designer-grid)" />
               <line x1={viewport.view.x} y1="0" x2={viewport.view.x + viewport.view.width} y2="0" className={styles.axis} />
               <line x1="0" y1={viewport.view.y} x2="0" y2={viewport.view.y + viewport.view.height} className={styles.axis} />
@@ -788,9 +873,9 @@ export function FreeMechanismDesigner() {
                 return (
                   <g key={bar.id} data-testid={`bar-${bar.id}`} onClick={(event) => { event.stopPropagation(); setSelection({ kind: "bar", id: bar.id }); }}>
                     <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} className={styles.linkHit} />
-                    <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} className={`${styles.link} ${project.driverId === bar.id ? styles.driverLink : ""} ${selected ? styles.selectedLink : ""} ${bar.type === "telescopic" ? styles.telescopicLink : ""}`} />
+                    <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} className={`${styles.link} ${project.driverId === bar.id || hydraulicActuators.some((actuator) => actuator.barId === bar.id) ? styles.driverLink : ""} ${selected ? styles.selectedLink : ""} ${bar.type === "telescopic" ? styles.telescopicLink : ""}`} />
                     {bar.type === "telescopic" && <line x1={a.x + (b.x - a.x) * 0.37} y1={a.y + (b.y - a.y) * 0.37} x2={a.x + (b.x - a.x) * 0.67} y2={a.y + (b.y - a.y) * 0.67} className={styles.telescopicSleeve} />}
-                    <text x={(a.x + b.x) / 2} y={(a.y + b.y) / 2 - 12} className={styles.linkLabel}>{bar.id}</text>
+                    <text x={(a.x + b.x) / 2} y={(a.y + b.y) / 2 - 12} className={styles.linkLabel}>{bar.id}{(project.hydraulicActuators ?? []).find((actuator) => actuator.barId === bar.id) ? ` · ${(project.hydraulicActuators ?? []).find((actuator) => actuator.barId === bar.id)!.id}` : ""}</text>
                   </g>
                 );
               })}
@@ -818,6 +903,22 @@ export function FreeMechanismDesigner() {
                 );
               })}
 
+              {(project.loads ?? []).map((load) => {
+                const joint = project.joints.find((item) => item.id === load.jointId);
+                if (!joint) return null;
+                const magnitude = Math.hypot(load.fx, load.fy);
+                const scale = magnitude > 0.0001 ? 72 / magnitude : 0;
+                const startX = joint.x - load.fx * scale;
+                const startY = joint.y - load.fy * scale;
+                const selected = selection?.kind === "load" && selection.id === load.id;
+                const selectLoad = () => setSelection({ kind: "load" as const, id: load.id });
+                return <g key={load.id} data-testid={`load-${load.id}`} role="button" tabIndex={0} aria-label={`编辑载荷 ${load.id}`} className={`${styles.loadVector} ${selected ? styles.selectedLoad : ""}`} onClick={(event) => { event.stopPropagation(); selectLoad(); }} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); selectLoad(); } }}>
+                  <line x1={startX} y1={startY} x2={joint.x} y2={joint.y} className={styles.loadHit} />
+                  <line x1={startX} y1={startY} x2={joint.x} y2={joint.y} markerEnd="url(#load-arrow)" />
+                  <text x={startX + 8} y={startY - 8}>{load.id} · {round(magnitude)} kN</text>
+                </g>;
+              })}
+
               {project.tracers.map((tracer) => {
                 const point = resolveTracerPoint(project, tracer.id);
                 if (!point) return null;
@@ -840,7 +941,7 @@ export function FreeMechanismDesigner() {
           <div className={styles.messageBar}><span>{message}</span><span>滚轮缩放 · Alt / 中键平移 · Ctrl+Z 撤销</span></div>
           <div className={styles.transport}>
             <button type="button" onClick={togglePlaying} aria-label={playing ? "暂停运动" : "播放运动"}>{playing ? "Ⅱ" : "▶"}</button>
-            <div><span>{project.driverMode === "length" ? "伸缩驱动" : project.driverMode === "oscillation" ? "摆动驱动" : "旋转驱动"}</span><b>{project.driverId ?? "未设置"}</b></div>
+            <div><span>{project.driverMode === "hydraulic" ? "多缸液压驱动" : project.driverMode === "length" ? "伸缩驱动" : project.driverMode === "oscillation" ? "摆动驱动" : "旋转驱动"}</span><b>{project.driverMode === "hydraulic" ? `${hydraulicActuators.length} cylinders` : project.driverId ?? "未设置"}</b></div>
             <label>速度 <input type="range" min="5" max="160" value={speed} onChange={(event) => setSpeed(Number(event.target.value))} /><b>{speed}°/s</b></label>
             <button className={styles.clearTrail} type="button" onClick={() => setTrail([])}>清除轨迹</button>
           </div>
@@ -882,6 +983,20 @@ export function FreeMechanismDesigner() {
               <button type="button" className={activeTracer?.kind === "joint" && activeTracer.jointId === selectedJoint.id ? styles.selectedAction : ""} onClick={() => trackJoint(selectedJoint.id)}>
                 {activeTracer?.kind === "joint" && activeTracer.jointId === selectedJoint.id ? "当前轨迹点" : "跟踪此铰点轨迹"}
               </button>
+              <button type="button" className={(project.loads ?? []).some((load) => load.jointId === selectedJoint.id) ? styles.selectedAction : ""} onClick={() => addJointLoad(selectedJoint.id)}>
+                {(project.loads ?? []).some((load) => load.jointId === selectedJoint.id) ? "编辑此处载荷" : "在此铰点添加载荷"}
+              </button>
+            </section>
+          )}
+
+          {selectedLoad && (
+            <section className={styles.selectionCard}>
+              <div className={styles.selectionTitle}><span>APPLIED LOAD</span><b>{selectedLoad.id}</b></div>
+              <p>{selectedLoad.label || "外部载荷"} · 作用于 {selectedLoad.jointId}</p>
+              <label>水平分力 Fx <input type="number" step="0.5" value={round(selectedLoad.fx)} onChange={(event) => updateSelectedLoad({ fx: Number(event.target.value) })} /><small> kN</small></label>
+              <label>竖直分力 Fy <input type="number" step="0.5" value={round(selectedLoad.fy)} onChange={(event) => updateSelectedLoad({ fy: Number(event.target.value) })} /><small> kN</small></label>
+              <label>载荷名称 <input type="text" value={selectedLoad.label ?? ""} onChange={(event) => updateSelectedLoad({ label: event.target.value })} /></label>
+              <small>画布 Y 轴向下，因此正 Fy 表示向下。载荷分析按当前静止姿态计算。</small>
             </section>
           )}
 
@@ -927,6 +1042,13 @@ export function FreeMechanismDesigner() {
                 <label>最短长度 <input type="number" min="1" value={round(selectedBar.minLength ?? selectedBar.length * 0.7)} onChange={(event) => updateSelectedBar({ minLength: Number(event.target.value) })} /></label>
                 <label>最长长度 <input type="number" min="1" value={round(selectedBar.maxLength ?? selectedBar.length * 1.3)} onChange={(event) => updateSelectedBar({ maxLength: Number(event.target.value) })} /></label>
                 <button type="button" className={project.driverId === selectedBar.id && project.driverMode === "length" ? styles.selectedAction : ""} onClick={() => setDriver(selectedBar.id, "length")}>设为周期伸缩驱动</button>
+                <button type="button" className={selectedActuator ? styles.selectedAction : ""} onClick={() => toggleHydraulicActuator(selectedBar)}>{selectedActuator ? `移除液压缸 ${selectedActuator.id}` : "添加独立液压缸"}</button>
+                {selectedActuator && <>
+                  <label>相位偏移 <input type="number" step="5" value={round(selectedActuator.phaseOffset * 180 / Math.PI)} onChange={(event) => updateHydraulicActuator(selectedActuator.id, { phaseOffset: Number(event.target.value) * Math.PI / 180 })} /><small>°</small></label>
+                  <label>周期倍率 <input type="number" min="0.1" step="0.1" value={round(selectedActuator.cycleRatio ?? 1)} onChange={(event) => updateHydraulicActuator(selectedActuator.id, { cycleRatio: Number(event.target.value) })} /></label>
+                  <label>额定推力 <input type="number" min="0.1" step="5" value={round(selectedActuator.forceLimit)} onChange={(event) => updateHydraulicActuator(selectedActuator.id, { forceLimit: Number(event.target.value) })} /><small> kN</small></label>
+                  <label className={styles.checkboxLabel}><input type="checkbox" checked={selectedActuator.enabled !== false} onChange={(event) => updateHydraulicActuator(selectedActuator.id, { enabled: event.target.checked })} /> 启用此液压缸</label>
+                </>}
               </>}
               <button type="button" disabled={!getRotationDriver(project.joints, project.bars, selectedBar.id)} className={project.driverId === selectedBar.id && project.driverMode === "rotation" ? styles.selectedAction : ""} onClick={() => setDriver(selectedBar.id, "rotation")}>
                 {project.driverId === selectedBar.id && project.driverMode === "rotation" ? "当前旋转主动杆" : "设为旋转主动杆"}
@@ -963,6 +1085,8 @@ export function FreeMechanismDesigner() {
             <div><span>相对移动副</span><strong>{project.joints.filter((joint) => joint.slider?.referenceBarId).length}</strong></div>
             <div><span>多铰点刚体</span><strong>{project.bodies.length}</strong></div>
             <div><span>轨迹点</span><strong>{project.tracers.length}</strong></div>
+            <div><span>启用液压缸</span><strong>{hydraulicActuators.length}</strong></div>
+            <div><span>外部载荷</span><strong>{(project.loads ?? []).length}</strong></div>
             <div><span>最大约束误差</span><strong>{constraintError.toFixed(2)}<small> mm</small></strong></div>
             <div><span>轨迹采样</span><strong>{trail.length}</strong></div>
           </section>
@@ -983,9 +1107,31 @@ export function FreeMechanismDesigner() {
                 : `相邻采样最大铰点位移 ${cycleReport.maxJointStep.toFixed(2)} mm，闭环首尾姿态已复核。`}</p>
             </section>
           )}
+          {project.driverMode === "hydraulic" && (
+            <section className={styles.loadAnalysis} aria-live="polite">
+              <div className={styles.loadAnalysisTitle}><div><span>QUASI-STATIC LOAD</span><b>液压缸载荷</b></div><button type="button" onClick={calculateHydraulicLoads}>计算当前姿态</button></div>
+              {loadReport ? <>
+                <div className={styles.loadSummary}>
+                  <span>总外载<strong>{loadReport.totalLoad.toFixed(1)} kN</strong></span>
+                  <span>最高利用率<strong>{Number.isFinite(loadReport.maxUtilization) ? `${(loadReport.maxUtilization * 100).toFixed(1)}%` : "—"}</strong></span>
+                </div>
+                <div className={styles.actuatorResults}>
+                  {loadReport.results.map((result) => <div key={result.actuatorId} className={result.utilization > 1 ? styles.overloadedActuator : ""}>
+                    <b>{result.actuatorId} · {result.barId}</b>
+                    <span>长度 {result.targetLength.toFixed(1)} mm</span>
+                    <span>所需 {result.derivativeValid ? `${result.requiredForce.toFixed(1)} kN` : "未收敛"}</span>
+                    <span>额定 {result.forceLimit.toFixed(1)} kN</span>
+                    <strong>{result.derivativeValid ? `${(result.utilization * 100).toFixed(1)}%` : "—"}</strong>
+                  </div>)}
+                </div>
+                {loadReport.message && <p>{loadReport.message}</p>}
+              </> : <p>添加液压缸与铰点载荷后，可计算当前姿态下每个油缸的推拉力和额定利用率。</p>}
+              <small>准静态虚功法 · 暂未计入惯性、摩擦、液压损失与冲击载荷。</small>
+            </section>
+          )}
           <div className={driverReady ? styles.healthGood : styles.healthWarn}>
             <b>{driverReady ? "驱动已就绪" : "还需要指定有效驱动"}</b>
-            <p>{driverReady ? "通用投影求解器会同时保持杆长、尺寸与导轨约束，并连续跟踪当前装配分支。" : "旋转驱动需要机架铰点；长度驱动需要一根伸缩活动杆。"}</p>
+            <p>{driverReady ? "通用投影求解器会同时保持杆长、尺寸与导轨约束，并连续跟踪当前装配分支。" : "旋转驱动需要机架铰点；长度或液压驱动需要伸缩活动杆。"}</p>
           </div>
         </aside>
       </div>

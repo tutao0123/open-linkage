@@ -54,7 +54,24 @@ export type FreeTracer =
   | { id: string; kind: "joint"; jointId: string }
   | { id: string; kind: "body"; bodyId: string; localX: number; localY: number };
 
-export type DriverMode = "rotation" | "oscillation" | "length";
+export type DriverMode = "rotation" | "oscillation" | "length" | "hydraulic";
+
+export type HydraulicActuator = {
+  id: string;
+  barId: string;
+  phaseOffset: number;
+  cycleRatio?: number;
+  forceLimit: number;
+  enabled?: boolean;
+};
+
+export type FreeJointLoad = {
+  id: string;
+  jointId: string;
+  fx: number;
+  fy: number;
+  label?: string;
+};
 
 export type FreeMechanismProject = {
   version: 3;
@@ -66,6 +83,8 @@ export type FreeMechanismProject = {
   activeTracerId: string | null;
   driverId: string | null;
   driverMode: DriverMode;
+  hydraulicActuators?: HydraulicActuator[];
+  loads?: FreeJointLoad[];
 };
 
 export type MechanismTemplate = {
@@ -83,6 +102,24 @@ export type CycleAnalysis = {
   closureError: number;
   branchSwitches: number;
   failedPhases: number[];
+};
+
+export type HydraulicForceResult = {
+  actuatorId: string;
+  barId: string;
+  targetLength: number;
+  requiredForce: number;
+  forceLimit: number;
+  utilization: number;
+  derivativeValid: boolean;
+};
+
+export type HydraulicLoadAnalysis = {
+  valid: boolean;
+  totalLoad: number;
+  maxUtilization: number;
+  results: HydraulicForceResult[];
+  message?: string;
 };
 
 export const FOUR_BAR_PROJECT: FreeMechanismProject = {
@@ -371,6 +408,45 @@ export const SCISSOR_PROJECT: FreeMechanismProject = {
   driverMode: "length",
 };
 
+const EXCAVATOR_JOINTS: FreeJoint[] = [
+  { id: "J1", x: -280, y: 140, fixed: true },
+  { id: "J2", x: -34.3, y: -32.1, fixed: false },
+  { id: "J3", x: -160.4, y: 92.9, fixed: false },
+  { id: "J4", x: -149.8, y: 12.2, fixed: false },
+  { id: "J5", x: 119.9, y: 151.7, fixed: false },
+  { id: "J6", x: -8.5, y: 37.6, fixed: false },
+  { id: "J7", x: 81.3, y: 66.7, fixed: false },
+  { id: "J8", x: 267.6, y: 177.7, fixed: false },
+  { id: "J9", x: 170.3, y: 125, fixed: false },
+  { id: "J10", x: -340, y: 230, fixed: true },
+];
+
+export const EXCAVATOR_PROJECT: FreeMechanismProject = {
+  version: 3,
+  joints: EXCAVATOR_JOINTS,
+  bars: [
+    { id: "L1", a: "J10", b: "J3", length: distance(EXCAVATOR_JOINTS[9], EXCAVATOR_JOINTS[2]), type: "telescopic", minLength: distance(EXCAVATOR_JOINTS[9], EXCAVATOR_JOINTS[2]) - 8, maxLength: distance(EXCAVATOR_JOINTS[9], EXCAVATOR_JOINTS[2]) + 8 },
+    { id: "L2", a: "J4", b: "J6", length: distance(EXCAVATOR_JOINTS[3], EXCAVATOR_JOINTS[5]), type: "telescopic", minLength: distance(EXCAVATOR_JOINTS[3], EXCAVATOR_JOINTS[5]) - 8, maxLength: distance(EXCAVATOR_JOINTS[3], EXCAVATOR_JOINTS[5]) + 8 },
+    { id: "L3", a: "J7", b: "J9", length: distance(EXCAVATOR_JOINTS[6], EXCAVATOR_JOINTS[8]), type: "telescopic", minLength: distance(EXCAVATOR_JOINTS[6], EXCAVATOR_JOINTS[8]) - 8, maxLength: distance(EXCAVATOR_JOINTS[6], EXCAVATOR_JOINTS[8]) + 8 },
+  ],
+  dimensions: [],
+  bodies: [
+    createRigidBody("B1", ["J1", "J2", "J3", "J4"], EXCAVATOR_JOINTS),
+    createRigidBody("B2", ["J2", "J5", "J6", "J7"], EXCAVATOR_JOINTS),
+    createRigidBody("B3", ["J5", "J8", "J9"], EXCAVATOR_JOINTS),
+  ],
+  tracers: [{ id: "T1", kind: "joint", jointId: "J8" }],
+  activeTracerId: "T1",
+  driverId: null,
+  driverMode: "hydraulic",
+  hydraulicActuators: [
+    { id: "A1", barId: "L1", phaseOffset: Math.PI * 3 / 2, cycleRatio: 1, forceLimit: 120, enabled: true },
+    { id: "A2", barId: "L2", phaseOffset: Math.PI / 2, cycleRatio: 1, forceLimit: 90, enabled: true },
+    { id: "A3", barId: "L3", phaseOffset: Math.PI * 3 / 2, cycleRatio: 1, forceLimit: 70, enabled: true },
+  ],
+  loads: [{ id: "F1", jointId: "J8", fx: 0, fy: 12, label: "斗齿载荷" }],
+};
+
 export const DEMO_PROJECT = FOUR_BAR_PROJECT;
 
 export const MECHANISM_TEMPLATES: MechanismTemplate[] = [
@@ -386,6 +462,7 @@ export const MECHANISM_TEMPLATES: MechanismTemplate[] = [
   { id: "peaucellier", name: "波塞利耶–利普金", description: "八连杆精确直线反演机构", project: PEAUCELLIER_PROJECT },
   { id: "jansen", name: "简森步行腿", description: "经典比例的多杆仿生步态", project: JANSEN_PROJECT },
   { id: "scissor", name: "剪叉式升降台", description: "相对平台导轨与周期伸缩驱动", project: SCISSOR_PROJECT },
+  { id: "excavator", name: "挖掘机工作装置", description: "三刚体、三液压缸与斗齿载荷分析", project: EXCAVATOR_PROJECT },
 ];
 
 export function cloneProject(project: FreeMechanismProject): FreeMechanismProject {
@@ -403,6 +480,8 @@ export function cloneProject(project: FreeMechanismProject): FreeMechanismProjec
       pairs: body.pairs.map((pair) => ({ ...pair })),
     })),
     tracers: project.tracers.map((tracer) => ({ ...tracer })),
+    hydraulicActuators: project.hydraulicActuators?.map((actuator) => ({ ...actuator })),
+    loads: project.loads?.map((load) => ({ ...load })),
   };
 }
 
@@ -428,7 +507,9 @@ export function migrateProject(value: unknown): FreeMechanismProject | null {
     tracers,
     activeTracerId: typeof project.activeTracerId === "string" ? project.activeTracerId : tracers[0]?.id ?? null,
     driverId: typeof project.driverId === "string" ? project.driverId : null,
-    driverMode: project.driverMode === "length" ? "length" : project.driverMode === "oscillation" ? "oscillation" : "rotation",
+    driverMode: project.driverMode === "hydraulic" ? "hydraulic" : project.driverMode === "length" ? "length" : project.driverMode === "oscillation" ? "oscillation" : "rotation",
+    hydraulicActuators: Array.isArray(project.hydraulicActuators) ? project.hydraulicActuators as HydraulicActuator[] : [],
+    loads: Array.isArray(project.loads) ? project.loads as FreeJointLoad[] : [],
   };
 }
 
@@ -507,17 +588,37 @@ export function getLengthDriver(bars: FreeBar[], driverId: string | null) {
   return bar?.type === "telescopic" ? bar : null;
 }
 
+export function getHydraulicActuators(project: FreeMechanismProject) {
+  return (project.hydraulicActuators ?? []).filter((actuator) => {
+    const bar = project.bars.find((item) => item.id === actuator.barId);
+    return actuator.enabled !== false && bar?.type === "telescopic";
+  });
+}
+
 export function hasValidDriver(project: FreeMechanismProject) {
+  if (project.driverMode === "hydraulic") return getHydraulicActuators(project).length > 0;
   return project.driverMode === "length"
     ? Boolean(getLengthDriver(project.bars, project.driverId))
     : Boolean(getRotationDriver(project.joints, project.bars, project.driverId));
 }
 
-function targetBarLength(bar: FreeBar, driverId: string | null, driverMode: DriverMode, phase: number) {
-  if (driverMode !== "length" || bar.id !== driverId || bar.type !== "telescopic") return bar.length;
+export function targetBarLength(
+  bar: FreeBar,
+  project: FreeMechanismProject,
+  phase: number,
+  lengthOverrides?: Record<string, number>,
+) {
+  if (lengthOverrides?.[bar.id] !== undefined) return lengthOverrides[bar.id];
+  let actuatorPhase: number | null = null;
+  if (project.driverMode === "length" && bar.id === project.driverId) actuatorPhase = phase;
+  if (project.driverMode === "hydraulic") {
+    const actuator = getHydraulicActuators(project).find((item) => item.barId === bar.id);
+    if (actuator) actuatorPhase = phase * (actuator.cycleRatio ?? 1) + actuator.phaseOffset;
+  }
+  if (actuatorPhase === null || bar.type !== "telescopic") return bar.length;
   const minimum = Math.max(1, bar.minLength ?? bar.length * 0.7);
   const maximum = Math.max(minimum, bar.maxLength ?? bar.length * 1.3);
-  return minimum + (maximum - minimum) * (0.5 - 0.5 * Math.cos(phase));
+  return minimum + (maximum - minimum) * (0.5 - 0.5 * Math.cos(actuatorPhase));
 }
 
 function projectDistance(a: FreeJoint, b: FreeJoint, target: number, locked: Set<string>) {
@@ -626,6 +727,7 @@ export function solveFreeMechanism(
   project: FreeMechanismProject,
   phase: number,
   iterations = 90,
+  lengthOverrides?: Record<string, number>,
 ) {
   const next = project.joints.map((joint) => ({
     ...joint,
@@ -634,7 +736,7 @@ export function solveFreeMechanism(
   const byId = new Map(next.map((joint) => [joint.id, joint]));
   const locked = new Set(next.filter((joint) => joint.fixed).map((joint) => joint.id));
 
-  if (project.driverMode !== "length") {
+  if (project.driverMode === "rotation" || project.driverMode === "oscillation") {
     const driver = getRotationDriver(next, project.bars, project.driverId);
     if (driver) {
       const angle = project.driverMode === "oscillation"
@@ -652,7 +754,7 @@ export function solveFreeMechanism(
       if (bar.a !== joint.id && bar.b !== joint.id) return [];
       const other = byId.get(bar.a === joint.id ? bar.b : bar.a);
       if (!other || !locked.has(other.id)) return [];
-      return [{ center: other, radius: targetBarLength(bar, project.driverId, project.driverMode, phase) }];
+      return [{ center: other, radius: targetBarLength(bar, project, phase, lengthOverrides) }];
     });
     if (lockedConnections.length >= 2) {
       resolveTwoCircleJoint(
@@ -669,7 +771,7 @@ export function solveFreeMechanism(
     for (const bar of project.bars) {
       const a = byId.get(bar.a);
       const b = byId.get(bar.b);
-      if (a && b) projectDistance(a, b, targetBarLength(bar, project.driverId, project.driverMode, phase), locked);
+      if (a && b) projectDistance(a, b, targetBarLength(bar, project, phase, lengthOverrides), locked);
     }
     for (const dimension of project.dimensions) {
       const a = byId.get(dimension.a);
@@ -705,13 +807,13 @@ export function predictJointPositions(current: FreeJoint[], previous: FreeJoint[
   });
 }
 
-export function maximumConstraintError(project: FreeMechanismProject, phase = 0) {
+export function maximumConstraintError(project: FreeMechanismProject, phase = 0, lengthOverrides?: Record<string, number>) {
   const byId = new Map(project.joints.map((joint) => [joint.id, joint]));
   let maximum = 0;
   for (const bar of project.bars) {
     const a = byId.get(bar.a);
     const b = byId.get(bar.b);
-    if (a && b) maximum = Math.max(maximum, Math.abs(distance(a, b) - targetBarLength(bar, project.driverId, project.driverMode, phase)));
+    if (a && b) maximum = Math.max(maximum, Math.abs(distance(a, b) - targetBarLength(bar, project, phase, lengthOverrides)));
   }
   for (const dimension of project.dimensions) {
     const a = byId.get(dimension.a);
@@ -741,7 +843,7 @@ export function maximumConstraintError(project: FreeMechanismProject, phase = 0)
 
 function branchSignatures(project: FreeMechanismProject) {
   const byId = new Map(project.joints.map((joint) => [joint.id, joint]));
-  const rotationDriver = project.driverMode !== "length" ? getRotationDriver(project.joints, project.bars, project.driverId) : null;
+  const rotationDriver = project.driverMode === "rotation" || project.driverMode === "oscillation" ? getRotationDriver(project.joints, project.bars, project.driverId) : null;
   const neighbors = new Map<string, string[]>();
   for (const bar of project.bars) {
     neighbors.set(bar.a, [...(neighbors.get(bar.a) ?? []), bar.b]);
@@ -770,7 +872,7 @@ export function analyzeMechanismCycle(
   phaseOverride?: number,
 ): CycleAnalysis {
   const sampleCount = Math.max(12, Math.round(samples));
-  const rotationDriver = project.driverMode !== "length" ? getRotationDriver(project.joints, project.bars, project.driverId) : null;
+  const rotationDriver = project.driverMode === "rotation" || project.driverMode === "oscillation" ? getRotationDriver(project.joints, project.bars, project.driverId) : null;
   const inferredPhase = rotationDriver && project.driverMode === "rotation"
     ? Math.atan2(rotationDriver.driven.y - rotationDriver.pivot.y, rotationDriver.driven.x - rotationDriver.pivot.x)
     : 0;
@@ -831,5 +933,90 @@ export function analyzeMechanismCycle(
     closureError,
     branchSwitches,
     failedPhases,
+  };
+}
+
+export function analyzeHydraulicLoads(
+  project: FreeMechanismProject,
+  phase: number,
+  iterations = 12000,
+): HydraulicLoadAnalysis {
+  const actuators = getHydraulicActuators(project);
+  const loads = (project.loads ?? []).filter((load) => project.joints.some((joint) => joint.id === load.jointId));
+  if (actuators.length === 0) {
+    return { valid: false, totalLoad: 0, maxUtilization: 0, results: [], message: "没有启用的液压缸。" };
+  }
+  if (loads.length === 0) {
+    return { valid: false, totalLoad: 0, maxUtilization: 0, results: [], message: "请先在受力铰点上添加载荷。" };
+  }
+
+  const barById = new Map(project.bars.map((bar) => [bar.id, bar]));
+  const baseLengths = Object.fromEntries(actuators.flatMap((actuator) => {
+    const bar = barById.get(actuator.barId);
+    return bar ? [[bar.id, targetBarLength(bar, project, phase)]] : [];
+  }));
+  const baseJoints = solveFreeMechanism(project, phase, iterations, baseLengths);
+  const base = { ...project, joints: baseJoints };
+  const results: HydraulicForceResult[] = [];
+
+  for (const actuator of actuators) {
+    const bar = barById.get(actuator.barId);
+    const targetLength = baseLengths[actuator.barId];
+    if (!bar || targetLength === undefined) continue;
+    const minimum = Math.max(1, bar.minLength ?? bar.length * 0.7);
+    const maximum = Math.max(minimum, bar.maxLength ?? bar.length * 1.3);
+    // Keep the finite-difference step comfortably above the projection solver's
+    // sub-millimetre residual, otherwise actuator forces become iteration-sensitive.
+    const epsilon = Math.max(0.5, (maximum - minimum) * 0.01);
+    const lower = Math.max(minimum + 0.001, targetLength - epsilon);
+    const upper = Math.min(maximum - 0.001, targetLength + epsilon);
+    const denominator = upper - lower;
+    const lowerOverrides = { ...baseLengths, [bar.id]: lower };
+    const upperOverrides = { ...baseLengths, [bar.id]: upper };
+    const lowerJoints = denominator > 0.0001
+      ? solveFreeMechanism(base, phase, iterations, lowerOverrides)
+      : baseJoints;
+    const upperJoints = denominator > 0.0001
+      ? solveFreeMechanism(base, phase, iterations, upperOverrides)
+      : baseJoints;
+    const lowerProject = { ...project, joints: lowerJoints };
+    const upperProject = { ...project, joints: upperJoints };
+    const derivativeValid = denominator > 0.0001
+      && maximumConstraintError(lowerProject, phase, lowerOverrides) < 0.2
+      && maximumConstraintError(upperProject, phase, upperOverrides) < 0.2;
+    const lowerById = new Map(lowerJoints.map((joint) => [joint.id, joint]));
+    const upperById = new Map(upperJoints.map((joint) => [joint.id, joint]));
+    let generalizedForce = 0;
+    if (derivativeValid) {
+      for (const load of loads) {
+        const before = lowerById.get(load.jointId);
+        const after = upperById.get(load.jointId);
+        if (!before || !after) continue;
+        generalizedForce += load.fx * (after.x - before.x) / denominator
+          + load.fy * (after.y - before.y) / denominator;
+      }
+    }
+    const requiredForce = derivativeValid ? -generalizedForce : Number.NaN;
+    const forceLimit = Math.max(0.001, actuator.forceLimit);
+    const utilization = derivativeValid ? Math.abs(requiredForce) / forceLimit : Number.POSITIVE_INFINITY;
+    results.push({
+      actuatorId: actuator.id,
+      barId: actuator.barId,
+      targetLength,
+      requiredForce,
+      forceLimit,
+      utilization,
+      derivativeValid,
+    });
+  }
+
+  const finiteUtilizations = results.filter((result) => Number.isFinite(result.utilization)).map((result) => result.utilization);
+  const maxUtilization = finiteUtilizations.length > 0 ? Math.max(...finiteUtilizations) : Number.POSITIVE_INFINITY;
+  return {
+    valid: results.length === actuators.length && results.every((result) => result.derivativeValid),
+    totalLoad: loads.reduce((total, load) => total + Math.hypot(load.fx, load.fy), 0),
+    maxUtilization,
+    results,
+    message: results.some((result) => !result.derivativeValid) ? "部分姿态的数值导数未收敛，请避开行程端点或奇异位形。" : undefined,
   };
 }

@@ -591,11 +591,11 @@ export function FreeMechanismDesigner() {
       setMessage("整周检查需要先指定有效的旋转主动杆或周期伸缩驱动。");
       return;
     }
-    const report = analyzeMechanismCycle(project, 144, 400, 0.1);
+    const report = analyzeMechanismCycle(project, 144, 400, 0.1, phaseRef.current);
     setCycleReport(report);
     setMessage(report.valid
       ? `整周 144 点检查通过：无不可达相位、无装配分支跳变，首尾误差 ${report.closureError.toFixed(3)} mm。`
-      : `整周检查发现 ${report.failedPhases.length} 个不可达采样和 ${report.branchSwitches} 次分支变化，请查看右侧诊断。`);
+      : `整周检查需要关注：${report.failedPhases.length} 个不可达采样、${report.branchSwitches} 次分支变化、首尾误差 ${report.closureError.toFixed(3)} mm。`);
   };
 
   const togglePlaying = () => {
@@ -630,7 +630,7 @@ export function FreeMechanismDesigner() {
     <main className={styles.workspace}>
       <header className={styles.header}>
         <Link className={styles.brand} href="/"><span className={styles.brandMark} />OpenLinkage</Link>
-        <nav><Link href="/lab">四杆设计</Link><Link href="/leg">六杆腿设计</Link><span>自由机构设计器 · 0.4</span></nav>
+        <nav><Link href="/lab">四杆设计</Link><Link href="/leg">六杆腿设计</Link><span>自由机构设计器 · 0.5</span></nav>
       </header>
 
       <div className={styles.layout}>
@@ -659,7 +659,7 @@ export function FreeMechanismDesigner() {
           </section>
           <div className={styles.workflowHint}>
             <b>经典机构与自由拓扑</b>
-            <p>模板可直接载入瓦特、彻比雪夫、霍肯和克兰机构；普通杆件与多铰点刚体仍可继续拆解、重组和修改。</p>
+            <p>模板现已覆盖近似直线、精确直线与仿生步行机构；所有铰点、杆长、驱动范围和轨迹点都可继续修改。</p>
           </div>
           <div className={styles.projectTools}>
             <button type="button" onClick={clearProject}>新建空白项目</button>

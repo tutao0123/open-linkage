@@ -281,6 +281,66 @@ export const KLANN_PROJECT: FreeMechanismProject = {
   driverMode: "rotation",
 };
 
+export const PEAUCELLIER_PROJECT: FreeMechanismProject = {
+  version: 3,
+  joints: [
+    { id: "J1", x: -120, y: 0, fixed: true },
+    { id: "J2", x: 0, y: 0, fixed: true },
+    { id: "J3", x: -20.8377813200, y: 118.1769303615, fixed: false },
+    { id: "J4", x: -108.7221710158, y: 239.7348755884, fixed: false },
+    { id: "J5", x: 114.1343896958, y: 52.7360176899, fixed: false },
+    { id: "J6", x: 26.25, y: 174.2939629169, fixed: false },
+  ],
+  bars: [
+    { id: "L1", a: "J2", b: "J3", length: 120, type: "rigid", minAngle: -Math.PI * 5 / 9, maxAngle: Math.PI * 5 / 9 },
+    { id: "L2", a: "J1", b: "J4", length: 240, type: "rigid" },
+    { id: "L3", a: "J1", b: "J5", length: 240, type: "rigid" },
+    { id: "L4", a: "J3", b: "J4", length: 150, type: "rigid" },
+    { id: "L5", a: "J3", b: "J5", length: 150, type: "rigid" },
+    { id: "L6", a: "J4", b: "J6", length: 150, type: "rigid" },
+    { id: "L7", a: "J5", b: "J6", length: 150, type: "rigid" },
+  ],
+  dimensions: [],
+  bodies: [],
+  tracers: [{ id: "T1", kind: "joint", jointId: "J6" }],
+  activeTracerId: "T1",
+  driverId: "L1",
+  driverMode: "oscillation",
+};
+
+export const JANSEN_PROJECT: FreeMechanismProject = {
+  version: 3,
+  joints: [
+    { id: "J1", x: 0, y: 0, fixed: true },
+    { id: "J2", x: 45, y: 0, fixed: false },
+    { id: "J3", x: -114, y: 23.4, fixed: true },
+    { id: "J4", x: -72.040605, y: -93.816293, fixed: false },
+    { id: "J5", x: -80.856321, y: 136.545511, fixed: false },
+    { id: "J6", x: -224.383097, y: -24.429511, fixed: false },
+    { id: "J7", x: -177.694545, y: 84.158791, fixed: false },
+    { id: "J8", x: -129.480332, y: 275.270799, fixed: false },
+  ],
+  bars: [
+    { id: "L1", a: "J1", b: "J2", length: 45, type: "rigid" },
+    { id: "L2", a: "J2", b: "J4", length: 150, type: "rigid" },
+    { id: "L3", a: "J3", b: "J4", length: 124.5, type: "rigid" },
+    { id: "L4", a: "J3", b: "J6", length: 120.3, type: "rigid" },
+    { id: "L5", a: "J4", b: "J6", length: 167.4, type: "rigid" },
+    { id: "L6", a: "J2", b: "J5", length: 185.7, type: "rigid" },
+    { id: "L7", a: "J3", b: "J5", length: 117.9, type: "rigid" },
+    { id: "L8", a: "J5", b: "J7", length: 110.1, type: "rigid" },
+    { id: "L9", a: "J6", b: "J7", length: 118.2, type: "rigid" },
+    { id: "L10", a: "J5", b: "J8", length: 147, type: "rigid" },
+    { id: "L11", a: "J7", b: "J8", length: 197.1, type: "rigid" },
+  ],
+  dimensions: [],
+  bodies: [],
+  tracers: [{ id: "T1", kind: "joint", jointId: "J8" }],
+  activeTracerId: "T1",
+  driverId: "L1",
+  driverMode: "rotation",
+};
+
 export const DEMO_PROJECT = FOUR_BAR_PROJECT;
 
 export const MECHANISM_TEMPLATES: MechanismTemplate[] = [
@@ -293,6 +353,8 @@ export const MECHANISM_TEMPLATES: MechanismTemplate[] = [
   { id: "chebyshev", name: "彻比雪夫连杆", description: "经典比例的近似直线导向", project: CHEBYSHEV_PROJECT },
   { id: "hoekens", name: "霍肯连杆", description: "长直线段与快速返回轨迹", project: HOEKENS_PROJECT },
   { id: "klann", name: "克兰步行腿", description: "六连杆仿生足端闭合轨迹", project: KLANN_PROJECT },
+  { id: "peaucellier", name: "波塞利耶–利普金", description: "八连杆精确直线反演机构", project: PEAUCELLIER_PROJECT },
+  { id: "jansen", name: "简森步行腿", description: "经典比例的多杆仿生步态", project: JANSEN_PROJECT },
 ];
 
 export function cloneProject(project: FreeMechanismProject): FreeMechanismProject {
@@ -642,12 +704,14 @@ export function analyzeMechanismCycle(
   samples = 144,
   iterations = 160,
   tolerance = 0.1,
+  phaseOverride?: number,
 ): CycleAnalysis {
   const sampleCount = Math.max(12, Math.round(samples));
   const rotationDriver = project.driverMode !== "length" ? getRotationDriver(project.joints, project.bars, project.driverId) : null;
-  const startPhase = rotationDriver && project.driverMode === "rotation"
+  const inferredPhase = rotationDriver && project.driverMode === "rotation"
     ? Math.atan2(rotationDriver.driven.y - rotationDriver.pivot.y, rotationDriver.driven.x - rotationDriver.pivot.x)
     : 0;
+  const startPhase = phaseOverride !== undefined && Number.isFinite(phaseOverride) ? phaseOverride : inferredPhase;
   let state = cloneProject(project);
   state.joints = solveFreeMechanism(state, startPhase, iterations);
   state = { ...state, joints: state.joints };

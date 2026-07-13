@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import Link from "next/link";
 import {
   analyzeMotion,
@@ -10,6 +10,7 @@ import {
   type FourBarParameters,
 } from "@/lib/four-bar";
 import styles from "./four-bar-lab.module.css";
+import editorStyles from "./four-bar-editor.module.css";
 
 const DEFAULT_PARAMETERS: FourBarParameters = {
   ground: 300,
@@ -18,6 +19,19 @@ const DEFAULT_PARAMETERS: FourBarParameters = {
   output: 180,
   couplerPointRatio: 0.56,
   couplerPointOffset: 42,
+};
+
+const STORAGE_KEY = "open-linkage:four-bar-project:v1";
+
+type DragTarget = "input" | "coupler" | "outputPivot" | "tracer";
+
+type FourBarProject = {
+  version: 1;
+  mechanismType: "four-bar";
+  parameters: FourBarParameters;
+  assemblyMode: AssemblyMode;
+  inputAngle: number;
+  speed: number;
 };
 
 const LINK_FIELDS: Array<{ key: keyof Pick<FourBarParameters, "ground" | "input" | "coupler" | "output">; label: string; code: string }> = [
@@ -32,11 +46,50 @@ function formatNumber(value: number | null, digits = 1) {
 }
 
 export function FourBarLab() {
+  const svgRef = useRef<SVGSVGElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [parameters, setParameters] = useState(DEFAULT_PARAMETERS);
   const [inputAngle, setInputAngle] = useState(38);
   const [assemblyMode, setAssemblyMode] = useState<AssemblyMode>("open");
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(18);
+  const [dragTarget, setDragTarget] = useState<DragTarget | null>(null);
+  const [projectMessage, setProjectMessage] = useState("浏览器自动保存已开启");
+
+  useEffect(() => {
+    const saved = window.localStorage.getItem(STORAGE_KEY);
+    if (!saved) return;
+    const timer = window.setTimeout(() => {
+      try {
+        const project = JSON.parse(saved) as FourBarProject;
+        if (project.version === 1 && project.mechanismType === "four-bar") {
+          setParameters(project.parameters);
+          setAssemblyMode(project.assemblyMode);
+          setInputAngle(project.inputAngle);
+          setSpeed(project.speed);
+          setProjectMessage("已恢复上次编辑内容");
+        }
+      } catch {
+        setProjectMessage("自动保存数据损坏，已使用默认项目");
+      }
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    const project: FourBarProject = {
+      version: 1,
+      mechanismType: "four-bar",
+      parameters,
+      assemblyMode,
+      inputAngle,
+      speed,
+    };
+    const timer = window.setTimeout(() => {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(project));
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [parameters, assemblyMode, inputAngle, speed]);
 
   useEffect(() => {
     if (!playing) return;
@@ -72,12 +125,114 @@ export function FourBarLab() {
     setParameters((current) => ({ ...current, [key]: value }));
   };
 
+  const getProject = (): FourBarProject => ({
+    version: 1,
+    mechanismType: "four-bar",
+    parameters,
+    assemblyMode,
+    inputAngle,
+    speed,
+  });
+
+  const applyProject = (project: FourBarProject) => {
+    const values = Object.values(project.parameters);
+    if (
+      project.version !== 1 ||
+      project.mechanismType !== "four-bar" ||
+      !values.every(Number.isFinite) ||
+      [project.parameters.ground, project.parameters.input, project.parameters.coupler, project.parameters.output].some((value) => value <= 0)
+    ) {
+      throw new Error("invalid project");
+    }
+    setPlaying(false);
+    setParameters(project.parameters);
+    setAssemblyMode(project.assemblyMode === "crossed" ? "crossed" : "open");
+    setInputAngle(Number.isFinite(project.inputAngle) ? project.inputAngle : 0);
+    setSpeed(Number.isFinite(project.speed) ? Math.max(1, project.speed) : 18);
+  };
+
+  const downloadProject = () => {
+    const blob = new Blob([JSON.stringify(getProject(), null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "open-linkage-four-bar.json";
+    anchor.click();
+    URL.revokeObjectURL(url);
+    setProjectMessage("项目 JSON 已导出");
+  };
+
+  const importProject = async (file: File) => {
+    try {
+      applyProject(JSON.parse(await file.text()) as FourBarProject);
+      setProjectMessage(`已载入 ${file.name}`);
+    } catch {
+      setProjectMessage("无法载入：这不是有效的四杆项目文件");
+    }
+  };
+
+  const pointerToMechanism = (event: ReactPointerEvent<SVGSVGElement>) => {
+    const svg = svgRef.current;
+    const matrix = svg?.getScreenCTM();
+    if (!svg || !matrix) return null;
+    const point = new DOMPoint(event.clientX, event.clientY).matrixTransform(matrix.inverse());
+    return { x: point.x, y: -point.y };
+  };
+
+  const startDrag = (target: DragTarget, event: ReactPointerEvent<SVGGElement | SVGCircleElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setPlaying(false);
+    setDragTarget(target);
+    svgRef.current?.setPointerCapture(event.pointerId);
+  };
+
+  const handlePointerMove = (event: ReactPointerEvent<SVGSVGElement>) => {
+    if (!dragTarget) return;
+    const point = pointerToMechanism(event);
+    if (!point) return;
+
+    if (dragTarget === "input") {
+      setParameters((current) => ({ ...current, input: Math.max(1, Math.hypot(point.x, point.y)) }));
+      setInputAngle(((Math.atan2(point.y, point.x) * 180) / Math.PI + 360) % 360);
+      return;
+    }
+    if (dragTarget === "outputPivot") {
+      setParameters((current) => ({ ...current, ground: Math.max(20, point.x) }));
+      return;
+    }
+    if (!position) return;
+    const currentPosition = position;
+    if (dragTarget === "coupler") {
+      setParameters((current) => ({
+        ...current,
+        coupler: Math.max(1, Math.hypot(point.x - currentPosition.inputJoint.x, point.y - currentPosition.inputJoint.y)),
+        output: Math.max(1, Math.hypot(point.x - current.ground, point.y)),
+      }));
+      return;
+    }
+
+    const linkX = currentPosition.couplerJoint.x - currentPosition.inputJoint.x;
+    const linkY = currentPosition.couplerJoint.y - currentPosition.inputJoint.y;
+    const lengthSquared = linkX * linkX + linkY * linkY;
+    const relativeX = point.x - currentPosition.inputJoint.x;
+    const relativeY = point.y - currentPosition.inputJoint.y;
+    const ratio = (relativeX * linkX + relativeY * linkY) / lengthSquared;
+    const offset = (relativeX * -linkY + relativeY * linkX) / Math.sqrt(lengthSquared);
+    setParameters((current) => ({
+      ...current,
+      couplerPointRatio: Math.min(1, Math.max(0, ratio)),
+      couplerPointOffset: Math.min(300, Math.max(-300, offset)),
+    }));
+  };
+
   const reset = () => {
     setPlaying(false);
     setParameters(DEFAULT_PARAMETERS);
     setInputAngle(38);
     setAssemblyMode("open");
     setSpeed(18);
+    setProjectMessage("已恢复默认项目");
   };
 
   return (
@@ -153,9 +308,29 @@ export function FourBarLab() {
             </div>
           </section>
 
+          <section className={styles.controlSection}>
+            <p className={styles.sectionLabel}>项目文件</p>
+            <div className={editorStyles.projectActions}>
+              <button type="button" onClick={downloadProject}>导出 JSON</button>
+              <button type="button" onClick={() => fileInputRef.current?.click()}>载入项目</button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="application/json,.json"
+                hidden
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (file) void importProject(file);
+                  event.target.value = "";
+                }}
+              />
+            </div>
+            <p className={editorStyles.saveStatus}>{projectMessage}</p>
+          </section>
+
           <div className={styles.note}>
             <span>提示</span>
-            当前版本固定两个机架铰点。下一版将支持在画布中直接拖动铰点和尺寸约束。
+            拖动绿色手柄可调整机构；左侧数值框用于输入精确尺寸。输出固定铰点沿机架方向移动。
           </div>
         </aside>
 
@@ -172,7 +347,16 @@ export function FourBarLab() {
           </div>
 
           <div className={styles.canvas}>
-            <svg viewBox={viewBox} role="img" aria-label="四杆机构运动学画布">
+            <svg
+              ref={svgRef}
+              className={editorStyles.editableSvg}
+              viewBox={viewBox}
+              role="img"
+              aria-label="四杆机构运动学画布"
+              onPointerMove={handlePointerMove}
+              onPointerUp={() => setDragTarget(null)}
+              onPointerCancel={() => setDragTarget(null)}
+            >
               <defs>
                 <pattern id="grid" width="25" height="25" patternUnits="userSpaceOnUse">
                   <path d="M 25 0 L 0 0 0 25" className={styles.gridLine} />
@@ -180,6 +364,12 @@ export function FourBarLab() {
               </defs>
               <rect x={-horizontalPadding} y={-verticalExtent} width={parameters.ground + horizontalPadding * 2} height={verticalExtent * 2} fill="url(#grid)" />
               <line x1="0" y1="0" x2={parameters.ground} y2="0" className={styles.groundLink} />
+              <g className={editorStyles.dimensions} aria-hidden="true">
+                <line x1="0" y1="24" x2={parameters.ground} y2="24" />
+                <line x1="0" y1="17" x2="0" y2="31" />
+                <line x1={parameters.ground} y1="17" x2={parameters.ground} y2="31" />
+                <text x={parameters.ground / 2} y="45" textAnchor="middle">r₁ = {parameters.ground.toFixed(1)} mm</text>
+              </g>
               {analysis.trailPath && <path d={analysis.trailPath} className={styles.trail} />}
               {position ? (
                 <>
@@ -188,17 +378,28 @@ export function FourBarLab() {
                   <line x1={position.couplerJoint.x} y1={-position.couplerJoint.y} x2={parameters.ground} y2="0" className={`${styles.link} ${styles.outputLink}`} />
                   <line x1={position.inputJoint.x} y1={-position.inputJoint.y} x2={position.couplerPoint.x} y2={-position.couplerPoint.y} className={styles.tracerArm} />
                   {[
-                    { id: "o2", x: 0, y: 0 },
-                    { id: "a", x: position.inputJoint.x, y: -position.inputJoint.y },
-                    { id: "b", x: position.couplerJoint.x, y: -position.couplerJoint.y },
-                    { id: "o4", x: parameters.ground, y: 0 },
+                    { id: "o2", x: 0, y: 0, target: null },
+                    { id: "a", x: position.inputJoint.x, y: -position.inputJoint.y, target: "input" as const },
+                    { id: "b", x: position.couplerJoint.x, y: -position.couplerJoint.y, target: "coupler" as const },
+                    { id: "o4", x: parameters.ground, y: 0, target: "outputPivot" as const },
                   ].map((joint) => (
-                    <g key={joint.id}>
+                    <g
+                      key={joint.id}
+                      className={joint.target ? editorStyles.draggableJoint : undefined}
+                      onPointerDown={joint.target ? (event) => startDrag(joint.target, event) : undefined}
+                    >
                       <circle cx={joint.x} cy={joint.y} r="10" className={styles.jointOuter} />
                       <circle cx={joint.x} cy={joint.y} r="3.5" className={styles.jointInner} />
+                      {joint.target && <circle cx={joint.x} cy={joint.y} r="18" className={editorStyles.dragHitArea} />}
                     </g>
                   ))}
-                  <circle cx={position.couplerPoint.x} cy={-position.couplerPoint.y} r="8" className={styles.tracerPoint} />
+                  <circle
+                    cx={position.couplerPoint.x}
+                    cy={-position.couplerPoint.y}
+                    r="9"
+                    className={`${styles.tracerPoint} ${editorStyles.draggableJoint}`}
+                    onPointerDown={(event) => startDrag("tracer", event)}
+                  />
                 </>
               ) : (
                 <text x={parameters.ground / 2} y="-20" textAnchor="middle" className={styles.invalidText}>该输入角下无法闭合装配</text>

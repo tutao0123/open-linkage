@@ -1,0 +1,58 @@
+.projectActions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.projectActions button {
+  padding: 10px 8px;
+  border: 1px solid #bfc1ba;
+  background: #e8e8e1;
+  color: #202423;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.projectActions button:hover {
+  background: #dfe4d5;
+  border-color: #91978f;
+}
+
+.saveStatus {
+  margin: 9px 0 0;
+  color: #687066;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.editableSvg {
+  touch-action: none;
+}
+
+.dimensions line {
+  stroke: #6f756f;
+  stroke-width: 1;
+}
+
+.dimensions text {
+  fill: #555c55;
+  font: 10px "Cascadia Mono", Consolas, monospace;
+}
+
+.dragHitArea {
+  fill: transparent;
+  stroke: none;
+}
+
+.draggableJoint {
+  cursor: grab;
+}
+
+.draggableJoint:active {
+  cursor: grabbing;
+}
+
+.draggableJoint:hover circle:first-child {
+  stroke: #679415;
+  stroke-width: 5;
+}

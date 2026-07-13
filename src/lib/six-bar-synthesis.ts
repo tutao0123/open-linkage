@@ -239,8 +239,8 @@ export async function synthesizeSixBarLeg(
   const landingIndex = findLandingIndex(target);
   const bounds = getBounds(target, initial);
   const random = createRandom(20260713 + priority.length * 97);
-  const populationSize = 52;
-  const generations = 82;
+  const populationSize = 64;
+  const generations = 150;
   const initialSeeds: number[][] = [];
 
   for (const direction of [1, -1] as const) {

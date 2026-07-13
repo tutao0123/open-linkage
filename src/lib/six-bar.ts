@@ -20,11 +20,23 @@ export type SixBarPosition = {
   footPoint: Point;
 };
 
+export type SixBarSample = {
+  angle: number;
+  position: SixBarPosition;
+  firstTransmissionAngle: number;
+  secondTransmissionAngle: number;
+};
+
 export type SixBarAnalysis = {
   validRatio: number;
   stepLength: number;
   liftHeight: number;
+  minTransmissionAngle: number;
+  meanTransmissionAngle: number;
+  peakFootSpeedPerRadian: number;
+  performanceScore: number;
   trailPath: string;
+  samples: SixBarSample[];
 };
 
 const EPSILON = 1e-8;
@@ -55,6 +67,30 @@ function circleIntersection(
   };
 }
 
+function transmissionAngle(vertex: Point, first: Point, second: Point) {
+  const firstX = first.x - vertex.x;
+  const firstY = first.y - vertex.y;
+  const secondX = second.x - vertex.x;
+  const secondY = second.y - vertex.y;
+  const denominator = Math.hypot(firstX, firstY) * Math.hypot(secondX, secondY);
+  if (denominator < EPSILON) return 0;
+  const cosine = Math.min(1, Math.max(-1, (firstX * secondX + firstY * secondY) / denominator));
+  const angle = (Math.acos(cosine) * 180) / Math.PI;
+  return Math.min(angle, 180 - angle);
+}
+
+export function getSixBarTransmissionAngles(
+  parameters: SixBarParameters,
+  position: SixBarPosition,
+) {
+  const frontPivot = { x: parameters.groundPivot, y: 0 };
+  const rearPivot = { x: parameters.rearPivotX, y: parameters.rearPivotY };
+  return {
+    first: transmissionAngle(position.sharedJoint, position.crankJoint, frontPivot),
+    second: transmissionAngle(position.secondJoint, position.sharedJoint, rearPivot),
+  };
+}
+
 export function solveSixBarLeg(
   parameters: SixBarParameters,
   inputAngleDegrees: number,
@@ -70,6 +106,7 @@ export function solveSixBarLeg(
     parameters.secondRocker,
   ];
   if (lengths.some((length) => !Number.isFinite(length) || length <= 0)) return null;
+  if (!Number.isFinite(parameters.rearPivotX) || !Number.isFinite(parameters.rearPivotY)) return null;
 
   const angle = (inputAngleDegrees * Math.PI) / 180;
   const crankJoint = {
@@ -99,6 +136,7 @@ export function solveSixBarLeg(
   const linkX = secondJoint.x - sharedJoint.x;
   const linkY = secondJoint.y - sharedJoint.y;
   const linkLength = Math.hypot(linkX, linkY);
+  if (linkLength < EPSILON) return null;
   const normalX = -linkY / linkLength;
   const normalY = linkX / linkLength;
   const footPoint = {
@@ -109,38 +147,77 @@ export function solveSixBarLeg(
   return { crankJoint, sharedJoint, secondJoint, footPoint };
 }
 
+export function sampleSixBarLeg(
+  parameters: SixBarParameters,
+  sampleCount = 120,
+  phase = 0,
+  direction: 1 | -1 = 1,
+  firstMode: AssemblyMode = "open",
+  secondMode: AssemblyMode = "crossed",
+): Array<SixBarSample | null> {
+  return Array.from({ length: sampleCount }, (_, index) => {
+    const angle = phase + direction * (index / sampleCount) * 360;
+    const position = solveSixBarLeg(parameters, angle, firstMode, secondMode);
+    if (!position) return null;
+    const angles = getSixBarTransmissionAngles(parameters, position);
+    return {
+      angle,
+      position,
+      firstTransmissionAngle: angles.first,
+      secondTransmissionAngle: angles.second,
+    };
+  });
+}
+
 export function analyzeSixBarLeg(
   parameters: SixBarParameters,
   firstMode: AssemblyMode = "open",
   secondMode: AssemblyMode = "crossed",
 ): SixBarAnalysis {
-  let valid = 0;
-  let minimumX = Number.POSITIVE_INFINITY;
-  let maximumX = Number.NEGATIVE_INFINITY;
-  let minimumY = Number.POSITIVE_INFINITY;
-  let maximumY = Number.NEGATIVE_INFINITY;
-  let trailPath = "";
-  let drawing = false;
-
-  for (let angle = 0; angle <= 360; angle += 1) {
-    const position = solveSixBarLeg(parameters, angle, firstMode, secondMode);
-    if (!position) {
-      drawing = false;
-      continue;
-    }
-    valid += 1;
-    minimumX = Math.min(minimumX, position.footPoint.x);
-    maximumX = Math.max(maximumX, position.footPoint.x);
-    minimumY = Math.min(minimumY, position.footPoint.y);
-    maximumY = Math.max(maximumY, position.footPoint.y);
-    trailPath += `${drawing ? "L" : "M"}${position.footPoint.x.toFixed(2)},${(-position.footPoint.y).toFixed(2)} `;
-    drawing = true;
+  const rawSamples = sampleSixBarLeg(parameters, 120, 0, 1, firstMode, secondMode);
+  const samples = rawSamples.filter((sample): sample is SixBarSample => sample !== null);
+  const footPoints = samples.map((sample) => sample.position.footPoint);
+  const minimumX = footPoints.length ? Math.min(...footPoints.map((point) => point.x)) : 0;
+  const maximumX = footPoints.length ? Math.max(...footPoints.map((point) => point.x)) : 0;
+  const minimumY = footPoints.length ? Math.min(...footPoints.map((point) => point.y)) : 0;
+  const maximumY = footPoints.length ? Math.max(...footPoints.map((point) => point.y)) : 0;
+  const transmissionAngles = samples.flatMap((sample) => [sample.firstTransmissionAngle, sample.secondTransmissionAngle]);
+  const minTransmissionAngle = transmissionAngles.length ? Math.min(...transmissionAngles) : 0;
+  const meanTransmissionAngle = transmissionAngles.length
+    ? transmissionAngles.reduce((sum, angle) => sum + angle, 0) / transmissionAngles.length
+    : 0;
+  const angleStep = (Math.PI * 2) / rawSamples.length;
+  let peakFootSpeedPerRadian = 0;
+  for (let index = 0; index < rawSamples.length; index += 1) {
+    const current = rawSamples[index];
+    const previous = rawSamples[(index - 1 + rawSamples.length) % rawSamples.length];
+    if (!current || !previous) continue;
+    peakFootSpeedPerRadian = Math.max(
+      peakFootSpeedPerRadian,
+      Math.hypot(
+        current.position.footPoint.x - previous.position.footPoint.x,
+        current.position.footPoint.y - previous.position.footPoint.y,
+      ) / angleStep,
+    );
   }
+  const validRatio = samples.length / rawSamples.length;
+  const continuityScore = validRatio * 45;
+  const transmissionScore = Math.min(1, minTransmissionAngle / 40) * 40;
+  const speedScale = Math.max(maximumX - minimumX, maximumY - minimumY, 1);
+  const smoothnessScore = Math.max(0, 1 - peakFootSpeedPerRadian / (speedScale * 3.5)) * 15;
+  const trailPath = footPoints
+    .map((point, index) => `${index === 0 ? "M" : "L"}${point.x.toFixed(2)},${(-point.y).toFixed(2)}`)
+    .join(" ");
 
   return {
-    validRatio: valid / 361,
-    stepLength: valid ? maximumX - minimumX : 0,
-    liftHeight: valid ? maximumY - minimumY : 0,
-    trailPath: trailPath.trim(),
+    validRatio,
+    stepLength: maximumX - minimumX,
+    liftHeight: maximumY - minimumY,
+    minTransmissionAngle,
+    meanTransmissionAngle,
+    peakFootSpeedPerRadian,
+    performanceScore: continuityScore + transmissionScore + smoothnessScore,
+    trailPath: `${trailPath}${validRatio === 1 && trailPath ? " Z" : ""}`,
+    samples,
   };
 }

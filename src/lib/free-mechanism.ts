@@ -2,6 +2,8 @@ export type SliderGuide = {
   originX: number;
   originY: number;
   angle: number;
+  referenceBarId?: string;
+  offset?: number;
 };
 
 export type FreeJoint = {
@@ -341,6 +343,34 @@ export const JANSEN_PROJECT: FreeMechanismProject = {
   driverMode: "rotation",
 };
 
+const SCISSOR_DIAGONAL = Math.hypot(360, 400);
+
+export const SCISSOR_PROJECT: FreeMechanismProject = {
+  version: 3,
+  joints: [
+    { id: "J1", x: -200, y: 200, fixed: true },
+    { id: "J2", x: 160, y: 200, fixed: false, slider: { originX: -200, originY: 200, angle: 0 } },
+    { id: "J3", x: 160, y: -200, fixed: false, slider: { originX: -200, originY: -200, angle: 0, referenceBarId: "L2", offset: 0 } },
+    { id: "J4", x: -200, y: -200, fixed: false },
+    { id: "J5", x: 300, y: -200, fixed: false },
+  ],
+  bars: [
+    { id: "L1", a: "J1", b: "J2", length: 360, type: "telescopic", minLength: 210, maxLength: 470 },
+    { id: "L2", a: "J4", b: "J5", length: 500, type: "rigid" },
+    { id: "L3", a: "J1", b: "J3", length: SCISSOR_DIAGONAL, type: "rigid" },
+    { id: "L4", a: "J2", b: "J4", length: SCISSOR_DIAGONAL, type: "rigid" },
+  ],
+  dimensions: [
+    { id: "D1", type: "horizontal", a: "J4", b: "J5", value: 0 },
+    { id: "D2", type: "vertical", a: "J1", b: "J4", value: 0 },
+  ],
+  bodies: [],
+  tracers: [{ id: "T1", kind: "joint", jointId: "J5" }],
+  activeTracerId: "T1",
+  driverId: "L1",
+  driverMode: "length",
+};
+
 export const DEMO_PROJECT = FOUR_BAR_PROJECT;
 
 export const MECHANISM_TEMPLATES: MechanismTemplate[] = [
@@ -355,6 +385,7 @@ export const MECHANISM_TEMPLATES: MechanismTemplate[] = [
   { id: "klann", name: "克兰步行腿", description: "六连杆仿生足端闭合轨迹", project: KLANN_PROJECT },
   { id: "peaucellier", name: "波塞利耶–利普金", description: "八连杆精确直线反演机构", project: PEAUCELLIER_PROJECT },
   { id: "jansen", name: "简森步行腿", description: "经典比例的多杆仿生步态", project: JANSEN_PROJECT },
+  { id: "scissor", name: "剪叉式升降台", description: "相对平台导轨与周期伸缩驱动", project: SCISSOR_PROJECT },
 ];
 
 export function cloneProject(project: FreeMechanismProject): FreeMechanismProject {
@@ -448,6 +479,7 @@ export function estimateDof(
   const movingCoordinates = joints.filter((joint) => !joint.fixed).length * 2;
   const sliderConstraints = joints.filter((joint) => !joint.fixed && joint.slider).length;
   const barConstraints = bars.filter((bar) => {
+    if (bar.type === "telescopic") return false;
     const a = joints.find((joint) => joint.id === bar.a);
     const b = joints.find((joint) => joint.id === bar.b);
     return a && b && !(a.fixed && b.fixed);
@@ -523,15 +555,44 @@ function projectAxisDimension(a: FreeJoint, b: FreeJoint, axis: "x" | "y", targe
   }
 }
 
-function projectSlider(joint: FreeJoint) {
-  if (!joint.slider || joint.fixed) return;
-  const cosine = Math.cos(joint.slider.angle);
-  const sine = Math.sin(joint.slider.angle);
-  const dx = joint.x - joint.slider.originX;
-  const dy = joint.y - joint.slider.originY;
+export function resolveSliderGuide(joint: FreeJoint, joints: FreeJoint[], bars: FreeBar[]) {
+  if (!joint.slider) return null;
+  const referenceBar = joint.slider.referenceBarId
+    ? bars.find((bar) => bar.id === joint.slider?.referenceBarId)
+    : null;
+  if (referenceBar) {
+    const a = joints.find((item) => item.id === referenceBar.a);
+    const b = joints.find((item) => item.id === referenceBar.b);
+    if (a && b) {
+      const referenceAngle = Math.atan2(b.y - a.y, b.x - a.x);
+      const offset = joint.slider.offset ?? 0;
+      return {
+        originX: a.x - Math.sin(referenceAngle) * offset,
+        originY: a.y + Math.cos(referenceAngle) * offset,
+        angle: referenceAngle + joint.slider.angle,
+        referenceBarId: referenceBar.id,
+      };
+    }
+  }
+  return {
+    originX: joint.slider.originX,
+    originY: joint.slider.originY,
+    angle: joint.slider.angle,
+    referenceBarId: null,
+  };
+}
+
+function projectSlider(joint: FreeJoint, joints: FreeJoint[], bars: FreeBar[], locked: Set<string>) {
+  if (!joint.slider || joint.fixed || locked.has(joint.id)) return;
+  const guide = resolveSliderGuide(joint, joints, bars);
+  if (!guide) return;
+  const cosine = Math.cos(guide.angle);
+  const sine = Math.sin(guide.angle);
+  const dx = joint.x - guide.originX;
+  const dy = joint.y - guide.originY;
   const along = dx * cosine + dy * sine;
-  joint.x = joint.slider.originX + along * cosine;
-  joint.y = joint.slider.originY + along * sine;
+  joint.x = guide.originX + along * cosine;
+  joint.y = guide.originY + along * sine;
 }
 
 function resolveTwoCircleJoint(
@@ -624,7 +685,7 @@ export function solveFreeMechanism(
         if (a && b) projectDistance(a, b, pair.length, locked);
       }
     }
-    for (const joint of next) projectSlider(joint);
+    for (const joint of next) projectSlider(joint, next, project.bars, locked);
   }
   return next;
 }
@@ -668,9 +729,11 @@ export function maximumConstraintError(project: FreeMechanismProject, phase = 0)
   }
   for (const joint of project.joints) {
     if (!joint.slider) continue;
-    const normalX = -Math.sin(joint.slider.angle);
-    const normalY = Math.cos(joint.slider.angle);
-    const error = Math.abs((joint.x - joint.slider.originX) * normalX + (joint.y - joint.slider.originY) * normalY);
+    const guide = resolveSliderGuide(joint, project.joints, project.bars);
+    if (!guide) continue;
+    const normalX = -Math.sin(guide.angle);
+    const normalY = Math.cos(guide.angle);
+    const error = Math.abs((joint.x - guide.originX) * normalX + (joint.y - guide.originY) * normalY);
     maximum = Math.max(maximum, error);
   }
   return maximum;

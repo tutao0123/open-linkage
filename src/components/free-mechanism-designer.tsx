@@ -27,6 +27,7 @@ import {
   maximumConstraintError,
   migrateProject,
   predictJointPositions,
+  resolveSliderGuide,
   resolveTracerPoint,
   solveFreeMechanism,
   type DimensionType,
@@ -123,6 +124,9 @@ export function FreeMechanismDesigner() {
   const selectedDimension = selection?.kind === "dimension" ? project.dimensions.find((dimension) => dimension.id === selection.id) ?? null : null;
   const selectedBody = selection?.kind === "body" ? project.bodies.find((body) => body.id === selection.id) ?? null : null;
   const selectedTracer = selection?.kind === "tracer" ? project.tracers.find((tracer) => tracer.id === selection.id) ?? null : null;
+  const sliderReferenceBars = selectedJoint
+    ? project.bars.filter((bar) => bar.a !== selectedJoint.id && bar.b !== selectedJoint.id)
+    : [];
   const activeTracer = project.tracers.find((tracer) => tracer.id === project.activeTracerId) ?? null;
   const driverReady = hasValidDriver(project);
   const dof = estimateDof(project.joints, project.bars, project.dimensions, project.bodies);
@@ -364,7 +368,11 @@ export function FreeMechanismDesigner() {
       ...joint,
       x,
       y,
-      slider: joint.slider ? { ...joint.slider, originX: x, originY: y } : undefined,
+      slider: joint.slider
+        ? joint.slider.referenceBarId
+          ? { ...joint.slider }
+          : { ...joint.slider, originX: x, originY: y }
+        : undefined,
     } : joint);
     const byId = new Map(joints.map((joint) => [joint.id, joint]));
     const bars = current.bars.map((bar) => {
@@ -415,6 +423,10 @@ export function FreeMechanismDesigner() {
     const next = updater(project);
     commit(next);
     syncPhase(next);
+    setTrail([]);
+    setCycleReport(null);
+    setSolveResult("idle");
+    setMessage("设计参数已更新；请重新求解或执行整周检查。");
   };
 
   const updateSelectedJoint = (updates: Partial<FreeJoint>) => {
@@ -486,9 +498,14 @@ export function FreeMechanismDesigner() {
         const tracers = current.tracers.filter((tracer) =>
           !(tracer.kind === "joint" && tracer.jointId === selection.id)
           && !(tracer.kind === "body" && removedBodies.includes(tracer.bodyId)));
+        const joints = current.joints
+          .filter((joint) => joint.id !== selection.id)
+          .map((joint) => joint.slider?.referenceBarId && removedBars.includes(joint.slider.referenceBarId)
+            ? { ...joint, slider: { ...joint.slider, referenceBarId: undefined, offset: undefined, originX: joint.x, originY: joint.y } }
+            : joint);
         return {
           ...current,
-          joints: current.joints.filter((joint) => joint.id !== selection.id),
+          joints,
           bars: current.bars.filter((bar) => !removedBars.includes(bar.id)),
           dimensions: current.dimensions.filter((dimension) => dimension.a !== selection.id && dimension.b !== selection.id),
           bodies: current.bodies.filter((body) => !removedBodies.includes(body.id)),
@@ -499,6 +516,9 @@ export function FreeMechanismDesigner() {
       }
       if (selection.kind === "bar") return {
         ...current,
+        joints: current.joints.map((joint) => joint.slider?.referenceBarId === selection.id
+          ? { ...joint, slider: { ...joint.slider, referenceBarId: undefined, offset: undefined, originX: joint.x, originY: joint.y } }
+          : joint),
         bars: current.bars.filter((bar) => bar.id !== selection.id),
         driverId: current.driverId === selection.id ? null : current.driverId,
       };
@@ -630,7 +650,7 @@ export function FreeMechanismDesigner() {
     <main className={styles.workspace}>
       <header className={styles.header}>
         <Link className={styles.brand} href="/"><span className={styles.brandMark} />OpenLinkage</Link>
-        <nav><Link href="/lab">四杆设计</Link><Link href="/leg">六杆腿设计</Link><span>自由机构设计器 · 0.5</span></nav>
+        <nav><Link href="/lab">四杆设计</Link><Link href="/leg">六杆腿设计</Link><span>自由机构设计器 · 0.6</span></nav>
       </header>
 
       <div className={styles.layout}>
@@ -659,7 +679,7 @@ export function FreeMechanismDesigner() {
           </section>
           <div className={styles.workflowHint}>
             <b>经典机构与自由拓扑</b>
-            <p>模板现已覆盖近似直线、精确直线与仿生步行机构；所有铰点、杆长、驱动范围和轨迹点都可继续修改。</p>
+            <p>移动副既可固定在机架，也可绑定运动杆件；剪叉模板展示了随平台移动的相对导轨。</p>
           </div>
           <div className={styles.projectTools}>
             <button type="button" onClick={clearProject}>新建空白项目</button>
@@ -720,12 +740,14 @@ export function FreeMechanismDesigner() {
               />}
 
               {project.joints.filter((joint) => joint.slider).map((joint) => {
-                const guide = joint.slider!;
+                const guide = resolveSliderGuide(joint, project.joints, project.bars);
+                if (!guide) return null;
                 const dx = Math.cos(guide.angle) * 240;
                 const dy = Math.sin(guide.angle) * 240;
-                return <g key={`guide-${joint.id}`} className={styles.sliderGuide}>
+                return <g key={`guide-${joint.id}`} className={`${styles.sliderGuide} ${guide.referenceBarId ? styles.relativeSliderGuide : ""}`}>
                   <line x1={guide.originX - dx} y1={guide.originY - dy} x2={guide.originX + dx} y2={guide.originY + dy} />
                   <line x1={guide.originX - dx} y1={guide.originY - dy + 8} x2={guide.originX + dx} y2={guide.originY + dy + 8} />
+                  {guide.referenceBarId && <text x={guide.originX + 12} y={guide.originY - 12}>REL · {guide.referenceBarId}</text>}
                 </g>;
               })}
 
@@ -775,6 +797,7 @@ export function FreeMechanismDesigner() {
 
               {project.joints.map((joint) => {
                 const selected = selection?.kind === "joint" && selection.id === joint.id;
+                const sliderGuide = resolveSliderGuide(joint, project.joints, project.bars);
                 return (
                   <g
                     className={styles.jointGroup}
@@ -787,7 +810,7 @@ export function FreeMechanismDesigner() {
                     onClick={(event) => { event.stopPropagation(); handleJointClick(joint); }}
                   >
                     {joint.fixed && <path d={`M ${joint.x - 20} ${joint.y + 19} L ${joint.x + 20} ${joint.y + 19} M ${joint.x - 15} ${joint.y + 19} l -8 12 M ${joint.x} ${joint.y + 19} l -8 12 M ${joint.x + 15} ${joint.y + 19} l -8 12`} className={styles.groundMark} />}
-                    {joint.slider && <rect x={joint.x - 18} y={joint.y - 13} width="36" height="26" rx="4" className={`${styles.sliderBlock} ${selected ? styles.selectedJoint : ""}`} transform={`rotate(${joint.slider.angle * 180 / Math.PI} ${joint.x} ${joint.y})`} />}
+                    {joint.slider && <rect x={joint.x - 18} y={joint.y - 13} width="36" height="26" rx="4" className={`${styles.sliderBlock} ${selected ? styles.selectedJoint : ""}`} transform={`rotate(${(sliderGuide?.angle ?? joint.slider.angle) * 180 / Math.PI} ${joint.x} ${joint.y})`} />}
                     {!joint.slider && <circle cx={joint.x} cy={joint.y} r={selected || pairStart === joint.id || bodyDraft.includes(joint.id) ? 16 : 13} className={`${styles.joint} ${joint.fixed ? styles.fixedJoint : ""} ${selected ? styles.selectedJoint : ""} ${bodyDraft.includes(joint.id) ? styles.bodyDraftJoint : ""}`} />}
                     <circle cx={joint.x} cy={joint.y} r="4" className={styles.pin} />
                     <text x={joint.x + 16} y={joint.y - 15} className={styles.jointLabel}>{joint.id}</text>
@@ -827,10 +850,27 @@ export function FreeMechanismDesigner() {
           <div className={styles.panelTitle}><div><span>02</span><h2>对象与约束</h2></div>{selection && <button type="button" onClick={deleteSelection}>删除所选</button>}</div>
           {selectedJoint && (
             <section className={styles.selectionCard}>
-              <div className={styles.selectionTitle}><span>{selectedJoint.slider ? "PRISMATIC" : "JOINT"}</span><b>{selectedJoint.id}</b></div>
+              <div className={styles.selectionTitle}><span>{selectedJoint.slider?.referenceBarId ? "RELATIVE PRISMATIC" : selectedJoint.slider ? "PRISMATIC" : "JOINT"}</span><b>{selectedJoint.id}</b></div>
               <label>X 坐标 <input type="number" value={round(selectedJoint.x)} onChange={(event) => updateSelectedJoint({ x: Number(event.target.value) })} /></label>
               <label>Y 坐标 <input type="number" value={round(selectedJoint.y)} onChange={(event) => updateSelectedJoint({ y: Number(event.target.value) })} /></label>
-              {selectedJoint.slider && <label>导轨角度 <input type="number" value={round(selectedJoint.slider.angle * 180 / Math.PI)} onChange={(event) => updateSelectedJoint({ slider: { ...selectedJoint.slider!, angle: Number(event.target.value) * Math.PI / 180 } })} /></label>}
+              {selectedJoint.slider && <>
+                <label>导轨参考 <select value={selectedJoint.slider.referenceBarId ?? ""} onChange={(event) => {
+                  const referenceBarId = event.target.value || undefined;
+                  updateSelectedJoint({
+                    slider: referenceBarId
+                      ? { ...selectedJoint.slider!, referenceBarId, angle: 0, offset: 0 }
+                      : { ...selectedJoint.slider!, referenceBarId: undefined, offset: undefined, originX: selectedJoint.x, originY: selectedJoint.y, angle: 0 },
+                  });
+                }}>
+                  <option value="">机架固定导轨</option>
+                  {sliderReferenceBars.map((bar) => <option key={bar.id} value={bar.id}>跟随 {bar.id}（{bar.a}–{bar.b}）</option>)}
+                </select></label>
+                <label>{selectedJoint.slider.referenceBarId ? "相对角度" : "导轨角度"} <input type="number" value={round(selectedJoint.slider.angle * 180 / Math.PI)} onChange={(event) => updateSelectedJoint({ slider: { ...selectedJoint.slider!, angle: Number(event.target.value) * Math.PI / 180 } })} /></label>
+                {selectedJoint.slider.referenceBarId && <label>法向偏置 <input type="number" value={round(selectedJoint.slider.offset ?? 0)} onChange={(event) => updateSelectedJoint({ slider: { ...selectedJoint.slider!, offset: Number(event.target.value) } })} /></label>}
+                <small>{selectedJoint.slider.referenceBarId
+                  ? `导轨随 ${selectedJoint.slider.referenceBarId} 平移和转动；相对角度与偏置在参考杆件局部坐标系中定义。`
+                  : "导轨固定在机架坐标系中；可输入绝对角度。"}</small>
+              </>}
               <button type="button" onClick={() => updateSelectedJoint(selectedJoint.slider
                 ? { slider: undefined, fixed: false }
                 : selectedJoint.fixed
@@ -920,6 +960,7 @@ export function FreeMechanismDesigner() {
             <h3>机构状态</h3>
             <div><span>自由度估算</span><strong>{dof}</strong></div>
             <div><span>移动副</span><strong>{project.joints.filter((joint) => joint.slider).length}</strong></div>
+            <div><span>相对移动副</span><strong>{project.joints.filter((joint) => joint.slider?.referenceBarId).length}</strong></div>
             <div><span>多铰点刚体</span><strong>{project.bodies.length}</strong></div>
             <div><span>轨迹点</span><strong>{project.tracers.length}</strong></div>
             <div><span>最大约束误差</span><strong>{constraintError.toFixed(2)}<small> mm</small></strong></div>

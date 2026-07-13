@@ -91,6 +91,8 @@
 .pin { fill:#111515; pointer-events:none; }
 .groundMark { fill:none; stroke:#6d736d; stroke-width:3; pointer-events:none; }
 .sliderGuide { fill:none; stroke:#747b75; stroke-width:2; stroke-dasharray:7 5; pointer-events:none; }
+.relativeSliderGuide { stroke:#6f9d28; }
+.relativeSliderGuide text { fill:#5d8125; stroke:none; font:10px "Cascadia Mono",Consolas,monospace; letter-spacing:.04em; }
 .sliderBlock { fill:#e4eed0; stroke:#151918; stroke-width:4; }
 .dimensionGroup { fill:none; stroke:#8a6e48; stroke-width:1.5; stroke-dasharray:5 4; cursor:pointer; }
 .dimensionGroup text { fill:#795e3c; stroke:none; font:10px "Cascadia Mono",Consolas,monospace; text-anchor:middle; }
@@ -146,6 +148,6 @@
 .healthGood { border-color:#b9cf8b; background:#e5efd0; }
 .healthWarn { border-color:#d5a48d; background:#f2ddd2; }
 .healthGood p,.healthWarn p { margin:8px 0 0; line-height:1.55; }
-@media(max-width:1220px){.layout{grid-template-columns:280px 1fr}.inspector{grid-column:1/-1;border-left:0;border-top:1px solid #c5c6be}.metrics{display:grid;grid-template-columns:repeat(6,1fr);gap:0 18px}.healthGood,.healthWarn{max-width:520px}}
+@media(max-width:1220px){.layout{grid-template-columns:280px 1fr}.inspector{grid-column:1/-1;border-left:0;border-top:1px solid #c5c6be}.metrics{display:grid;grid-template-columns:repeat(7,1fr);gap:0 18px}.healthGood,.healthWarn{max-width:520px}}
 @media(max-width:900px){.canvasActions{max-width:calc(100% - 28px)}}
 @media(max-width:760px){.header nav span{display:none}.layout{display:block}.panel,.inspector{border:0;border-bottom:1px solid #c5c6be}.stage{grid-template-rows:54px minmax(430px,1fr) auto auto}.canvas{min-height:430px;padding:5px}.canvasActions{max-width:calc(100% - 28px);flex-wrap:wrap}.messageBar{min-height:42px}.messageBar span:last-child{display:none}.transport{flex-wrap:wrap}.metrics{display:block}}

@@ -436,7 +436,7 @@ export function FreeMechanismDesigner({ initialTemplateId }: FreeMechanismDesign
     dragRef.current = null;
   };
 
-  const updateProject = (updater: (current: FreeMechanismProject) => FreeMechanismProject) => {
+  const updateProject = useCallback((updater: (current: FreeMechanismProject) => FreeMechanismProject) => {
     stopMotion();
     const next = updater(project);
     commit(next);
@@ -445,7 +445,7 @@ export function FreeMechanismDesigner({ initialTemplateId }: FreeMechanismDesign
     setCycleReport(null);
     setSolveResult("idle");
     setMessage("设计参数已更新；请重新求解或执行整周检查。");
-  };
+  }, [commit, project, stopMotion, syncPhase]);
 
   const updateSelectedJoint = (updates: Partial<FreeJoint>) => {
     if (!selectedJoint) return;
@@ -558,8 +558,9 @@ export function FreeMechanismDesigner({ initialTemplateId }: FreeMechanismDesign
     }));
   };
 
-  const deleteSelection = () => {
+  const deleteSelection = useCallback(() => {
     if (!selection) return;
+    const deleted = selection;
     updateProject((current) => {
       if (selection.kind === "joint") {
         const removedBars = current.bars.filter((bar) => bar.a === selection.id || bar.b === selection.id).map((bar) => bar.id);
@@ -617,9 +618,27 @@ export function FreeMechanismDesigner({ initialTemplateId }: FreeMechanismDesign
       };
       return { ...current, dimensions: current.dimensions.filter((dimension) => dimension.id !== selection.id) };
     });
+    if (deleted.kind === "joint") {
+      setPairStart((current) => current === deleted.id ? null : current);
+      setBodyDraft((current) => current.filter((id) => id !== deleted.id));
+    }
     setSelection(null);
-    setMessage("已删除所选对象。");
-  };
+    setMessage(deleted.kind === "joint"
+      ? `已删除铰点 ${deleted.id}，并清理与它关联的杆件、刚体、尺寸、载荷和轨迹点。`
+      : `已删除所选对象 ${deleted.id}。`);
+  }, [selection, updateProject]);
+
+  useEffect(() => {
+    const onDeleteKey = (event: KeyboardEvent) => {
+      if ((event.key !== "Delete" && event.key !== "Backspace") || !selection) return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("input, textarea, select, [contenteditable='true']")) return;
+      event.preventDefault();
+      deleteSelection();
+    };
+    window.addEventListener("keydown", onDeleteKey);
+    return () => window.removeEventListener("keydown", onDeleteKey);
+  }, [deleteSelection, selection]);
 
   const clearProject = () => {
     const blank: FreeMechanismProject = {
@@ -786,6 +805,15 @@ export function FreeMechanismDesigner({ initialTemplateId }: FreeMechanismDesign
           <div className={styles.canvas}>
             <div className={styles.canvasActions} role="group" aria-label="自由机构画布操作">
               <button type="button" className={tool === "select" ? styles.canvasActive : ""} onClick={() => changeTool("select")}>编辑</button>
+              <button
+                type="button"
+                className={styles.deleteButton}
+                disabled={!selection}
+                onClick={deleteSelection}
+                title={selection ? `删除 ${selection.id}（Delete / Backspace）` : "请先选中一个点或对象"}
+              >
+                {selection?.kind === "joint" ? `删除铰点 ${selection.id}` : "删除所选"}
+              </button>
               <button type="button" className={tool === "fixed" ? styles.canvasActive : ""} onClick={() => changeTool("fixed")}>固定副</button>
               <button type="button" className={tool === "moving" ? styles.canvasActive : ""} onClick={() => changeTool("moving")}>转动副</button>
               <button type="button" className={tool === "slider" ? styles.canvasActive : ""} onClick={() => changeTool("slider")}>移动副</button>
@@ -945,7 +973,7 @@ export function FreeMechanismDesigner({ initialTemplateId }: FreeMechanismDesign
             </svg>
             {project.joints.length === 0 && <div className={styles.emptyCanvas}><b>空白机构</b><span>选择“固定转动副”，然后在画布上单击。</span></div>}
           </div>
-          <div className={styles.messageBar}><span>{message}</span><span>滚轮缩放 · Alt / 中键平移 · Ctrl+Z 撤销</span></div>
+          <div className={styles.messageBar}><span>{message}</span><span>Delete 删除 · 滚轮缩放 · Alt / 中键平移 · Ctrl+Z 撤销</span></div>
           <div className={styles.transport}>
             <button type="button" onClick={togglePlaying} aria-label={playing ? "暂停运动" : "播放运动"}>{playing ? "Ⅱ" : "▶"}</button>
             <div><span>{project.driverMode === "hydraulic" ? "多缸液压驱动" : project.driverMode === "length" ? "伸缩驱动" : project.driverMode === "oscillation" ? "摆动驱动" : "旋转驱动"}</span><b>{project.driverMode === "hydraulic" ? `${hydraulicActuators.length} cylinders` : project.driverId ?? "未设置"}</b></div>

@@ -50,6 +50,9 @@
 .canvasActions button { padding:8px 10px; border:0; border-right:1px solid #c5c7bf; background:#f3f2ec; color:#555b56; cursor:pointer; font-size:10px; }
 .canvasActions button:last-child { border-right:0; }
 .canvasActions .canvasActive { background:#111515; color:#c8ff3d; }
+.canvasActions .deleteButton { background:#f4ded7; color:#74352b; font-weight:680; }
+.canvasActions .deleteButton:hover:not(:disabled) { background:#efc7b9; }
+.canvasActions .deleteButton:disabled { color:#9a9d96; background:#ecebe5; cursor:not-allowed; }
 .canvasActions .finishBodyButton { background:#dce9ef; color:#17445a; font-weight:680; }
 .canvasActions .finishBodyButton:disabled { opacity:.42; cursor:not-allowed; }
 .canvasActions .solveButton { min-width:76px; background:#e5efd0; color:#27331b; font-weight:680; }

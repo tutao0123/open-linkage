@@ -8,7 +8,9 @@ import {
   solveFourBar,
   type AssemblyMode,
   type FourBarParameters,
+  type Point,
 } from "@/lib/four-bar";
+import { fitFourBarToClosedPath, type PathFitResult } from "@/lib/path-synthesis";
 import styles from "./four-bar-lab.module.css";
 import editorStyles from "./four-bar-editor.module.css";
 
@@ -24,6 +26,7 @@ const DEFAULT_PARAMETERS: FourBarParameters = {
 const STORAGE_KEY = "open-linkage:four-bar-project:v1";
 
 type DragTarget = "input" | "coupler" | "outputPivot" | "tracer";
+type EditorMode = "mechanism" | "trajectory";
 
 type FourBarProject = {
   version: 1;
@@ -32,6 +35,7 @@ type FourBarProject = {
   assemblyMode: AssemblyMode;
   inputAngle: number;
   speed: number;
+  targetPath?: Point[];
 };
 
 const LINK_FIELDS: Array<{ key: keyof Pick<FourBarParameters, "ground" | "input" | "coupler" | "output">; label: string; code: string }> = [
@@ -54,6 +58,12 @@ export function FourBarLab() {
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(18);
   const [dragTarget, setDragTarget] = useState<DragTarget | null>(null);
+  const [editorMode, setEditorMode] = useState<EditorMode>("mechanism");
+  const [drawing, setDrawing] = useState(false);
+  const [targetPoints, setTargetPoints] = useState<Point[]>([]);
+  const [fitting, setFitting] = useState(false);
+  const [fitProgress, setFitProgress] = useState(0);
+  const [fitResult, setFitResult] = useState<PathFitResult | null>(null);
   const [projectMessage, setProjectMessage] = useState("浏览器自动保存已开启");
 
   useEffect(() => {
@@ -67,6 +77,7 @@ export function FourBarLab() {
           setAssemblyMode(project.assemblyMode);
           setInputAngle(project.inputAngle);
           setSpeed(project.speed);
+          setTargetPoints(Array.isArray(project.targetPath) ? project.targetPath : []);
           setProjectMessage("已恢复上次编辑内容");
         }
       } catch {
@@ -84,12 +95,13 @@ export function FourBarLab() {
       assemblyMode,
       inputAngle,
       speed,
+      targetPath: targetPoints,
     };
     const timer = window.setTimeout(() => {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(project));
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [parameters, assemblyMode, inputAngle, speed]);
+  }, [parameters, assemblyMode, inputAngle, speed, targetPoints]);
 
   useEffect(() => {
     if (!playing) return;
@@ -111,6 +123,10 @@ export function FourBarLab() {
   );
   const analysis = useMemo(() => analyzeMotion(parameters, assemblyMode), [parameters, assemblyMode]);
   const classification = useMemo(() => classifyFourBar(parameters), [parameters]);
+  const targetPathData = useMemo(
+    () => targetPoints.map((point, index) => `${index === 0 ? "M" : "L"}${point.x.toFixed(2)},${(-point.y).toFixed(2)}`).join(" ") + (targetPoints.length > 2 ? " Z" : ""),
+    [targetPoints],
+  );
 
   const maximumLength = Math.max(parameters.ground, parameters.input, parameters.coupler, parameters.output);
   const horizontalPadding = Math.max(90, maximumLength * 0.65);
@@ -132,6 +148,7 @@ export function FourBarLab() {
     assemblyMode,
     inputAngle,
     speed,
+    targetPath: targetPoints,
   });
 
   const applyProject = (project: FourBarProject) => {
@@ -149,6 +166,8 @@ export function FourBarLab() {
     setAssemblyMode(project.assemblyMode === "crossed" ? "crossed" : "open");
     setInputAngle(Number.isFinite(project.inputAngle) ? project.inputAngle : 0);
     setSpeed(Number.isFinite(project.speed) ? Math.max(1, project.speed) : 18);
+    setTargetPoints(Array.isArray(project.targetPath) ? project.targetPath : []);
+    setFitResult(null);
   };
 
   const downloadProject = () => {
@@ -171,7 +190,7 @@ export function FourBarLab() {
     }
   };
 
-  const pointerToMechanism = (event: ReactPointerEvent<SVGSVGElement>) => {
+  const pointerToMechanism = (event: { clientX: number; clientY: number }) => {
     const svg = svgRef.current;
     const matrix = svg?.getScreenCTM();
     if (!svg || !matrix) return null;
@@ -188,6 +207,16 @@ export function FourBarLab() {
   };
 
   const handlePointerMove = (event: ReactPointerEvent<SVGSVGElement>) => {
+    if (drawing) {
+      const point = pointerToMechanism(event);
+      if (!point) return;
+      setTargetPoints((current) => {
+        const previous = current[current.length - 1];
+        if (previous && Math.hypot(point.x - previous.x, point.y - previous.y) < 3) return current;
+        return [...current, point];
+      });
+      return;
+    }
     if (!dragTarget) return;
     const point = pointerToMechanism(event);
     if (!point) return;
@@ -226,12 +255,51 @@ export function FourBarLab() {
     }));
   };
 
+  const startDrawing = (event: ReactPointerEvent<SVGSVGElement>) => {
+    if (editorMode !== "trajectory" || fitting) return;
+    const point = pointerToMechanism(event);
+    if (!point) return;
+    setPlaying(false);
+    setDrawing(true);
+    setFitResult(null);
+    setTargetPoints([point]);
+    svgRef.current?.setPointerCapture(event.pointerId);
+  };
+
+  const finishInteraction = () => {
+    setDrawing(false);
+    setDragTarget(null);
+  };
+
+  const runPathFit = async () => {
+    if (targetPoints.length < 8 || fitting) return;
+    setPlaying(false);
+    setFitting(true);
+    setFitProgress(0);
+    setProjectMessage("正在搜索四杆尺寸…");
+    try {
+      const result = await fitFourBarToClosedPath(targetPoints, parameters, assemblyMode, setFitProgress);
+      setParameters(result.parameters);
+      setInputAngle(result.phase);
+      setFitResult(result);
+      setEditorMode("mechanism");
+      setProjectMessage(`拟合完成，均方根误差 ${result.rmse.toFixed(1)} mm`);
+    } catch {
+      setProjectMessage("拟合失败：请绘制一条更完整的闭合轨迹");
+    } finally {
+      setFitting(false);
+    }
+  };
+
   const reset = () => {
     setPlaying(false);
     setParameters(DEFAULT_PARAMETERS);
     setInputAngle(38);
     setAssemblyMode("open");
     setSpeed(18);
+    setTargetPoints([]);
+    setFitResult(null);
+    setEditorMode("mechanism");
     setProjectMessage("已恢复默认项目");
   };
 
@@ -266,7 +334,7 @@ export function FourBarLab() {
                     min="1"
                     max="1000"
                     step="1"
-                    value={parameters[field.key]}
+                    value={Number(parameters[field.key].toFixed(2))}
                     onChange={(event) => updateLength(field.key, Number(event.target.value))}
                   />
                 </label>
@@ -291,8 +359,8 @@ export function FourBarLab() {
               <span>法向偏移 <b>{parameters.couplerPointOffset.toFixed(0)} mm</b></span>
               <input
                 type="range"
-                min="-160"
-                max="160"
+                min="-300"
+                max="300"
                 step="1"
                 value={parameters.couplerPointOffset}
                 onChange={(event) => updateParameter("couplerPointOffset", Number(event.target.value))}
@@ -330,7 +398,7 @@ export function FourBarLab() {
 
           <div className={styles.note}>
             <span>提示</span>
-            拖动绿色手柄可调整机构；左侧数值框用于输入精确尺寸。输出固定铰点沿机架方向移动。
+            机构模式可拖动绿色手柄；轨迹模式可徒手绘制一条闭合目标曲线，再点击自动拟合。
           </div>
         </aside>
 
@@ -346,16 +414,27 @@ export function FourBarLab() {
             </div>
           </div>
 
-          <div className={styles.canvas}>
+          <div className={`${styles.canvas} ${editorStyles.canvasSurface}`}>
+            <div className={editorStyles.canvasActions}>
+              <div className={editorStyles.modeSwitch}>
+                <button className={editorMode === "mechanism" ? editorStyles.selected : ""} type="button" onClick={() => setEditorMode("mechanism")}>编辑机构</button>
+                <button className={editorMode === "trajectory" ? editorStyles.selected : ""} type="button" onClick={() => setEditorMode("trajectory")}>绘制轨迹</button>
+              </div>
+              <button type="button" onClick={() => { setTargetPoints([]); setFitResult(null); }} disabled={targetPoints.length === 0}>清除轨迹</button>
+              <button className={editorStyles.fitButton} type="button" onClick={() => void runPathFit()} disabled={targetPoints.length < 8 || fitting}>
+                {fitting ? `拟合 ${Math.round(fitProgress * 100)}%` : "自动拟合"}
+              </button>
+            </div>
             <svg
               ref={svgRef}
               className={editorStyles.editableSvg}
               viewBox={viewBox}
               role="img"
               aria-label="四杆机构运动学画布"
+              onPointerDown={startDrawing}
               onPointerMove={handlePointerMove}
-              onPointerUp={() => setDragTarget(null)}
-              onPointerCancel={() => setDragTarget(null)}
+              onPointerUp={finishInteraction}
+              onPointerCancel={finishInteraction}
             >
               <defs>
                 <pattern id="grid" width="25" height="25" patternUnits="userSpaceOnUse">
@@ -370,6 +449,7 @@ export function FourBarLab() {
                 <line x1={parameters.ground} y1="17" x2={parameters.ground} y2="31" />
                 <text x={parameters.ground / 2} y="45" textAnchor="middle">r₁ = {parameters.ground.toFixed(1)} mm</text>
               </g>
+              {targetPathData && <path d={targetPathData} className={editorStyles.targetPath} />}
               {analysis.trailPath && <path d={analysis.trailPath} className={styles.trail} />}
               {position ? (
                 <>
@@ -386,7 +466,7 @@ export function FourBarLab() {
                     <g
                       key={joint.id}
                       className={joint.target ? editorStyles.draggableJoint : undefined}
-                      onPointerDown={joint.target ? (event) => startDrag(joint.target, event) : undefined}
+                      onPointerDown={joint.target && editorMode === "mechanism" ? (event) => startDrag(joint.target, event) : undefined}
                     >
                       <circle cx={joint.x} cy={joint.y} r="10" className={styles.jointOuter} />
                       <circle cx={joint.x} cy={joint.y} r="3.5" className={styles.jointInner} />
@@ -398,7 +478,7 @@ export function FourBarLab() {
                     cy={-position.couplerPoint.y}
                     r="9"
                     className={`${styles.tracerPoint} ${editorStyles.draggableJoint}`}
-                    onPointerDown={(event) => startDrag("tracer", event)}
+                    onPointerDown={editorMode === "mechanism" ? (event) => startDrag("tracer", event) : undefined}
                   />
                 </>
               ) : (
@@ -450,6 +530,15 @@ export function FourBarLab() {
             <div><span>轨迹点 Y</span><b>{formatNumber(position?.couplerPoint.y ?? null)}</b></div>
             <div><span>输出角 θ₄</span><b>{formatNumber(position?.outputAngle ?? null)}°</b></div>
           </div>
+
+          {fitResult && (
+            <div className={editorStyles.fitResult}>
+              <p className={styles.sectionLabel}>轨迹拟合结果</p>
+              <div><span>均方根误差</span><b>{fitResult.rmse.toFixed(1)} mm</b></div>
+              <div><span>输入相位</span><b>{fitResult.phase.toFixed(1)}°</b></div>
+              <p>蓝色为目标轨迹，绿色虚线为当前四杆机构轨迹。可继续拖动或再次拟合。</p>
+            </div>
+          )}
         </aside>
       </div>
     </div>

@@ -29,6 +29,69 @@
   touch-action: none;
 }
 
+.canvasSurface {
+  position: relative;
+}
+
+.canvasActions {
+  position: absolute;
+  z-index: 2;
+  top: 14px;
+  left: 14px;
+  display: flex;
+  gap: 7px;
+  padding: 6px;
+  border: 1px solid #b7bab2;
+  background: rgb(242 241 235 / 94%);
+  box-shadow: 0 8px 25px rgb(40 45 38 / 8%);
+}
+
+.canvasActions > button,
+.modeSwitch button {
+  min-height: 31px;
+  padding: 0 10px;
+  border: 1px solid #c7c9c1;
+  background: transparent;
+  color: #4f554f;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.canvasActions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.modeSwitch {
+  display: flex;
+}
+
+.modeSwitch button + button {
+  border-left: 0;
+}
+
+.modeSwitch .selected {
+  border-color: #171b19;
+  background: #171b19;
+  color: #c8ff3d;
+}
+
+.canvasActions .fitButton {
+  border-color: #8fbd28;
+  background: #c8ff3d;
+  color: #172000;
+  font-weight: 650;
+}
+
+.targetPath {
+  fill: rgb(55 126 161 / 7%);
+  stroke: #287fa8;
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+
 .dimensions line {
   stroke: #6f756f;
   stroke-width: 1;
@@ -55,4 +118,40 @@
 .draggableJoint:hover circle:first-child {
   stroke: #679415;
   stroke-width: 5;
+}
+
+.fitResult {
+  margin-top: 20px;
+  padding: 15px;
+  border: 1px solid #9cb6c1;
+  background: #e0edf1;
+}
+
+.fitResult > div {
+  display: flex;
+  justify-content: space-between;
+  padding: 7px 0;
+  color: #536168;
+  font-size: 11px;
+}
+
+.fitResult b {
+  color: #14242b;
+  font: 12px "Cascadia Mono", Consolas, monospace;
+}
+
+.fitResult > p:last-child {
+  margin: 8px 0 0;
+  color: #536168;
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+@media (max-width: 760px) {
+  .canvasActions {
+    right: 7px;
+    top: 7px;
+    left: 7px;
+    flex-wrap: wrap;
+  }
 }

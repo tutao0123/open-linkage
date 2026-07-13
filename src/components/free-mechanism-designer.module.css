@@ -1,0 +1,96 @@
+.workspace { min-height:100vh; background:#e8e8e1; color:#111515; font-family:"Geist","Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; }
+.header { height:66px; padding:0 22px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid #c5c6be; background:#f2f1eb; }
+.brand { display:flex; align-items:center; gap:10px; color:inherit; font-size:17px; font-weight:700; text-decoration:none; }
+.brandMark { width:18px; height:18px; border:4px solid #111515; border-radius:50%; position:relative; }
+.brandMark::after { content:""; position:absolute; width:21px; height:3px; background:#111515; left:9px; top:4px; transform:rotate(-28deg); transform-origin:left; }
+.header nav { display:flex; gap:18px; align-items:center; color:#686e68; font:11px "Cascadia Mono",Consolas,monospace; }
+.header nav a { color:inherit; }
+.header nav a:hover { color:#111515; text-decoration:underline; }
+.layout { min-height:calc(100vh - 66px); display:grid; grid-template-columns:300px minmax(560px,1fr) 310px; }
+.panel { padding:22px; background:#f2f1eb; border-right:1px solid #c5c6be; }
+.inspector { border-right:0; border-left:1px solid #c5c6be; }
+.panelTitle { display:flex; justify-content:space-between; align-items:flex-start; padding-bottom:18px; border-bottom:1px solid #ced0c7; }
+.panelTitle>div { display:flex; align-items:baseline; gap:10px; }
+.panelTitle span { color:#777c77; font:10px "Cascadia Mono",Consolas,monospace; }
+.panelTitle h1,.panelTitle h2 { margin:0; font-size:18px; }
+.panelTitle button { border:0; background:transparent; color:#686d68; cursor:pointer; font-size:11px; text-decoration:underline; }
+.toolList { margin-top:16px; display:grid; gap:7px; }
+.toolList button { padding:12px; display:flex; flex-direction:column; gap:3px; align-items:flex-start; border:1px solid #c9cbc3; background:#e8e8e1; color:#252927; cursor:pointer; text-align:left; }
+.toolList button span { font-weight:680; }
+.toolList button small { color:#737873; }
+.toolList .activeTool { border-color:#111515; background:#111515; color:#c8ff3d; }
+.toolList .activeTool small { color:#aeb5ac; }
+.workflowHint { margin-top:18px; padding:14px; border:1px solid #c9cbc3; color:#626862; font-size:11px; }
+.workflowHint b { color:#242927; }
+.workflowHint ol { margin:10px 0 0; padding-left:18px; line-height:1.8; }
+.projectTools { margin-top:14px; display:grid; grid-template-columns:1fr 1fr; gap:7px; }
+.projectTools button { padding:9px; border:1px solid #bfc1b9; background:#f4f3ed; cursor:pointer; font-size:11px; }
+.projectTools button:first-child { grid-column:1/-1; }
+.projectTools input { display:none; }
+.stage { min-width:0; display:grid; grid-template-rows:54px minmax(520px,1fr) 34px 76px; background:#dfe0d8; }
+.stageHeader { padding:0 18px; display:flex; align-items:center; gap:15px; border-bottom:1px solid #c5c6be; color:#676d67; font:10px "Cascadia Mono",Consolas,monospace; }
+.stageHeader b { margin-left:auto; padding:6px 8px; font-weight:500; }
+.ready { background:#c8ff3d; color:#172000; }
+.warning { background:#efc7b4; color:#5f2d24; }
+.canvas { min-height:520px; padding:18px; display:flex; position:relative; align-items:center; justify-content:center; overflow:hidden; }
+.canvas svg { width:100%; height:100%; max-height:720px; touch-action:none; }
+.canvasActions { position:absolute; z-index:3; top:14px; left:14px; display:flex; border:1px solid #aeb1a8; box-shadow:0 2px 8px rgb(20 24 21 / 8%); }
+.canvasActions button { padding:8px 10px; border:0; border-right:1px solid #c5c7bf; background:#f3f2ec; color:#555b56; cursor:pointer; font-size:10px; }
+.canvasActions button:last-child { border-right:0; }
+.canvasActions .canvasActive { background:#111515; color:#c8ff3d; }
+.creationCursor { cursor:crosshair; }
+.panning { cursor:grabbing!important; }
+.gridLine { fill:none; stroke:#c5c7bf; stroke-width:.75; }
+.axis { stroke:#aeb1a9; stroke-width:1.2; stroke-dasharray:8 6; pointer-events:none; }
+.trail { fill:none; stroke:#287fa8; stroke-width:3; stroke-dasharray:7 4; pointer-events:none; }
+.linkHit { stroke:transparent; stroke-width:30; cursor:pointer; }
+.link { stroke:#222725; stroke-width:13; stroke-linecap:round; pointer-events:none; }
+.driverLink { stroke:#92c52b; }
+.selectedLink { stroke:#287fa8; }
+.linkLabel,.jointLabel { fill:#5e655f; font:10px "Cascadia Mono",Consolas,monospace; user-select:none; pointer-events:none; }
+.jointGroup { cursor:grab; }
+.jointGroup:active { cursor:grabbing; }
+.joint { fill:#f1f1eb; stroke:#151918; stroke-width:4; }
+.fixedJoint { fill:#c8ff3d; }
+.selectedJoint { stroke:#287fa8; stroke-width:5; }
+.pin { fill:#111515; pointer-events:none; }
+.groundMark { fill:none; stroke:#6d736d; stroke-width:3; pointer-events:none; }
+.emptyCanvas { position:absolute; display:flex; flex-direction:column; gap:7px; align-items:center; color:#676d67; pointer-events:none; }
+.emptyCanvas b { color:#252a27; font-size:20px; }
+.emptyCanvas span { font-size:12px; }
+.messageBar { padding:0 18px; display:flex; align-items:center; justify-content:space-between; gap:16px; border-top:1px solid #c9cbc3; color:#686d68; font-size:10px; }
+.messageBar span:last-child { white-space:nowrap; font-family:"Cascadia Mono",Consolas,monospace; }
+.transport { padding:12px 18px; display:flex; align-items:center; gap:18px; border-top:1px solid #c5c6be; background:#f2f1eb; }
+.transport>button:first-child { width:44px; height:44px; flex:0 0 auto; border:0; border-radius:50%; background:#111515; color:#c8ff3d; cursor:pointer; }
+.transport>div { display:flex; flex-direction:column; gap:3px; min-width:72px; }
+.transport span { color:#707570; font-size:9px; }
+.transport b { font:11px "Cascadia Mono",Consolas,monospace; }
+.transport label { flex:1; display:flex; align-items:center; gap:10px; color:#676d67; font-size:11px; }
+.transport label input { flex:1; accent-color:#111515; }
+.transport .clearTrail { padding:8px 10px; border:1px solid #c4c6be; background:#e8e8e1; cursor:pointer; font-size:10px; }
+.selectionCard { margin-top:16px; padding:14px; display:grid; gap:9px; border:1px solid #c9cbc3; background:#e8e8e1; }
+.selectionTitle { display:flex; justify-content:space-between; align-items:center; padding-bottom:10px; border-bottom:1px solid #c7c9c1; }
+.selectionTitle span { color:#727772; font:9px "Cascadia Mono",Consolas,monospace; }
+.selectionTitle b { font:18px "Cascadia Mono",Consolas,monospace; }
+.selectionCard>p { margin:0; color:#676d67; font:11px "Cascadia Mono",Consolas,monospace; }
+.selectionCard label { display:flex; align-items:center; justify-content:space-between; color:#616761; font-size:11px; }
+.selectionCard input { width:112px; padding:7px; border:1px solid #c4c6be; background:#f4f3ed; font:12px "Cascadia Mono",Consolas,monospace; }
+.selectionCard button { padding:9px; border:1px solid #bfc1b9; background:#f4f3ed; cursor:pointer; }
+.selectionCard button:disabled { cursor:not-allowed; opacity:.45; }
+.selectionCard .selectedAction { border-color:#8dbb36; background:#e6f2cf; }
+.selectionCard small { color:#747974; line-height:1.5; }
+.noSelection { margin-top:16px; padding:18px; border:1px dashed #bfc2b8; color:#646a64; }
+.noSelection b { color:#242a27; font-size:13px; }
+.noSelection p { margin:8px 0 0; font-size:11px; line-height:1.6; }
+.metrics { margin-top:22px; }
+.metrics h3 { margin:0 0 6px; color:#696e69; font-size:10px; font-weight:500; letter-spacing:.08em; }
+.metrics>div { padding:12px 0; display:flex; justify-content:space-between; align-items:end; border-bottom:1px solid #d2d3cc; }
+.metrics span { color:#676c67; font-size:11px; }
+.metrics strong { font:19px "Cascadia Mono",Consolas,monospace; }
+.metrics small { margin-left:4px; color:#777d77; font-size:9px; }
+.healthGood,.healthWarn { margin-top:18px; padding:14px; border:1px solid; font-size:11px; }
+.healthGood { border-color:#b9cf8b; background:#e5efd0; }
+.healthWarn { border-color:#d5a48d; background:#f2ddd2; }
+.healthGood p,.healthWarn p { margin:8px 0 0; line-height:1.55; }
+@media(max-width:1220px){.layout{grid-template-columns:280px 1fr}.inspector{grid-column:1/-1;border-left:0;border-top:1px solid #c5c6be}.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:0 18px}.healthGood,.healthWarn{max-width:520px}}
+@media(max-width:760px){.header nav span{display:none}.layout{display:block}.panel,.inspector{border:0;border-bottom:1px solid #c5c6be}.stage{grid-template-rows:54px minmax(430px,1fr) auto auto}.canvas{min-height:430px;padding:5px}.canvasActions{max-width:calc(100% - 28px);flex-wrap:wrap}.messageBar{min-height:42px}.messageBar span:last-child{display:none}.transport{flex-wrap:wrap}.metrics{display:block}}

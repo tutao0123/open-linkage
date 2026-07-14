@@ -830,10 +830,6 @@ export function FreeMechanismDesigner({ initialTemplateId }: FreeMechanismDesign
               ))}
             </div>
           </section>
-          <div className={styles.workflowHint}>
-            <b>运动、液压与载荷</b>
-            <p>伸缩杆可组成多缸液压驱动；挖掘机模板展示三刚体、三油缸和斗齿载荷的完整工作流。</p>
-          </div>
           <div className={styles.projectTools}>
             <button type="button" onClick={clearProject}>新建空白项目</button>
             <button type="button" onClick={exportProject}>导出 JSON</button>

@@ -23,10 +23,6 @@
 .toolList button small { color:#737873; }
 .toolList .activeTool { border-color:#111515; background:#111515; color:#c8ff3d; }
 .toolList .activeTool small { color:#aeb5ac; }
-.workflowHint { margin-top:18px; padding:14px; border:1px solid #c9cbc3; color:#626862; font-size:11px; }
-.workflowHint b { color:#242927; }
-.workflowHint p { margin:8px 0 0; line-height:1.6; }
-.workflowHint ol { margin:10px 0 0; padding-left:18px; line-height:1.8; }
 .templateSection { margin-top:18px; }
 .sectionLabel { margin-bottom:8px; display:flex; align-items:center; justify-content:space-between; color:#313633; font-size:11px; }
 .sectionLabel small { color:#777c77; font-size:9px; }

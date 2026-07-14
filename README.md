@@ -19,7 +19,7 @@ npm run dev
 - 0.2：通用平面约束机构
 - 0.3：手绘闭合轨迹与浏览器端四杆自动拟合（基础版已上线）
 - 0.4：Watt 类六杆腿手绘轨迹、多候选全局优化、传动性能排名和项目 JSON（已上线）
-- 0.5：可变几何机构的多轨迹综合
+- 0.5：克兰/简森可变几何步行腿、多工况轨迹族综合、离散锁止位置与自由设计器传递（已上线）
 
 ## 许可证
 
@@ -30,3 +30,4 @@ Apache-2.0
 - 官网：https://linkage.wtt.autos
 - 四杆实验室：https://linkage.wtt.autos/lab
 - 六杆腿实验室：https://linkage.wtt.autos/leg
+- 可变几何步行腿：https://linkage.wtt.autos/variable-leg

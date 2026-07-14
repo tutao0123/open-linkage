@@ -249,7 +249,7 @@ export function StraightLineWorkbench() {
     <main className={styles.workspace}>
       <header className={styles.header}>
         <Link className={styles.brand} href="/"><span className={styles.brandMark} />OpenLinkage</Link>
-        <nav><Link href="/lab">四杆设计</Link><Link href="/leg">六杆腿设计</Link><Link href="/designer">自由设计</Link><span>直线机构工作台 · 0.1</span></nav>
+        <nav><Link href="/lab">四杆设计</Link><Link href="/leg">六杆腿设计</Link><Link href="/variable-leg">可变步行腿</Link><Link href="/designer">自由设计</Link><span>直线机构工作台 · 0.1</span></nav>
       </header>
 
       <div className={styles.layout}>

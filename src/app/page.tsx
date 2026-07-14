@@ -21,6 +21,15 @@ const workbenches = [
   },
   {
     number: "03",
+    eyebrow: "VARIABLE GEOMETRY LEG",
+    title: "可变几何步行腿",
+    text: "以克兰腿和简森腿为原型，通过移动固定铰点或可锁止伸缩杆，让同一机构适配巡航、高速与越障轨迹。",
+    href: "/variable-leg",
+    action: "进入可变步行腿工作台",
+    status: "多工况 · 轨迹族综合",
+  },
+  {
+    number: "04",
     eyebrow: "STRAIGHT-LINE MECHANISMS",
     title: "经典直线机构",
     text: "比较瓦特、彻比雪夫、霍肯和波塞利耶机构，自动识别最佳直线段并评价行程与误差。",
@@ -29,7 +38,7 @@ const workbenches = [
     status: "经典机构 · 直线性能",
   },
   {
-    number: "04",
+    number: "05",
     eyebrow: "FREE MECHANISM",
     title: "自由机构设计器",
     text: "像搭积木一样添加铰点与杆件，指定主动杆，实时观察任意平面机构的运动和轨迹。",

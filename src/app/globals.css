@@ -42,7 +42,7 @@ a { color:inherit; text-decoration:none; }
 .section-title>div>p { margin:0 0 12px; color:var(--muted); }
 .section-title h2 { margin:0; font-size:clamp(35px,4vw,58px); letter-spacing:-.055em; }
 .section-note { max-width:320px; margin:0; color:var(--muted); line-height:1.6; }
-.workbench-grid { display:grid; grid-template-columns:repeat(4,1fr); border-top:1px solid var(--ink); }
+.workbench-grid { display:grid; grid-template-columns:repeat(5,1fr); border-top:1px solid var(--ink); }
 .workbench-card { min-height:420px; padding:25px 34px 30px 0; display:flex; flex-direction:column; border-bottom:1px solid var(--line); }
 .workbench-card+.workbench-card { padding-left:34px; border-left:1px solid var(--line); }
 .workbench-meta { display:flex; justify-content:space-between; color:var(--muted); }
@@ -52,5 +52,5 @@ a { color:inherit; text-decoration:none; }
 .workbench-card>a { margin-top:auto; padding:15px 0 2px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--ink); font-weight:680; }
 .workbench-card>a:hover { padding-left:9px; padding-right:9px; background:var(--acid); }
 footer { display:flex; justify-content:space-between; padding:24px 0 34px; border-top:1px solid var(--line); color:var(--muted); }
-@media(max-width:1200px) and (min-width:901px){.workbench-grid{grid-template-columns:repeat(2,1fr)}.workbench-card:nth-child(3){padding-left:0;border-left:0}.workbench-card:nth-child(even){padding-left:34px;border-left:1px solid var(--line)}}
+@media(max-width:1200px) and (min-width:901px){.workbench-grid{grid-template-columns:repeat(2,1fr)}.workbench-card:nth-child(odd){padding-left:0;border-left:0}.workbench-card:nth-child(even){padding-left:34px;border-left:1px solid var(--line)}}
 @media(max-width:900px){.home-shell{padding:0 22px}.hero{grid-template-columns:1fr;padding:75px 0}.mechanism-card{min-height:420px}.section-title{display:block}.section-note{margin-top:16px}.workbench-grid{grid-template-columns:1fr}.workbench-card{min-height:330px;padding:25px 0 28px}.workbench-card+.workbench-card{padding-left:0;border-left:0}.workbench-card h3{margin-top:45px}.version{display:none}}

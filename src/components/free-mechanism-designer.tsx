@@ -104,9 +104,10 @@ function driverPhase(project: FreeMechanismProject) {
 
 type FreeMechanismDesignerProps = {
   initialTemplateId?: string;
+  loadTransfer?: boolean;
 };
 
-export function FreeMechanismDesigner({ initialTemplateId }: FreeMechanismDesignerProps) {
+export function FreeMechanismDesigner({ initialTemplateId, loadTransfer = false }: FreeMechanismDesignerProps) {
   const initialTemplate = MECHANISM_TEMPLATES.find((template) => template.id === initialTemplateId);
   const history = useMechanismHistory(initialTemplate?.project ?? DEMO_PROJECT);
   const { project, projectRef, replace, checkpoint, commit, undo, redo, canUndo, canRedo } = history;
@@ -131,6 +132,32 @@ export function FreeMechanismDesigner({ initialTemplateId }: FreeMechanismDesign
   const dragRef = useRef<{ id: string; pointerId: number } | null>(null);
   const phaseRef = useRef(driverPhase(project));
   const previousMotionJointsRef = useRef<FreeJoint[] | null>(null);
+
+  useEffect(() => {
+    if (!loadTransfer) return;
+    const timer = window.setTimeout(() => {
+      const raw = window.sessionStorage.getItem("open-linkage:designer-transfer");
+      if (!raw) {
+        setMessage("没有找到从可变几何步行腿传入的机构项目。");
+        return;
+      }
+      try {
+        const imported = migrateProject(JSON.parse(raw) as unknown);
+        if (!imported) throw new Error("invalid transfer");
+        window.sessionStorage.removeItem("open-linkage:designer-transfer");
+        replace(imported);
+        const nextPhase = driverPhase(imported);
+        phaseRef.current = nextPhase;
+        setPhase(nextPhase);
+        setSelection(null);
+        setTrails({});
+        setMessage("已载入可变几何步行腿的当前锁止工况，可继续自由修改拓扑和尺寸。");
+      } catch {
+        setMessage("可变几何步行腿传入的数据无效，已保留默认机构。");
+      }
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [loadTransfer, replace]);
 
   const syncPhase = useCallback((nextProject: FreeMechanismProject) => {
     const nextPhase = driverPhase(nextProject);
@@ -803,7 +830,7 @@ export function FreeMechanismDesigner({ initialTemplateId }: FreeMechanismDesign
     <main className={styles.workspace}>
       <header className={styles.header}>
         <Link className={styles.brand} href="/"><span className={styles.brandMark} />OpenLinkage</Link>
-        <nav><Link href="/lab">四杆设计</Link><Link href="/straight-line">直线机构</Link><Link href="/leg">六杆腿设计</Link><span>自由机构设计器 · 0.7</span></nav>
+        <nav><Link href="/lab">四杆设计</Link><Link href="/straight-line">直线机构</Link><Link href="/leg">六杆腿设计</Link><Link href="/variable-leg">可变步行腿</Link><span>自由机构设计器 · 0.7</span></nav>
       </header>
 
       <div className={styles.layout}>

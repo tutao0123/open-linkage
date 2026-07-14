@@ -10,8 +10,8 @@ export const metadata: Metadata = {
 export default async function DesignerPage({
   searchParams,
 }: {
-  searchParams: Promise<{ template?: string }>;
+  searchParams: Promise<{ template?: string; transfer?: string }>;
 }) {
-  const { template } = await searchParams;
-  return <FreeMechanismDesigner initialTemplateId={template} />;
+  const { template, transfer } = await searchParams;
+  return <FreeMechanismDesigner initialTemplateId={template} loadTransfer={transfer === "variable-leg"} />;
 }

@@ -8,11 +8,18 @@ import {
   getVariableLegTemplate,
   isVariableLegProject,
   materializeVariableLegMode,
+  measureGaitClearance,
   sampleVariableLeg,
 } from "./variable-leg";
 import { synthesizeVariableLeg } from "./variable-leg-synthesis";
 
 describe("variable geometry walking leg", () => {
+  it("measures swing clearance from the stance plane", () => {
+    const project = createDefaultVariableLegProject();
+    const obstacle = project.modes.find((mode) => mode.id === "obstacle")!;
+    expect(measureGaitClearance(obstacle.targetPath, obstacle.stanceStart, obstacle.stanceEnd)).toBeCloseTo(130, -1);
+  });
+
   it.each(["klann", "jansen"] as const)("samples a complete %s cycle", (topology) => {
     const template = getVariableLegTemplate(topology);
     const adjustment = createDefaultAdjustment(topology, "moving-pivot");
@@ -65,6 +72,13 @@ describe("variable geometry walking leg", () => {
     const second = await synthesizeVariableLeg(project);
     expect(first).toHaveLength(5);
     expect(first[0].score).toBeGreaterThan(baseline);
+    const obstacleIndex = first[0].modes.findIndex((mode) => mode.id === "obstacle");
+    const obstacleMode = first[0].modes[obstacleIndex];
+    const obstacleTargetClearance = measureGaitClearance(obstacleMode.targetPath, obstacleMode.stanceStart, obstacleMode.stanceEnd);
+    const otherClearances = first[0].metrics.filter((_, index) => index !== obstacleIndex).map((metric) => metric.liftHeight);
+    expect(first[0].metrics[obstacleIndex].liftHeight).toBeGreaterThan(Math.max(...otherClearances));
+    expect(first[0].metrics[obstacleIndex].liftHeight).toBeGreaterThanOrEqual(obstacleTargetClearance * 0.9);
+    expect(first[0].metrics.every((metric) => metric.validRatio >= 0.99)).toBe(true);
     expect(first.map((candidate) => [candidate.topology, candidate.adjustment.kind, candidate.adjustment.targetId, candidate.score]))
       .toEqual(second.map((candidate) => [candidate.topology, candidate.adjustment.kind, candidate.adjustment.targetId, candidate.score]));
   }, 60_000);

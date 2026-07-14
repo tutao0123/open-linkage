@@ -4,6 +4,7 @@ import {
   createDefaultAdjustment,
   getVariableLegTemplate,
   scoreVariableLegFamily,
+  variableLegModeCost,
   type VariableLegAdjustment,
   type VariableLegAdjustmentKind,
   type VariableLegCandidate,
@@ -102,12 +103,7 @@ function adjustmentFor(
 }
 
 function modeCost(metric: ReturnType<typeof analyzeVariableLegMode>, mode: VariableLegMode) {
-  const scale = Math.max(metric.stepLength, metric.liftHeight * 2, 80);
-  const error = Number.isFinite(metric.rmse) ? metric.rmse / scale : 5;
-  const continuity = (1 - metric.validRatio) * 5 + Math.min(2, metric.maxConstraintError / 2) + metric.branchSwitches * 0.5;
-  const singularity = Math.max(0, (10 - metric.singularityMargin) / 10);
-  const landing = Math.min(1.5, metric.landingVerticalSpeed / Math.max(100, scale * 2));
-  return Math.max(0.1, mode.weight) * (error * 0.64 + continuity * 0.23 + singularity * 0.08 + landing * 0.05);
+  return Math.max(0.1, mode.weight) * variableLegModeCost(metric, mode);
 }
 
 function cloneModes(modes: VariableLegMode[]) {

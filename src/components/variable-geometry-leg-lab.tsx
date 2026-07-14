@@ -24,6 +24,7 @@ import {
   getVariableLegTemplate,
   isVariableLegProject,
   materializeVariableLegMode,
+  measureGaitClearance,
   projectForFreeDesigner,
   sampleVariableLeg,
   smoothClosedPath,
@@ -61,7 +62,7 @@ function targetStats(mode: VariableLegMode) {
   const ys = mode.targetPath.map((point) => point.y);
   return {
     step: xs.length ? Math.max(...xs) - Math.min(...xs) : 0,
-    lift: ys.length ? Math.max(...ys) - Math.min(...ys) : 0,
+    lift: measureGaitClearance(mode.targetPath, mode.stanceStart, mode.stanceEnd),
     centerX: xs.length ? (Math.max(...xs) + Math.min(...xs)) / 2 : -210,
     groundY: ys.length ? Math.max(...ys) : 160,
   };
@@ -472,6 +473,7 @@ export function VariableGeometryLegLab() {
     activeMetrics.branchSwitches > 0 ? "检测到装配分支变化，当前几何不适合连续运行。" : null,
     activeMetrics.singularityMargin < 8 ? "最小几何夹角低于 8°，接近奇异位置。" : null,
     activeMetrics.landingVerticalSpeed > 240 ? "按当前转速估算的落地垂直速度较高。" : null,
+    activeMetrics.liftHeight < activeStats.lift * 0.8 ? `摆动相净离地仅达到目标的 ${Math.round(activeMetrics.liftHeight / Math.max(1, activeStats.lift) * 100)}%。` : null,
     activeMode.adjustmentValue < project.adjustment.minimum || activeMode.adjustmentValue > project.adjustment.maximum ? "锁止值超出调节范围。" : null,
   ].filter((warning): warning is string => Boolean(warning));
 
@@ -651,7 +653,7 @@ export function VariableGeometryLegLab() {
             <div><span>{activeMode.name}轨迹 RMSE</span><strong>{Number.isFinite(activeMetrics.rmse) ? activeMetrics.rmse.toFixed(1) : "—"}<small>mm</small></strong></div>
             <div><span>最大误差</span><strong>{Number.isFinite(activeMetrics.maxError) ? activeMetrics.maxError.toFixed(1) : "—"}<small>mm</small></strong></div>
             <div><span>整周求解率</span><strong>{(activeMetrics.validRatio * 100).toFixed(1)}<small>%</small></strong></div>
-            <div><span>实际步长 / 抬脚</span><strong>{activeMetrics.stepLength.toFixed(0)}<small> / {activeMetrics.liftHeight.toFixed(0)} mm</small></strong></div>
+            <div><span>实际步长 / 摆动净离地</span><strong>{activeMetrics.stepLength.toFixed(0)}<small> / {activeMetrics.liftHeight.toFixed(0)} mm</small></strong></div>
             <div><span>支撑段平直度</span><strong>{activeMetrics.stanceStraightness.toFixed(2)}<small>mm RMS</small></strong></div>
             <div><span>最小几何夹角</span><strong>{activeMetrics.singularityMargin.toFixed(1)}<small>°</small></strong></div>
             <div><span>峰值足速</span><strong>{activeMetrics.peakFootSpeed.toFixed(0)}<small>mm/s</small></strong></div>

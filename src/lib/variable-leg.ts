@@ -137,6 +137,38 @@ function meanPoint(points: Point[]) {
   return points.reduce((sum, point) => ({ x: sum.x + point.x / points.length, y: sum.y + point.y / points.length }), { x: 0, y: 0 });
 }
 
+function median(values: number[]) {
+  if (!values.length) return 0;
+  const sorted = [...values].sort((first, second) => first - second);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+}
+
+function phaseIsInStance(phase: number, start: number, end: number) {
+  const normalizedStart = ((start % 1) + 1) % 1;
+  const normalizedEnd = ((end % 1) + 1) % 1;
+  if (normalizedStart <= normalizedEnd) return phase >= normalizedStart && phase <= normalizedEnd;
+  return phase >= normalizedStart || phase <= normalizedEnd;
+}
+
+function measureClearance(path: Point[], stanceStart: number, stanceEnd: number, targetShift = 0) {
+  if (path.length < 3) return { clearance: 0, groundY: 0, stance: [] as Point[], swing: [] as Point[] };
+  const stance: Point[] = [];
+  const swing: Point[] = [];
+  for (let index = 0; index < path.length; index += 1) {
+    const targetPhase = ((index + targetShift) % path.length) / path.length;
+    (phaseIsInStance(targetPhase, stanceStart, stanceEnd) ? stance : swing).push(path[index]);
+  }
+  if (!stance.length || !swing.length) return { clearance: 0, groundY: 0, stance, swing };
+  const groundY = median(stance.map((point) => point.y));
+  const swingTopY = Math.min(...swing.map((point) => point.y));
+  return { clearance: Math.max(0, groundY - swingTopY), groundY, stance, swing };
+}
+
+export function measureGaitClearance(path: Point[], stanceStart: number, stanceEnd: number) {
+  return measureClearance(path, stanceStart, stanceEnd).clearance;
+}
+
 function cloneMode(mode: VariableLegMode): VariableLegMode {
   return { ...mode, targetPath: mode.targetPath.map((point) => ({ ...point })) };
 }
@@ -386,8 +418,8 @@ export function analyzeVariableLegMode(
   );
   const path = validSamples.map((sample) => sample.tracer!).filter(Boolean);
   const match = matchClosedPath(mode.targetPath, path);
+  const clearance = measureClearance(path, mode.stanceStart, mode.stanceEnd, match.shift);
   const xs = path.map((point) => point.x);
-  const ys = path.map((point) => point.y);
   const angleStep = Math.PI * 2 / Math.max(1, sampleCount);
   const angularSpeed = mode.rpm * Math.PI * 2 / 60;
   let peakFootSpeed = 0;
@@ -402,12 +434,11 @@ export function analyzeVariableLegMode(
     const previous = speeds[(index - 1 + speeds.length) % speeds.length];
     peakFootAcceleration = Math.max(peakFootAcceleration, Math.hypot(speeds[index].x - previous.x, speeds[index].y - previous.y) / angleStep * angularSpeed);
   }
-  const stanceStartIndex = Math.round(clamp(mode.stanceStart, 0, 1) * Math.max(0, path.length - 1));
-  const stanceEndIndex = Math.round(clamp(mode.stanceEnd, 0, 1) * Math.max(0, path.length - 1));
-  const stance = path.slice(Math.min(stanceStartIndex, stanceEndIndex), Math.max(stanceStartIndex, stanceEndIndex) + 1);
-  const stanceMean = stance.length ? stance.reduce((sum, point) => sum + point.y, 0) / stance.length : 0;
-  const stanceStraightness = stance.length ? Math.sqrt(stance.reduce((sum, point) => sum + (point.y - stanceMean) ** 2, 0) / stance.length) : 0;
-  const landing = speeds[stanceStartIndex] ?? { x: 0, y: 0 };
+  const stanceMean = clearance.stance.length ? clearance.stance.reduce((sum, point) => sum + point.y, 0) / clearance.stance.length : 0;
+  const stanceStraightness = clearance.stance.length ? Math.sqrt(clearance.stance.reduce((sum, point) => sum + (point.y - stanceMean) ** 2, 0) / clearance.stance.length) : 0;
+  const targetLandingIndex = Math.round(clamp(mode.stanceStart, 0, 1) * Math.max(0, path.length - 1));
+  const landingIndex = ((targetLandingIndex - match.shift) % Math.max(1, path.length) + Math.max(1, path.length)) % Math.max(1, path.length);
+  const landing = speeds[landingIndex] ?? { x: 0, y: 0 };
   let branchSwitches = 0;
   let lastSignature = 0;
   for (const sample of validSamples) {
@@ -426,7 +457,7 @@ export function analyzeVariableLegMode(
     rmse: match.rmse,
     maxError: match.maxError,
     stepLength: xs.length ? Math.max(...xs) - Math.min(...xs) : 0,
-    liftHeight: ys.length ? Math.max(...ys) - Math.min(...ys) : 0,
+    liftHeight: clearance.clearance,
     stanceStraightness,
     singularityMargin: Math.min(90, ...validSamples.map((sample) => sample.singularityMargin)),
     peakFootSpeed,
@@ -436,25 +467,53 @@ export function analyzeVariableLegMode(
   };
 }
 
+export function variableLegModeCost(metric: VariableLegModeMetrics, mode: VariableLegMode) {
+  const targetXs = mode.targetPath.map((point) => point.x);
+  const targetStep = targetXs.length ? Math.max(...targetXs) - Math.min(...targetXs) : 0;
+  const targetClearance = measureGaitClearance(mode.targetPath, mode.stanceStart, mode.stanceEnd);
+  const scale = Math.max(targetStep, targetClearance * 2, 80);
+  const shapeCost = Number.isFinite(metric.rmse) ? metric.rmse / scale : 5;
+  const stepCost = Math.min(2, Math.abs(metric.stepLength - targetStep) / Math.max(40, targetStep));
+  const clearanceDeficit = Math.min(2, Math.max(0, targetClearance - metric.liftHeight) / Math.max(10, targetClearance));
+  const clearanceOvershoot = Math.min(1, Math.max(0, metric.liftHeight - targetClearance * 1.35) / Math.max(10, targetClearance));
+  const continuityCost = (1 - metric.validRatio) * 5 + Math.min(2, metric.maxConstraintError / 2) + metric.branchSwitches * 0.5;
+  const singularityCost = Math.max(0, (10 - metric.singularityMargin) / 10);
+  const landingCost = Math.min(1.5, metric.landingVerticalSpeed / Math.max(100, scale * 2));
+  return shapeCost * 0.3
+    + stepCost * 0.13
+    + clearanceDeficit * 0.38
+    + clearanceOvershoot * 0.04
+    + continuityCost * 0.1
+    + singularityCost * 0.03
+    + landingCost * 0.02;
+}
+
 export function scoreVariableLegFamily(metrics: VariableLegModeMetrics[], modes: VariableLegMode[], adjustment: VariableLegAdjustment) {
   let weightedCost = 0;
   let totalWeight = 0;
   for (const metric of metrics) {
     const mode = modes.find((item) => item.id === metric.modeId);
     const weight = Math.max(0.1, mode?.weight ?? 1);
-    const scale = Math.max(metric.stepLength, metric.liftHeight * 2, 80);
-    const errorCost = Number.isFinite(metric.rmse) ? metric.rmse / scale : 5;
-    const continuityCost = (1 - metric.validRatio) * 4 + Math.min(2, metric.maxConstraintError / 2) + metric.branchSwitches * 0.5;
-    const singularityCost = Math.max(0, (12 - metric.singularityMargin) / 12);
-    const landingCost = Math.min(1.5, metric.landingVerticalSpeed / Math.max(100, scale * 2));
-    weightedCost += weight * (errorCost * 0.62 + continuityCost * 0.22 + singularityCost * 0.1 + landingCost * 0.06);
+    weightedCost += weight * (mode ? variableLegModeCost(metric, mode) : 5);
     totalWeight += weight;
   }
   const span = Math.max(1, adjustment.maximum - adjustment.minimum);
   const values = modes.map((mode) => mode.adjustmentValue);
   const stroke = values.length ? Math.max(...values) - Math.min(...values) : 0;
   const strokePenalty = Math.max(0, stroke / span - 0.85) * 0.12;
-  const cost = weightedCost / Math.max(0.1, totalWeight) + strokePenalty;
+  const clearanceRanking = modes.map((mode) => ({
+    mode,
+    target: measureGaitClearance(mode.targetPath, mode.stanceStart, mode.stanceEnd),
+    actual: metrics.find((metric) => metric.modeId === mode.id)?.liftHeight ?? 0,
+  })).sort((first, second) => second.target - first.target);
+  const highest = clearanceRanking[0];
+  const secondHighest = clearanceRanking[1];
+  const targetGap = highest && secondHighest ? Math.max(0, highest.target - secondHighest.target) : 0;
+  const requiredActualGap = targetGap * 0.35;
+  const orderingPenalty = highest && secondHighest && highest.target > 0
+    ? Math.max(0, secondHighest.actual + requiredActualGap - highest.actual) / highest.target * 0.3
+    : 0;
+  const cost = weightedCost / Math.max(0.1, totalWeight) + strokePenalty + orderingPenalty;
   return { score: clamp(100 * (1 - cost), 0, 100), cost, stroke };
 }
 

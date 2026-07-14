@@ -10,6 +10,11 @@ import {
   type FreeMechanismProject,
 } from "./free-mechanism";
 import { resampleClosedPath } from "./path-synthesis";
+import {
+  createVariableLegDeployment,
+  isVariableLegDeployment,
+  type VariableLegDeployment,
+} from "./variable-leg-gait";
 
 export type VariableLegTopology = "klann" | "jansen";
 export type VariableLegAdjustmentKind = "moving-pivot" | "telescopic-bar";
@@ -56,11 +61,13 @@ export type VariableLegModeMetrics = {
   maxError: number;
   stepLength: number;
   liftHeight: number;
+  stanceGroundY: number;
   stanceStraightness: number;
   singularityMargin: number;
   peakFootSpeed: number;
   peakFootAcceleration: number;
   landingVerticalSpeed: number;
+  targetPhaseOffset: number;
   path: Point[];
 };
 
@@ -78,7 +85,7 @@ export type VariableLegCandidate = {
 };
 
 export type VariableLegProject = {
-  version: 1;
+  version: 2;
   mechanismType: "variable-geometry-leg";
   topology: VariableLegTopology;
   baseProject: FreeMechanismProject;
@@ -86,6 +93,7 @@ export type VariableLegProject = {
   modes: VariableLegMode[];
   activeModeId: string;
   inputPhase: number;
+  deployment: VariableLegDeployment;
   candidates?: VariableLegCandidate[];
   selectedCandidateId?: string | null;
 };
@@ -179,6 +187,10 @@ export function cloneVariableLegProject(project: VariableLegProject): VariableLe
     baseProject: cloneProject(project.baseProject),
     adjustment: { ...project.adjustment },
     modes: project.modes.map(cloneMode),
+    deployment: {
+      ...project.deployment,
+      legs: project.deployment.legs.map((leg) => ({ ...leg })),
+    },
     candidates: project.candidates?.map((candidate) => ({
       ...candidate,
       baseProject: cloneProject(candidate.baseProject),
@@ -257,7 +269,7 @@ export function createDefaultAdjustment(topology: VariableLegTopology, kind: Var
 
 export function createDefaultVariableLegProject(): VariableLegProject {
   return {
-    version: 1,
+    version: 2,
     mechanismType: "variable-geometry-leg",
     topology: "klann",
     baseProject: getVariableLegTemplate("klann"),
@@ -265,6 +277,7 @@ export function createDefaultVariableLegProject(): VariableLegProject {
     modes: createDefaultModes(),
     activeModeId: "cruise",
     inputPhase: 0,
+    deployment: createVariableLegDeployment(),
     candidates: [],
     selectedCandidateId: null,
   };
@@ -458,11 +471,13 @@ export function analyzeVariableLegMode(
     maxError: match.maxError,
     stepLength: xs.length ? Math.max(...xs) - Math.min(...xs) : 0,
     liftHeight: clearance.clearance,
+    stanceGroundY: clearance.groundY,
     stanceStraightness,
     singularityMargin: Math.min(90, ...validSamples.map((sample) => sample.singularityMargin)),
     peakFootSpeed,
     peakFootAcceleration,
     landingVerticalSpeed: Math.abs(landing.y),
+    targetPhaseOffset: path.length ? match.shift / path.length : 0,
     path,
   };
 }
@@ -526,7 +541,7 @@ export function analyzeVariableLegProject(project: VariableLegProject, sampleCou
 export function isVariableLegProject(value: unknown): value is VariableLegProject {
   if (!value || typeof value !== "object") return false;
   const project = value as Partial<VariableLegProject>;
-  return project.version === 1
+  return project.version === 2
     && project.mechanismType === "variable-geometry-leg"
     && (project.topology === "klann" || project.topology === "jansen")
     && Boolean(project.baseProject && Array.isArray(project.baseProject.joints) && Array.isArray(project.baseProject.bars))
@@ -534,7 +549,31 @@ export function isVariableLegProject(value: unknown): value is VariableLegProjec
     && Array.isArray(project.modes)
     && project.modes.length > 0
     && project.modes.length <= 6
-    && project.modes.every((mode) => typeof mode.id === "string" && Array.isArray(mode.targetPath));
+    && project.modes.every((mode) => typeof mode.id === "string" && Array.isArray(mode.targetPath))
+    && isVariableLegDeployment(project.deployment);
+}
+
+export function migrateVariableLegProject(value: unknown): VariableLegProject | null {
+  if (isVariableLegProject(value)) return cloneVariableLegProject(value);
+  if (!value || typeof value !== "object") return null;
+  const legacy = value as Partial<Omit<VariableLegProject, "version" | "deployment">> & { version?: unknown };
+  if (legacy.version !== 1
+    || legacy.mechanismType !== "variable-geometry-leg"
+    || (legacy.topology !== "klann" && legacy.topology !== "jansen")
+    || !legacy.baseProject
+    || !legacy.adjustment
+    || !Array.isArray(legacy.modes)
+    || legacy.modes.length < 1
+    || legacy.modes.length > 6
+    || !legacy.modes.every((mode) => typeof mode.id === "string" && Array.isArray(mode.targetPath))) return null;
+  const migrated = {
+    ...legacy,
+    version: 2 as const,
+    inputPhase: typeof legacy.inputPhase === "number" ? legacy.inputPhase : 0,
+    activeModeId: typeof legacy.activeModeId === "string" ? legacy.activeModeId : legacy.modes[0].id,
+    deployment: createVariableLegDeployment(),
+  } as VariableLegProject;
+  return isVariableLegProject(migrated) ? cloneVariableLegProject(migrated) : null;
 }
 
 export function projectForFreeDesigner(project: VariableLegProject) {

@@ -9,6 +9,7 @@ import {
   isVariableLegProject,
   materializeVariableLegMode,
   measureGaitClearance,
+  migrateVariableLegProject,
   sampleVariableLeg,
 } from "./variable-leg";
 import { synthesizeVariableLeg } from "./variable-leg-synthesis";
@@ -55,6 +56,16 @@ describe("variable geometry walking leg", () => {
     const cloned = cloneVariableLegProject(parsed as typeof source);
     expect(cloned.modes.map((mode) => mode.name)).toEqual(["巡航", "高速", "越障"]);
     expect(cloned.adjustment).toEqual(source.adjustment);
+    expect(cloned.deployment).toEqual(source.deployment);
+  });
+
+  it("migrates a version 1 project to the default two-leg deployment", () => {
+    const source = createDefaultVariableLegProject();
+    const legacy = { ...source, version: 1, deployment: undefined };
+    const migrated = migrateVariableLegProject(JSON.parse(JSON.stringify(legacy)) as unknown);
+    expect(migrated?.version).toBe(2);
+    expect(migrated?.deployment.legCount).toBe(2);
+    expect(migrated?.deployment.preset).toBe("alternating");
   });
 
   it("produces deterministic project metrics", () => {

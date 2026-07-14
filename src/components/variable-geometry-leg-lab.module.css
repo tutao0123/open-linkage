@@ -16,15 +16,25 @@
 .historyBar,.modeActions { margin:11px 0; display:grid; grid-template-columns:1fr 1fr; gap:7px; }
 .historyBar button,.modeActions button { padding:8px; border:1px solid #c7c9c1; background:#e8e8e1; cursor:pointer; }
 .historyBar button:disabled,.modeActions button:disabled { cursor:not-allowed; opacity:.42; }
-.configSection,.modeEditor { padding:12px; border:1px solid #c9cbc3; background:#e8e8e1; }
-.configSection label,.modeEditor>label { margin-bottom:10px; display:grid; gap:5px; color:#606660; font-size:10px; }
-.configSection select,.configSection input,.modeEditor input { min-width:0; width:100%; padding:8px; border:1px solid #c5c7bf; background:#f4f3ed; color:#171b19; font:12px "Cascadia Mono",Consolas,monospace; }
+.configSection,.modeEditor,.deploymentEditor { padding:12px; border:1px solid #c9cbc3; background:#e8e8e1; }
+.configSection label,.modeEditor>label,.deploymentEditor>label { margin-bottom:10px; display:grid; gap:5px; color:#606660; font-size:10px; }
+.configSection select,.configSection input,.modeEditor input,.deploymentEditor input,.deploymentEditor select { min-width:0; width:100%; padding:8px; border:1px solid #c5c7bf; background:#f4f3ed; color:#171b19; font:12px "Cascadia Mono",Consolas,monospace; }
 .unitInput { display:flex; align-items:center; }
 .unitInput input { border-right:0; }
 .unitInput i { align-self:stretch; padding:8px; display:flex; align-items:center; border:1px solid #c5c7bf; background:#ecebe5; font-style:normal; }
 .rangePair { display:grid; grid-template-columns:1fr 1fr; gap:7px; }
 .rangePair label { min-width:0; display:grid; gap:5px; color:#606660; font-size:10px; }
 .modeHeader { margin-top:16px; display:flex; justify-content:space-between; color:#686e68; font-size:11px; }
+.deploymentHeader { margin-top:16px; display:flex; justify-content:space-between; color:#686e68; font-size:11px; }
+.deploymentEditor { margin-top:8px; }
+.legCountTabs { margin-bottom:12px; display:grid; grid-template-columns:repeat(4,1fr); gap:5px; }
+.legCountTabs button { padding:8px 3px; border:1px solid #bbbdb5; background:transparent; color:#535953; cursor:pointer; font-size:10px; }
+.legCountTabs .activeLegCount { border-color:#171b19; background:#171b19; color:#c8ff3d; }
+.phaseList { max-height:190px; overflow-y:auto; border-top:1px solid #c9cbc3; }
+.phaseList label { padding:8px 0 5px; display:block; border-bottom:1px solid #d1d3cb; }
+.phaseList label>span { display:flex; justify-content:space-between; color:#606660; font-size:9px; }
+.phaseList label b { color:#202522; font:10px "Cascadia Mono",Consolas,monospace; }
+.phaseList input { height:20px; padding:0; border:0; background:transparent; accent-color:#111515; }
 .modeTabs { margin-top:8px; display:grid; grid-template-columns:repeat(3,1fr); gap:6px; }
 .modeTabs button { min-width:0; padding:8px 4px; border:1px solid #bbbdb5; border-bottom-width:3px; background:transparent; cursor:pointer; font-size:11px; overflow:hidden; text-overflow:ellipsis; }
 .modeTabs .activeMode { background:#111515; color:#c8ff3d; }
@@ -53,6 +63,7 @@
 .canvasActions { position:absolute; z-index:3; top:14px; left:14px; display:flex; flex-wrap:wrap; gap:6px; padding:6px; border:1px solid #b7bab2; background:rgb(242 241 235 / 94%); box-shadow:0 8px 25px rgb(40 45 38 / 8%); }
 .canvasActions button { min-height:31px; padding:0 9px; border:1px solid #c7c9c1; background:transparent; color:#4f554f; cursor:pointer; font-size:10px; }
 .canvasActions .selectedTool { border-color:#171b19; background:#171b19; color:#c8ff3d; }
+.canvasActionDivider { width:1px; min-height:28px; align-self:stretch; background:#c3c6bd; }
 .grid { fill:none; stroke:#bec0b8; stroke-width:.7; }
 .drawing { cursor:crosshair; }
 .panning { cursor:grabbing; }
@@ -68,6 +79,28 @@
 .movingJoint circle:nth-child(2) { fill:#c8ff3d; }
 .fixedJoint text,.movingJoint text,.rail text { fill:#555c55; font:9px "Cascadia Mono",Consolas,monospace; }
 .foot { fill:#111515; stroke:#c8ff3d; stroke-width:5; }
+.deploymentGround { stroke:#8d9189; stroke-width:4; }
+.chassis rect { fill:#262b28; stroke:#111515; stroke-width:4; }
+.chassis line { stroke:#c8ff3d; stroke-width:3; opacity:.7; }
+.chassis text { fill:#e8e8e1; font:10px "Cascadia Mono",Consolas,monospace; text-anchor:middle; }
+.deployedLeg { transition:opacity .12s ease; }
+.deployedLegRear { opacity:.46; }
+.deployedLegSwing { opacity:.6; }
+.deployedLegRear.deployedLegSwing { opacity:.28; }
+.deployedBody { fill:rgb(163 189 98 / 16%); stroke:#68851f; stroke-width:4; stroke-linejoin:round; }
+.deployedLink { stroke:#343a37; stroke-width:8; stroke-linecap:round; }
+.deployedDriver { stroke:#9fca35; stroke-width:11; }
+.deployedLegStance .deployedLink { stroke:#151a17; }
+.deployedLegStance .deployedDriver { stroke:#c8ff3d; }
+.deployedJoint circle { fill:#f1f1eb; stroke:#1d2220; stroke-width:3; }
+.deployedFoot { fill:#171b19; stroke:#d4663b; stroke-width:4; }
+.deployedLegStance .deployedFoot { fill:#c8ff3d; stroke:#111515; stroke-width:5; }
+.deployedLegLabel { fill:#4f564f; font:9px "Cascadia Mono",Consolas,monospace; }
+.footprintPlot>rect { fill:rgb(242 241 235 / 92%); stroke:#b8bbb2; stroke-width:2; }
+.footprintPlot>line { stroke:#b6bab1; stroke-width:2; stroke-dasharray:7 5; }
+.footprintPlot>text { fill:#656b65; font:9px "Cascadia Mono",Consolas,monospace; }
+.footprintMark ellipse { fill:#c8ff3d; stroke:#111515; stroke-width:2; }
+.footprintMark text { fill:#2a302c; font:8px "Cascadia Mono",Consolas,monospace; text-anchor:middle; }
 .rail line { stroke:#7d827b; stroke-width:8; stroke-dasharray:8 6; }
 .rail circle { stroke:#111515; stroke-width:3; }
 .controlPoint { cursor:grab; stroke:#fff; stroke-width:2; }
@@ -78,6 +111,8 @@
 .legend span { flex:none; display:flex; align-items:center; gap:5px; }
 .legend i { width:18px; height:3px; display:inline-block; }
 .legendTarget { background:repeating-linear-gradient(90deg,#333 0 5px,transparent 5px 8px); }
+.legendStance { background:#c8ff3d; border:1px solid #151918; }
+.legendSwing { background:#757b76; opacity:.5; }
 .transport { padding:12px 18px; display:flex; align-items:center; gap:14px; border-top:1px solid #c5c6be; background:#f2f1eb; color:#686e68; font:10px "Cascadia Mono",Consolas,monospace; }
 .transport button { width:44px; height:44px; flex:none; border:0; border-radius:50%; background:#111515; color:#c8ff3d; cursor:pointer; }
 .transport input { flex:1; accent-color:#111515; }
@@ -94,6 +129,9 @@
 .emptyState b { color:#242a27; font-size:13px; }
 .emptyState p { margin:8px 0 0; font-size:10px; line-height:1.6; }
 .modeSummary>div { padding:10px 0; display:flex; justify-content:space-between; align-items:end; border-bottom:1px solid #d2d3cc; }
+.analysisSectionTitle { margin-top:16px; padding:8px 0; display:flex; justify-content:space-between; border-top:1px solid #c9cbc3; color:#6a706a; font-size:10px; }
+.analysisSectionTitle b { color:#2b302d; font-weight:600; }
+.gaitSummary { padding:0 10px; border:1px solid #b9cf8b; background:#e5efd0; }
 .modeSummary span { color:#676c67; font-size:10px; }
 .modeSummary strong { font:18px "Cascadia Mono",Consolas,monospace; }
 .modeSummary small { margin-left:3px; color:#777d77; font-size:8px; }

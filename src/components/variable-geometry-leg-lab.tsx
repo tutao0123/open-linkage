@@ -22,9 +22,9 @@ import {
   createDefaultVariableLegProject,
   createGaitPath,
   getVariableLegTemplate,
-  isVariableLegProject,
   materializeVariableLegMode,
   measureGaitClearance,
+  migrateVariableLegProject,
   projectForFreeDesigner,
   sampleVariableLeg,
   smoothClosedPath,
@@ -34,16 +34,34 @@ import {
   type VariableLegProject,
   type VariableLegTopology,
 } from "@/lib/variable-leg";
+import {
+  analyzeVariableLegGait,
+  appendVariableLegFootprints,
+  changeVariableLegCount,
+  changeVariableLegPhase,
+  changeVariableLegPreset,
+  detectVariableLegTouchdowns,
+  variableLegBodyAdvance,
+  variableLegMountX,
+  variableLegPresetOptions,
+  variableLegSampleIndex,
+  type VariableLegCount,
+  type VariableLegFootprint,
+  type VariableLegGaitPreset,
+} from "@/lib/variable-leg-gait";
 import { resampleClosedPath } from "@/lib/path-synthesis";
 import type { VariableLegSynthesisProgress } from "@/lib/variable-leg-synthesis";
 import { SvgViewportControls } from "./svg-viewport-controls";
 import { useSnapshotHistory } from "./use-snapshot-history";
 import { useSvgViewport } from "./use-svg-viewport";
+import { VariableLegDeploymentView } from "./variable-leg-deployment-view";
 import styles from "./variable-geometry-leg-lab.module.css";
 
-const STORAGE_KEY = "open-linkage:variable-leg-project:v1";
+const STORAGE_KEY = "open-linkage:variable-leg-project:v2";
+const LEGACY_STORAGE_KEY = "open-linkage:variable-leg-project:v1";
 const TRANSFER_KEY = "open-linkage:designer-transfer";
 type CanvasMode = "inspect" | "draw" | "points";
+type ViewMode = "mechanism" | "deployment";
 
 type WorkerResponse =
   | { type: "progress"; requestId: string; progress: VariableLegSynthesisProgress }
@@ -82,6 +100,9 @@ export function VariableGeometryLegLab() {
   const { value: project, valueRef: projectRef, replace, commit, reset: resetHistory, undo, redo, canUndo, canRedo } = history;
   const [phase, setPhase] = useState(0);
   const [playing, setPlaying] = useState(false);
+  const [viewMode, setViewMode] = useState<ViewMode>("mechanism");
+  const [bodyWorldX, setBodyWorldX] = useState(0);
+  const [footprints, setFootprints] = useState<VariableLegFootprint[]>([]);
   const [canvasMode, setCanvasMode] = useState<CanvasMode>("inspect");
   const [drawing, setDrawing] = useState(false);
   const [drawingPoints, setDrawingPoints] = useState<Point[]>([]);
@@ -92,6 +113,9 @@ export function VariableGeometryLegLab() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const workerRef = useRef<Worker | null>(null);
   const requestIdRef = useRef<string | null>(null);
+  const phaseRef = useRef(0);
+  const bodyWorldXRef = useRef(0);
+  const footprintSequenceRef = useRef(0);
   const pointDragRef = useRef<{ pointerId: number; index: number } | null>(null);
   const viewportBase = useMemo(() => ({ x: -560, y: -360, width: 1120, height: 760 }), []);
   const viewport = useSvgViewport(viewportBase);
@@ -104,6 +128,10 @@ export function VariableGeometryLegLab() {
   );
   const analysis = useMemo(() => analyzeVariableLegProject(project, 54, 70), [project]);
   const activeMetrics = analysis.metrics.find((metric) => metric.modeId === activeMode.id) ?? analysis.metrics[0];
+  const gaitMetrics = useMemo(
+    () => analyzeVariableLegGait(project.deployment, activeMode, activeMetrics),
+    [activeMetrics, activeMode, project.deployment],
+  );
   const sampleIndex = Math.floor((((phase % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2)) / (Math.PI * 2) * cycleSamples.length) % Math.max(1, cycleSamples.length);
   const currentFrame = cycleSamples[sampleIndex]?.project ?? materializeVariableLegMode(project.baseProject, project.adjustment, activeMode.adjustmentValue);
   const currentTracer = cycleSamples[sampleIndex]?.tracer ?? null;
@@ -113,24 +141,37 @@ export function VariableGeometryLegLab() {
     ? VARIABLE_LEG_OPTIONS[project.topology].movingPivots
     : VARIABLE_LEG_OPTIONS[project.topology].telescopicBars;
 
+  const resetGaitTrail = useCallback(() => {
+    bodyWorldXRef.current = 0;
+    footprintSequenceRef.current = 0;
+    setBodyWorldX(0);
+    setFootprints([]);
+  }, []);
+
+  const setMotionPhase = useCallback((nextPhase: number) => {
+    phaseRef.current = nextPhase;
+    setPhase(nextPhase);
+  }, []);
+
   const stopMotion = useCallback(() => setPlaying(false), []);
 
   useEffect(() => {
-    const saved = window.localStorage.getItem(STORAGE_KEY);
+    const saved = window.localStorage.getItem(STORAGE_KEY) ?? window.localStorage.getItem(LEGACY_STORAGE_KEY);
     if (!saved) return;
     const timer = window.setTimeout(() => {
       try {
         const parsed = JSON.parse(saved) as unknown;
-        if (!isVariableLegProject(parsed)) throw new Error("invalid");
-        resetHistory(parsed);
-        setPhase(parsed.inputPhase || 0);
+        const migrated = migrateVariableLegProject(parsed);
+        if (!migrated) throw new Error("invalid");
+        resetHistory(migrated);
+        setMotionPhase(migrated.inputPhase || 0);
         setMessage("已恢复上次的可变几何步行腿项目。");
       } catch {
         setMessage("自动保存数据无效，已保留默认工况。");
       }
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [resetHistory]);
+  }, [resetHistory, setMotionPhase]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -147,12 +188,37 @@ export function VariableGeometryLegLab() {
     const tick = (time: number) => {
       const elapsed = Math.min(0.05, (time - previous) / 1000);
       previous = time;
-      setPhase((current) => (current + activeMode.rpm * Math.PI * 2 / 60 * elapsed) % (Math.PI * 2));
+      const current = phaseRef.current;
+      const next = (current + activeMode.rpm * Math.PI * 2 / 60 * elapsed) % (Math.PI * 2);
+      if (viewMode === "deployment") {
+        const advance = variableLegBodyAdvance(current, next, project.deployment, activeMode, activeMetrics);
+        bodyWorldXRef.current += advance;
+        setBodyWorldX(bodyWorldXRef.current);
+        const touchdownLegs = detectVariableLegTouchdowns(current, next, project.deployment, activeMode, activeMetrics);
+        if (touchdownLegs.length) {
+          const additions = touchdownLegs.flatMap((leg) => {
+            const sample = cycleSamples[variableLegSampleIndex(next, leg.phaseOffset, cycleSamples.length)];
+            if (!sample?.tracer) return [];
+            footprintSequenceRef.current += 1;
+            return [{
+              id: `${leg.id}-${footprintSequenceRef.current}`,
+              legId: leg.id,
+              label: leg.label,
+              side: leg.side,
+              sequence: footprintSequenceRef.current,
+              worldX: bodyWorldXRef.current + variableLegMountX(leg, project.deployment) + sample.tracer.x,
+              worldY: sample.tracer.y,
+            } satisfies VariableLegFootprint];
+          });
+          if (additions.length) setFootprints((currentFootprints) => appendVariableLegFootprints(currentFootprints, additions));
+        }
+      }
+      setMotionPhase(next);
       frame = requestAnimationFrame(tick);
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, [activeMode.rpm, playing]);
+  }, [activeMetrics, activeMode, cycleSamples, playing, project.deployment, setMotionPhase, viewMode]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -162,16 +228,20 @@ export function VariableGeometryLegLab() {
       event.preventDefault();
       stopMotion();
       const restored = key === "y" || event.shiftKey ? redo() : undo();
-      if (restored) setMessage(key === "y" || event.shiftKey ? "已重做一步。" : "已撤销一步。");
+      if (restored) {
+        resetGaitTrail();
+        setMessage(key === "y" || event.shiftKey ? "已重做一步。" : "已撤销一步。");
+      }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [redo, stopMotion, undo]);
+  }, [redo, resetGaitTrail, stopMotion, undo]);
 
   useEffect(() => () => workerRef.current?.terminate(), []);
 
   const updateProject = (updater: (current: VariableLegProject) => VariableLegProject, status?: string) => {
     stopMotion();
+    resetGaitTrail();
     commit(updater(cloneVariableLegProject(projectRef.current)));
     if (status) setMessage(status);
   };
@@ -187,6 +257,7 @@ export function VariableGeometryLegLab() {
 
   const selectMode = (modeId: string) => {
     stopMotion();
+    resetGaitTrail();
     replace({ ...projectRef.current, activeModeId: modeId });
     setCanvasMode("inspect");
     setMessage("主轴已暂停，已切换到新的离散锁止工况。");
@@ -359,7 +430,8 @@ export function VariableGeometryLegLab() {
   const resetProject = () => {
     stopMotion();
     resetHistory(createDefaultVariableLegProject());
-    setPhase(0);
+    setMotionPhase(0);
+    resetGaitTrail();
     setCanvasMode("inspect");
     viewport.resetView();
     setMessage("已恢复克兰腿与三个默认工况。");
@@ -401,6 +473,7 @@ export function VariableGeometryLegLab() {
           selectedCandidateId: first.id,
           activeModeId: first.modes[0].id,
         });
+        resetGaitTrail();
         setMessage(`已生成 ${response.candidates.length} 套多工况候选，当前载入综合推荐。`);
       } else if (response.type === "cancelled") {
         setMessage("自动综合已取消，当前机构和目标轨迹未改变。");
@@ -453,9 +526,11 @@ export function VariableGeometryLegLab() {
     if (!file) return;
     try {
       const parsed = JSON.parse(await file.text()) as unknown;
-      if (!isVariableLegProject(parsed)) throw new Error("invalid");
-      resetHistory(parsed);
-      setPhase(parsed.inputPhase || 0);
+      const migrated = migrateVariableLegProject(parsed);
+      if (!migrated) throw new Error("invalid");
+      resetHistory(migrated);
+      setMotionPhase(migrated.inputPhase || 0);
+      resetGaitTrail();
       setMessage(`已导入 ${file.name}。`);
     } catch {
       setMessage("导入失败：文件不是有效的可变几何步行腿项目。");
@@ -468,6 +543,32 @@ export function VariableGeometryLegLab() {
     window.location.href = "/designer?transfer=variable-leg";
   };
 
+  const setDeploymentLegCount = (legCount: VariableLegCount) => {
+    updateProject((current) => ({ ...current, deployment: changeVariableLegCount(current.deployment, legCount) }), `已切换为 ${legCount} 腿整机部署。`);
+    setViewMode("deployment");
+  };
+
+  const setDeploymentPreset = (preset: Exclude<VariableLegGaitPreset, "custom">) => {
+    updateProject((current) => ({ ...current, deployment: changeVariableLegPreset(current.deployment, preset) }), "已应用步态预设并重新分配各腿相位。" );
+    setViewMode("deployment");
+  };
+
+  const setDeploymentPhase = (legId: string, degrees: number) => {
+    stopMotion();
+    resetGaitTrail();
+    replace({
+      ...projectRef.current,
+      deployment: changeVariableLegPhase(projectRef.current.deployment, legId, degrees / 360),
+    });
+  };
+
+  const gaitWarnings = viewMode === "deployment" ? [
+    gaitMetrics.minimumSupport === 0 ? "当前步态存在全部腿同时离地的腾空阶段。" : null,
+    gaitMetrics.maximumTouchdownCluster > project.deployment.legCount / 2 ? "多条腿在同一时刻集中触地，建议改用波步或错开相位。" : null,
+    gaitMetrics.stanceSlip > Math.max(5, activeMetrics.stepLength * 0.03) ? "支撑相足端滑移较大，机身匀速运动时可能出现拖脚。" : null,
+    gaitMetrics.smoothnessScore < 70 ? "当前相位组合的步态平滑分较低。" : null,
+  ].filter((warning): warning is string => Boolean(warning)) : [];
+
   const warnings = [
     activeMetrics.validRatio < 0.99 ? "当前工况存在不可达相位或约束误差。" : null,
     activeMetrics.branchSwitches > 0 ? "检测到装配分支变化，当前几何不适合连续运行。" : null,
@@ -475,6 +576,7 @@ export function VariableGeometryLegLab() {
     activeMetrics.landingVerticalSpeed > 240 ? "按当前转速估算的落地垂直速度较高。" : null,
     activeMetrics.liftHeight < activeStats.lift * 0.8 ? `摆动相净离地仅达到目标的 ${Math.round(activeMetrics.liftHeight / Math.max(1, activeStats.lift) * 100)}%。` : null,
     activeMode.adjustmentValue < project.adjustment.minimum || activeMode.adjustmentValue > project.adjustment.maximum ? "锁止值超出调节范围。" : null,
+    ...gaitWarnings,
   ].filter((warning): warning is string => Boolean(warning));
 
   return (
@@ -483,7 +585,7 @@ export function VariableGeometryLegLab() {
         <Link className={styles.brand} href="/"><span className={styles.brandMark} />OpenLinkage</Link>
         <nav>
           <Link href="/lab">四杆设计</Link><Link href="/leg">六杆腿</Link><Link href="/straight-line">直线机构</Link><Link href="/designer">自由设计</Link>
-          <span>可变几何步行腿 · 0.1</span>
+          <span>可变几何步行腿 · 0.2</span>
         </nav>
       </header>
 
@@ -492,8 +594,8 @@ export function VariableGeometryLegLab() {
           <div className={styles.panelTitle}><div><span>01</span><h1>机构与工况</h1></div><button type="button" onClick={resetProject}>恢复默认</button></div>
 
           <div className={styles.historyBar}>
-            <button type="button" disabled={!canUndo} onClick={() => { stopMotion(); if (undo()) setMessage("已撤销一步。"); }}>↶ 撤销</button>
-            <button type="button" disabled={!canRedo} onClick={() => { stopMotion(); if (redo()) setMessage("已重做一步。"); }}>↷ 重做</button>
+            <button type="button" disabled={!canUndo} onClick={() => { stopMotion(); if (undo()) { resetGaitTrail(); setMessage("已撤销一步。"); } }}>↶ 撤销</button>
+            <button type="button" disabled={!canRedo} onClick={() => { stopMotion(); if (redo()) { resetGaitTrail(); setMessage("已重做一步。"); } }}>↷ 重做</button>
           </div>
 
           <section className={styles.configSection}>
@@ -543,6 +645,52 @@ export function VariableGeometryLegLab() {
             <small>{project.adjustment.kind === "moving-pivot" ? "单位为沿导轨的位移 mm" : "单位为锁定后的有效杆长 mm"}</small>
           </section>
 
+          <div className={styles.deploymentHeader}><b>整机部署</b><span>{project.deployment.legCount} 条腿</span></div>
+          <section className={styles.deploymentEditor}>
+            <div className={styles.legCountTabs} role="group" aria-label="整机腿数">
+              {([2, 4, 6, 8] as const).map((legCount) => <button
+                type="button"
+                key={legCount}
+                className={project.deployment.legCount === legCount ? styles.activeLegCount : ""}
+                onClick={() => setDeploymentLegCount(legCount)}
+              >{legCount} 腿</button>)}
+            </div>
+            <label>步态预设
+              <select
+                value={project.deployment.preset}
+                onChange={(event) => event.target.value !== "custom" && setDeploymentPreset(event.target.value as Exclude<VariableLegGaitPreset, "custom">)}
+              >
+                {variableLegPresetOptions(project.deployment.legCount).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                {project.deployment.preset === "custom" && <option value="custom">自定义相位</option>}
+              </select>
+            </label>
+            <label>安装跨度
+              <span className={styles.unitInput}><input
+                type="number"
+                min="0"
+                max="900"
+                step="10"
+                value={Math.round(project.deployment.mountSpan)}
+                onChange={(event) => updateProject((current) => ({ ...current, deployment: { ...current.deployment, mountSpan: Math.max(0, Math.min(900, Number(event.target.value) || 0)) } }))}
+              /><i>mm</i></span>
+            </label>
+            <div className={styles.phaseList}>
+              {project.deployment.legs.map((leg) => <label key={leg.id}>
+                <span>{leg.label}<b>{Math.round(leg.phaseOffset * 360)}°</b></span>
+                <input
+                  aria-label={`${leg.label}相位`}
+                  type="range"
+                  min="0"
+                  max="359"
+                  step="1"
+                  value={Math.round(leg.phaseOffset * 360)}
+                  onChange={(event) => setDeploymentPhase(leg.id, Number(event.target.value))}
+                  onPointerUp={() => commit(cloneVariableLegProject(projectRef.current))}
+                />
+              </label>)}
+            </div>
+          </section>
+
           <section className={styles.searchBox}>
             <button className={styles.primaryButton} type="button" onClick={runSynthesis} disabled={searching}>{searching ? `${Math.round(searchProgress.progress * 100)}% · ${searchProgress.stage}` : "自动综合 5 套方案"}</button>
             {searching && <button className={styles.cancelButton} type="button" onClick={cancelSynthesis}>取消搜索</button>}
@@ -564,39 +712,48 @@ export function VariableGeometryLegLab() {
             <span>{topologyName(project.topology)}</span><span>{adjustmentName(project.adjustment.kind)} / {project.adjustment.targetId}</span><b>锁止 {activeMode.adjustmentValue.toFixed(1)}</b>
           </div>
           <div className={styles.canvas}>
-            <div className={styles.canvasActions} role="group" aria-label="轨迹编辑工具">
-              <button className={canvasMode === "inspect" ? styles.selectedTool : ""} type="button" onClick={() => setCanvasMode("inspect")}>查看机构</button>
-              <button className={canvasMode === "draw" ? styles.selectedTool : ""} type="button" onClick={() => setCanvasMode("draw")}>绘制轨迹</button>
-              <button className={canvasMode === "points" ? styles.selectedTool : ""} type="button" onClick={() => setCanvasMode("points")}>编辑控制点</button>
-              <button type="button" onClick={smoothActivePath}>平滑</button>
-              <button type="button" onClick={() => updateActiveMode((mode) => ({ ...mode, targetPath: [] }), "当前目标轨迹已清除。")}>清除</button>
+            <div className={styles.canvasActions} role="group" aria-label="画布显示与编辑工具">
+              <button className={viewMode === "mechanism" ? styles.selectedTool : ""} type="button" onClick={() => setViewMode("mechanism")}>单腿机构</button>
+              <button className={viewMode === "deployment" ? styles.selectedTool : ""} type="button" onClick={() => { setViewMode("deployment"); setCanvasMode("inspect"); }}>整机步态</button>
+              {viewMode === "mechanism" ? <>
+                <span className={styles.canvasActionDivider} />
+                <button className={canvasMode === "draw" ? styles.selectedTool : ""} type="button" onClick={() => setCanvasMode("draw")}>绘制轨迹</button>
+                <button className={canvasMode === "points" ? styles.selectedTool : ""} type="button" onClick={() => setCanvasMode("points")}>编辑控制点</button>
+                <button type="button" onClick={smoothActivePath}>平滑</button>
+                <button type="button" onClick={() => updateActiveMode((mode) => ({ ...mode, targetPath: [] }), "当前目标轨迹已清除。")}>清除</button>
+              </> : <>
+                <span className={styles.canvasActionDivider} />
+                <button type="button" onClick={() => commit({ ...cloneVariableLegProject(projectRef.current), deployment: { ...projectRef.current.deployment, showFootprints: !projectRef.current.deployment.showFootprints } })}>{project.deployment.showFootprints ? "隐藏足迹" : "显示足迹"}</button>
+                <button type="button" onClick={resetGaitTrail}>清除足迹</button>
+              </>}
             </div>
             <SvgViewportControls zoom={viewport.zoom} onZoomIn={viewport.zoomIn} onZoomOut={viewport.zoomOut} onReset={viewport.resetView} />
             <svg
               ref={svgRef}
               viewBox={viewport.viewBox}
               role="img"
-              aria-label="可变几何克兰或简森步行腿、导轨、锁止位置与多工况足端轨迹"
-              className={viewport.isPanning ? styles.panning : canvasMode === "draw" ? styles.drawing : undefined}
+              aria-label={viewMode === "mechanism" ? "可变几何克兰或简森步行腿、导轨、锁止位置与多工况足端轨迹" : `${project.deployment.legCount} 条可变几何步行腿整机步态与落足记录`}
+              className={viewport.isPanning ? styles.panning : viewMode === "mechanism" && canvasMode === "draw" ? styles.drawing : undefined}
               onWheel={viewport.handleWheel}
               onPointerDown={startCanvasPointer}
               onPointerMove={moveCanvasPointer}
               onPointerUp={endCanvasPointer}
               onPointerCancel={endCanvasPointer}
             >
-              <defs><pattern id="variable-leg-grid" width="25" height="25" patternUnits="userSpaceOnUse"><path d="M25 0H0V25" className={styles.grid} /></pattern></defs>
-              <rect x={viewport.view.x} y={viewport.view.y} width={viewport.view.width} height={viewport.view.height} fill="url(#variable-leg-grid)" />
-              {analysis.metrics.map((metric) => {
+              {viewMode === "mechanism" ? <>
+                <defs><pattern id="variable-leg-grid" width="25" height="25" patternUnits="userSpaceOnUse"><path d="M25 0H0V25" className={styles.grid} /></pattern></defs>
+                <rect x={viewport.view.x} y={viewport.view.y} width={viewport.view.width} height={viewport.view.height} fill="url(#variable-leg-grid)" />
+                {analysis.metrics.map((metric) => {
                 const mode = project.modes.find((item) => item.id === metric.modeId)!;
                 const aligned = metric.path.length ? alignedTargetPath(mode.targetPath, metric.path) : mode.targetPath;
                 return <g key={mode.id} opacity={mode.id === activeMode.id ? 1 : 0.5}>
                   <path d={pathData(aligned)} fill="none" stroke={mode.color} strokeWidth={mode.id === activeMode.id ? 4 : 2} strokeDasharray="8 6" className={styles.targetPath} />
                   <path d={pathData(metric.path)} fill="none" stroke={mode.color} strokeWidth={mode.id === activeMode.id ? 3 : 1.5} className={styles.actualPath} />
                 </g>;
-              })}
-              {drawingPoints.length > 1 && <path d={pathData(drawingPoints, false)} className={styles.draftPath} />}
+                })}
+                {drawingPoints.length > 1 && <path d={pathData(drawingPoints, false)} className={styles.draftPath} />}
 
-              {project.adjustment.kind === "moving-pivot" && (() => {
+                {project.adjustment.kind === "moving-pivot" && (() => {
                 const angle = project.adjustment.railAngle * Math.PI / 180;
                 const pointAt = (value: number) => ({ x: project.adjustment.kind === "moving-pivot" ? project.adjustment.baseX + value * Math.cos(angle) : 0, y: project.adjustment.kind === "moving-pivot" ? project.adjustment.baseY + value * Math.sin(angle) : 0 });
                 const start = pointAt(project.adjustment.minimum);
@@ -605,35 +762,48 @@ export function VariableGeometryLegLab() {
                   <line x1={start.x} y1={start.y} x2={end.x} y2={end.y} />
                   {project.modes.map((mode) => { const point = pointAt(mode.adjustmentValue); return <g key={mode.id}><circle cx={point.x} cy={point.y} r={mode.id === activeMode.id ? 11 : 7} style={{ fill: mode.color }} /><text x={point.x + 9} y={point.y - 10}>{mode.name}</text></g>; })}
                 </g>;
-              })()}
+                })()}
 
-              {currentFrame.bodies.map((body) => {
+                {currentFrame.bodies.map((body) => {
                 const points = body.jointIds.map((id) => currentJointMap.get(id)).filter((joint): joint is NonNullable<typeof joint> => Boolean(joint));
                 return points.length >= 3 ? <polygon key={body.id} points={points.map((joint) => `${joint.x},${joint.y}`).join(" ")} className={styles.rigidBody} /> : null;
-              })}
-              {currentFrame.bars.map((bar) => {
+                })}
+                {currentFrame.bars.map((bar) => {
                 const a = currentJointMap.get(bar.a);
                 const b = currentJointMap.get(bar.b);
                 if (!a || !b) return null;
                 const adjustable = project.adjustment.kind === "telescopic-bar" && bar.id === project.adjustment.targetId;
                 return <line key={bar.id} x1={a.x} y1={a.y} x2={b.x} y2={b.y} className={`${styles.link} ${bar.id === currentFrame.driverId ? styles.driver : ""} ${adjustable ? styles.telescopic : ""}`} />;
-              })}
-              {currentFrame.joints.map((joint) => <g key={joint.id} className={joint.fixed ? styles.fixedJoint : styles.movingJoint}><circle cx={joint.x} cy={joint.y} r="9" /><circle cx={joint.x} cy={joint.y} r="3" /><text x={joint.x + 10} y={joint.y - 10}>{joint.id}</text></g>)}
-              {currentTracer && <circle cx={currentTracer.x} cy={currentTracer.y} r="11" className={styles.foot} />}
+                })}
+                {currentFrame.joints.map((joint) => <g key={joint.id} className={joint.fixed ? styles.fixedJoint : styles.movingJoint}><circle cx={joint.x} cy={joint.y} r="9" /><circle cx={joint.x} cy={joint.y} r="3" /><text x={joint.x + 10} y={joint.y - 10}>{joint.id}</text></g>)}
+                {currentTracer && <circle cx={currentTracer.x} cy={currentTracer.y} r="11" className={styles.foot} />}
 
-              {canvasMode === "points" && activeMode.targetPath.map((point, index) => index % 6 === 0
-                ? <circle key={`${activeMode.id}-${index}`} cx={point.x} cy={point.y} r="7" fill={activeMode.color} className={styles.controlPoint} onPointerDown={(event) => startPointDrag(event, index)} />
-                : null)}
+                {canvasMode === "points" && activeMode.targetPath.map((point, index) => index % 6 === 0
+                  ? <circle key={`${activeMode.id}-${index}`} cx={point.x} cy={point.y} r="7" fill={activeMode.color} className={styles.controlPoint} onPointerDown={(event) => startPointDrag(event, index)} />
+                  : null)}
+              </> : <VariableLegDeploymentView
+                samples={cycleSamples}
+                deployment={project.deployment}
+                mode={activeMode}
+                metrics={activeMetrics}
+                phase={phase}
+                bodyWorldX={bodyWorldX}
+                footprints={footprints}
+              />}
             </svg>
             {searching && <div className={styles.searchOverlay}><strong>{Math.round(searchProgress.progress * 100)}%</strong><span>{searchProgress.message}</span></div>}
           </div>
           <div className={styles.legend}>
-            {project.modes.map((mode) => <span key={mode.id}><i style={{ background: mode.color }} />{mode.name}</span>)}
-            <span><i className={styles.legendTarget} />虚线目标 / 实线实际</span>
+            {viewMode === "mechanism" ? <>
+              {project.modes.map((mode) => <span key={mode.id}><i style={{ background: mode.color }} />{mode.name}</span>)}
+              <span><i className={styles.legendTarget} />虚线目标 / 实线实际</span>
+            </> : <>
+              <span><i className={styles.legendStance} />支撑相</span><span><i className={styles.legendSwing} />摆动相</span><span>足迹 {footprints.length}/80</span>
+            </>}
           </div>
           <div className={styles.transport}>
             <button type="button" onClick={() => setPlaying((current) => !current)} aria-label={playing ? "暂停可变几何腿动画" : "播放可变几何腿动画"}>{playing ? "Ⅱ" : "▶"}</button>
-            <input aria-label="主轴相位" type="range" min="0" max={Math.PI * 2} step="0.001" value={phase} onChange={(event) => { setPlaying(false); setPhase(Number(event.target.value)); }} />
+            <input aria-label="主轴相位" type="range" min="0" max={Math.PI * 2} step="0.001" value={phase} onChange={(event) => { setPlaying(false); setMotionPhase(Number(event.target.value)); }} />
             <span>{(phase * 180 / Math.PI).toFixed(1)}°</span><b>{activeMode.rpm} rpm</b>
           </div>
         </section>
@@ -649,6 +819,19 @@ export function VariableGeometryLegLab() {
             </button>)}
           </div> : <div className={styles.emptyState}><b>等待多轨迹综合</b><p>系统会先比较适合移动的固定铰点或伸缩杆，再精修各工况锁止值，并返回五套差异化方案。</p></div>}
 
+          {viewMode === "deployment" && <>
+            <div className={styles.analysisSectionTitle}><span>整机步态</span><b>{project.deployment.legCount} 腿 · {project.deployment.preset === "custom" ? "自定义" : "预设"}</b></div>
+            <div className={`${styles.modeSummary} ${styles.gaitSummary}`}>
+              <div><span>步态平滑分</span><strong>{gaitMetrics.smoothnessScore}<small>/100</small></strong></div>
+              <div><span>同时支撑腿数</span><strong>{gaitMetrics.minimumSupport}<small>–{gaitMetrics.maximumSupport} 条</small></strong></div>
+              <div><span>支撑覆盖率</span><strong>{(gaitMetrics.supportCoverage * 100).toFixed(0)}<small>%</small></strong></div>
+              <div><span>触地间隔均匀度</span><strong>{(gaitMetrics.touchdownUniformity * 100).toFixed(0)}<small>%</small></strong></div>
+              <div><span>支撑数量稳定性</span><strong>{(gaitMetrics.supportUniformity * 100).toFixed(0)}<small>%</small></strong></div>
+              <div><span>支撑相滑移</span><strong>{gaitMetrics.stanceSlip.toFixed(2)}<small>mm RMS</small></strong></div>
+            </div>
+          </>}
+
+          <div className={styles.analysisSectionTitle}><span>单腿机构</span><b>{activeMode.name}</b></div>
           <div className={styles.modeSummary}>
             <div><span>{activeMode.name}轨迹 RMSE</span><strong>{Number.isFinite(activeMetrics.rmse) ? activeMetrics.rmse.toFixed(1) : "—"}<small>mm</small></strong></div>
             <div><span>最大误差</span><strong>{Number.isFinite(activeMetrics.maxError) ? activeMetrics.maxError.toFixed(1) : "—"}<small>mm</small></strong></div>

@@ -16,6 +16,23 @@
 .historyBar,.modeActions { margin:11px 0; display:grid; grid-template-columns:1fr 1fr; gap:7px; }
 .historyBar button,.modeActions button { padding:8px; border:1px solid #c7c9c1; background:#e8e8e1; cursor:pointer; }
 .historyBar button:disabled,.modeActions button:disabled { cursor:not-allowed; opacity:.42; }
+.workflowTabs { margin:0 0 10px; display:grid; grid-template-columns:1fr 1fr; gap:5px; }
+.workflowTabs button { padding:9px; border:1px solid #bfc2b9; background:#e8e8e1; color:#5d635e; cursor:pointer; font-size:10px; }
+.workflowTabs .activeWorkflow { border-color:#111515; background:#111515; color:#c8ff3d; }
+.quickDesignSection { margin-bottom:10px; padding:12px; border:1px solid #aebf83; background:#e6efd4; }
+.quickDesignHeader { margin-bottom:11px; display:flex; align-items:flex-start; justify-content:space-between; gap:8px; }
+.quickDesignHeader>span { display:flex; flex-direction:column; gap:3px; }
+.quickDesignHeader b { font-size:12px; }
+.quickDesignHeader small,.quickDesignHint { color:#63704d; font-size:8px; line-height:1.45; }
+.quickDesignHeader button { padding:5px 7px; border:1px solid #a9b88b; background:#f3f6ec; cursor:pointer; font-size:8px; }
+.quickDesignSection>label,.quickDesignGrid>label { display:grid; gap:5px; color:#59644b; font-size:9px; }
+.quickDesignSection select,.quickDesignSection input { min-width:0; width:100%; padding:8px; border:1px solid #b1bd9a; background:#f6f8f0; color:#171b19; font:11px "Cascadia Mono",Consolas,monospace; }
+.quickDesignGrid { margin-top:10px; display:grid; grid-template-columns:1fr 1fr; gap:8px 6px; }
+.quickInput { display:grid; grid-template-columns:minmax(0,1fr) auto 28px; }
+.quickInput i { min-width:31px; padding:8px 5px; display:flex; align-items:center; justify-content:center; border-block:1px solid #b1bd9a; background:#edf2e4; font-size:8px; font-style:normal; }
+.quickInput button { border:1px solid #aeb99a; background:#f6f8f0; color:#69715e; cursor:pointer; font-size:8px; }
+.quickInput .lockedParameter { background:#1d2420; color:#c8ff3d; }
+.quickDesignHint { margin-top:10px; display:block; }
 .configSection,.modeEditor,.deploymentEditor { padding:12px; border:1px solid #c9cbc3; background:#e8e8e1; }
 .configSection label,.modeEditor>label,.deploymentEditor>label { margin-bottom:10px; display:grid; gap:5px; color:#606660; font-size:10px; }
 .configSection select,.configSection input,.modeEditor input,.deploymentEditor input,.deploymentEditor select { min-width:0; width:100%; padding:8px; border:1px solid #c5c7bf; background:#f4f3ed; color:#171b19; font:12px "Cascadia Mono",Consolas,monospace; }
@@ -85,6 +102,7 @@
 .targetPath { pointer-events:none; stroke-linecap:round; stroke-linejoin:round; }
 .actualPath { pointer-events:none; stroke-linecap:round; stroke-linejoin:round; }
 .draftPath { fill:none; stroke:#a346a6; stroke-width:4; }
+.previewPath { fill:none; stroke:#a346a6; stroke-width:5; stroke-dasharray:13 8; opacity:.78; pointer-events:none; }
 .rigidBody { fill:rgb(163 189 98 / 18%); stroke:#6f8f24; stroke-width:5; stroke-linejoin:round; }
 .link { stroke:#202423; stroke-width:11; stroke-linecap:round; }
 .selectableBar { cursor:pointer; }
@@ -139,6 +157,9 @@
 .candidateList>.selectedCandidate { border:1px solid #a7c669; background:#e8f2d3; }
 .candidateList>button>span:nth-child(2) { display:flex; min-width:0; flex-direction:column; gap:3px; }
 .candidateList b { font-size:11px; }
+.candidateList b i { margin-left:4px; padding:2px 4px; border-radius:2px; font-size:7px; font-style:normal; font-weight:600; }
+.candidateFeasible { background:#dcecb7; color:#40561b; }
+.candidateNear { background:#f0d5c8; color:#772f20; }
 .candidateList small { color:#6b706b; font:8px "Cascadia Mono",Consolas,monospace; }
 .candidateList strong { text-align:right; font:19px "Cascadia Mono",Consolas,monospace; }
 .candidateList em { grid-column:2/4; color:#606660; font-size:8px; font-style:normal; }
@@ -160,6 +181,16 @@
 .barLengthEditor input { min-width:0; width:100%; padding:8px; border:1px solid #aebfc0; background:#f3f7f7; font:12px "Cascadia Mono",Consolas,monospace; }
 .barLengthEditor i { padding:8px; border:1px solid #aebfc0; border-left:0; background:#d7e5e6; font-size:10px; font-style:normal; }
 .barInspector>button { width:100%; margin-top:7px; padding:7px; border:1px solid #aebfc0; background:#f3f7f7; cursor:pointer; font-size:9px; }
+.draftValid,.draftInvalid { padding:5px 7px; }
+.draftValid { background:#dceeb5; color:#355018; }
+.draftInvalid { background:#f2d8cb; color:#793524; }
+.draftPreviewGood,.draftPreviewWarn { margin-top:8px; padding:9px; border:1px solid; font-size:9px; }
+.draftPreviewGood { border-color:#aac17b; background:#edf5dc; }
+.draftPreviewWarn { border-color:#d5a48d; background:#f5e3da; }
+.draftPreviewGood p,.draftPreviewWarn p { margin:5px 0 8px; line-height:1.5; }
+.draftPreviewGood>div,.draftPreviewWarn>div { display:grid; grid-template-columns:1fr 1fr; gap:5px; }
+.draftPreviewGood button,.draftPreviewWarn button { padding:6px; border:1px solid #aeb8aa; background:#fff; cursor:pointer; font-size:8px; }
+.draftPreviewGood button:disabled,.draftPreviewWarn button:disabled { cursor:not-allowed; opacity:.45; }
 .barMetricGrid { margin-top:10px; display:grid; grid-template-columns:1fr 1fr; gap:1px; border:1px solid #bdcccd; background:#bdcccd; }
 .barMetricGrid span { min-width:0; padding:8px; display:flex; flex-direction:column; gap:4px; background:#eef4f4; color:#657071; font-size:8px; }
 .barMetricGrid b { overflow-wrap:anywhere; color:#172326; font:10px "Cascadia Mono",Consolas,monospace; }

@@ -1,6 +1,7 @@
 import {
   VARIABLE_LEG_OPTIONS,
   analyzeVariableLegMode,
+  buildVariableLegQuickDesignSeed,
   createDefaultAdjustment,
   getVariableLegTemplate,
   scoreVariableLegFamily,
@@ -10,6 +11,8 @@ import {
   type VariableLegCandidate,
   type VariableLegMode,
   type VariableLegProject,
+  type VariableLegQuickDesign,
+  type VariableLegQuickDesignPreset,
   type VariableLegTopology,
 } from "./variable-leg";
 import { cloneProject, type FreeMechanismProject } from "./free-mechanism";
@@ -37,6 +40,14 @@ type SearchSeed = {
   score: number;
   cost: number;
 };
+
+function continuityPenalty(metrics: ReturnType<typeof analyzeVariableLegMode>[]) {
+  return metrics.reduce((sum, metric) => sum
+    + (1 - metric.validRatio) * 100
+    + metric.branchSwitches * 12
+    + Math.max(0, 5 - metric.singularityMargin) * 0.5
+    + (Number.isFinite(metric.closureError) ? 0 : 100), 0);
+}
 
 function clamp(value: number, minimum: number, maximum: number) {
   return Math.min(maximum, Math.max(minimum, value));
@@ -132,6 +143,7 @@ async function refineCurrentTarget(
   };
   const initialMetrics = best.modes.map((mode) => analyzeVariableLegMode(best.baseProject, best.adjustment, mode, 42, 56));
   const initialFamily = scoreVariableLegFamily(initialMetrics, best.modes, best.adjustment);
+  let bestContinuityPenalty = continuityPenalty(initialMetrics);
   best = { ...best, score: initialFamily.score, cost: initialFamily.cost };
   const iterations = 32;
   for (let iteration = 0; iteration < iterations; iteration += 1) {
@@ -167,14 +179,19 @@ async function refineCurrentTarget(
     }));
     const metrics = testModes.map((mode) => analyzeVariableLegMode(testProject, testAdjustment, mode, 42, 56));
     const family = scoreVariableLegFamily(metrics, testModes, testAdjustment);
-    if (family.score >= best.score) best = {
-      ...best,
-      baseProject: testProject,
-      adjustment: testAdjustment,
-      modes: testModes,
-      score: family.score,
-      cost: family.cost,
-    };
+    const testContinuityPenalty = continuityPenalty(metrics);
+    if (testContinuityPenalty < bestContinuityPenalty - 1e-6
+      || (Math.abs(testContinuityPenalty - bestContinuityPenalty) <= 1e-6 && family.score >= best.score)) {
+      best = {
+        ...best,
+        baseProject: testProject,
+        adjustment: testAdjustment,
+        modes: testModes,
+        score: family.score,
+        cost: family.cost,
+      };
+      bestContinuityPenalty = testContinuityPenalty;
+    }
     onProgress?.({
       progress: (iteration + 1) / iterations * 0.92,
       stage: "refine",
@@ -197,6 +214,85 @@ async function refineCurrentTarget(
     adjustmentStroke: family.stroke,
     metrics,
   } satisfies VariableLegCandidate];
+}
+
+export async function synthesizeVariableLegQuickDesign(
+  source: VariableLegProject,
+  design: VariableLegQuickDesign,
+  onProgress?: (progress: VariableLegSynthesisProgress) => void,
+  shouldCancel: () => boolean = () => false,
+) {
+  const presets: Array<{ preset: VariableLegQuickDesignPreset; label: string }> = [
+    { preset: "stable", label: "稳健基础" },
+    { preset: "stride", label: "大步幅基础" },
+    { preset: "clearance", label: "高抬腿基础" },
+  ];
+  const candidates: VariableLegCandidate[] = [];
+  for (let index = 0; index < presets.length; index += 1) {
+    if (shouldCancel()) throw new VariableLegSynthesisCancelled();
+    const option = presets[index];
+    const seed = buildVariableLegQuickDesignSeed(source, design, option.preset);
+    const seedMetrics: ReturnType<typeof analyzeVariableLegMode>[] = [];
+    seed.modes = seed.modes.map((mode) => {
+      let bestMode = { ...mode };
+      let bestMetric = analyzeVariableLegMode(seed.baseProject, seed.adjustment, mode, 72, 90);
+      let bestPenalty = continuityPenalty([bestMetric]);
+      let bestCost = modeCost(bestMetric, mode);
+      for (let sampleIndex = 0; sampleIndex < 11; sampleIndex += 1) {
+        const adjustmentValue = seed.adjustment.minimum
+          + (seed.adjustment.maximum - seed.adjustment.minimum) * sampleIndex / 10;
+        const testMode = { ...mode, adjustmentValue };
+        const metric = analyzeVariableLegMode(seed.baseProject, seed.adjustment, testMode, 72, 90);
+        const penalty = continuityPenalty([metric]);
+        const cost = modeCost(metric, testMode);
+        if (penalty < bestPenalty - 1e-6 || (Math.abs(penalty - bestPenalty) <= 1e-6 && cost < bestCost)) {
+          bestMode = testMode;
+          bestMetric = metric;
+          bestPenalty = penalty;
+          bestCost = cost;
+        }
+      }
+      seedMetrics.push(bestMetric);
+      return bestMode;
+    });
+    onProgress?.({
+      progress: (index + 0.08) / presets.length,
+      stage: "scan",
+      message: `${option.label}：正在寻找各工况连续锁止值`,
+    });
+    await yieldToWorker();
+    const seedIsFeasible = seedMetrics.every((metric) => metric.validRatio >= 0.99 && metric.branchSwitches === 0);
+    const refined = seedIsFeasible ? [] : await refineCurrentTarget(
+        seed,
+        (progress) => onProgress?.({
+          ...progress,
+          progress: (index + progress.progress) / presets.length,
+          message: `${option.label}：${progress.message}`,
+        }),
+        shouldCancel,
+      );
+    const family = scoreVariableLegFamily(seedMetrics, seed.modes, seed.adjustment);
+    const candidate = refined[0] ?? {
+      id: `quick-design-${option.preset}`,
+      label: option.label,
+      topology: seed.topology,
+      baseProject: seed.baseProject,
+      adjustment: seed.adjustment,
+      modes: seed.modes,
+      score: family.score,
+      familyRmse: seedMetrics.reduce((sum, metric) => sum + metric.rmse, 0) / Math.max(1, seedMetrics.length),
+      adjustmentStroke: family.stroke,
+      metrics: seedMetrics,
+    } satisfies VariableLegCandidate;
+    if (candidate) candidates.push({
+      ...candidate,
+      id: `quick-design-${option.preset}`,
+      label: option.label,
+      topology: source.topology,
+    });
+  }
+  onProgress?.({ progress: 1, stage: "finalize", message: "三个基础方案已完成" });
+  return candidates;
 }
 
 export async function synthesizeVariableLeg(

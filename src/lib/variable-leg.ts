@@ -153,6 +153,28 @@ export type VariableLegDesignerValidation = {
   reasons: string[];
 };
 
+export type VariableLegQuickDesignKey = "scale" | "crankRadius" | "stepLength" | "liftHeight" | "stanceRatio";
+
+export type VariableLegQuickDesign = {
+  scale: number;
+  crankRadius: number;
+  stepLength: number;
+  liftHeight: number;
+  stanceRatio: number;
+  locked: Record<VariableLegQuickDesignKey, boolean>;
+};
+
+export type VariableLegQuickDesignPreset = "stable" | "stride" | "clearance";
+
+export type VariableLegBarLengthPreview = {
+  barId: string;
+  requestedLength: number;
+  requestedValid: boolean;
+  nearestFeasibleLength: number | null;
+  previewProject: VariableLegProject | null;
+  metrics: VariableLegModeMetrics[];
+};
+
 export const VARIABLE_LEG_MODE_COLORS = ["#287fa8", "#d4663b", "#7b68b4", "#2f8f61", "#b38726", "#c34f83"] as const;
 
 export const VARIABLE_LEG_OPTIONS: Record<VariableLegTopology, {
@@ -352,6 +374,216 @@ export function createDefaultVariableLegProject(): VariableLegProject {
     deployment: createVariableLegDeployment(),
     candidates: [],
     selectedCandidateId: null,
+  };
+}
+
+function scaleVariableLegMechanism(project: FreeMechanismProject, scale: number) {
+  const next = cloneProject(project);
+  next.joints = next.joints.map((joint) => ({
+    ...joint,
+    x: joint.x * scale,
+    y: joint.y * scale,
+    slider: joint.slider ? {
+      ...joint.slider,
+      originX: joint.slider.originX * scale,
+      originY: joint.slider.originY * scale,
+      offset: joint.slider.offset === undefined ? undefined : joint.slider.offset * scale,
+    } : undefined,
+  }));
+  next.bars = next.bars.map((bar) => ({
+    ...bar,
+    length: bar.length * scale,
+    minLength: bar.minLength === undefined ? undefined : bar.minLength * scale,
+    maxLength: bar.maxLength === undefined ? undefined : bar.maxLength * scale,
+  }));
+  next.dimensions = next.dimensions.map((dimension) => ({ ...dimension, value: dimension.value * scale }));
+  next.bodies = next.bodies.map((body) => ({ ...body, pairs: body.pairs.map((pair) => ({ ...pair, length: pair.length * scale })) }));
+  next.tracers = next.tracers.map((tracer) => tracer.kind === "joint"
+    ? { ...tracer }
+    : { ...tracer, localX: tracer.localX * scale, localY: tracer.localY * scale });
+  return next;
+}
+
+function modeTargetStats(mode: VariableLegMode) {
+  const xs = mode.targetPath.map((point) => point.x);
+  const ys = mode.targetPath.map((point) => point.y);
+  return {
+    step: xs.length ? Math.max(...xs) - Math.min(...xs) : 0,
+    lift: measureGaitClearance(mode.targetPath, mode.stanceStart, mode.stanceEnd),
+    centerX: xs.length ? (Math.max(...xs) + Math.min(...xs)) / 2 : -210,
+    groundY: ys.length ? Math.max(...ys) : 160,
+  };
+}
+
+export function createVariableLegQuickDesign(project: VariableLegProject): VariableLegQuickDesign {
+  const activeMode = project.modes.find((mode) => mode.id === project.activeModeId) ?? project.modes[0];
+  const stats = activeMode ? modeTargetStats(activeMode) : { step: 260, lift: 65 };
+  const template = getVariableLegTemplate(project.topology);
+  const templateLengths = new Map(template.bars.map((bar) => [bar.id, bar.length]));
+  const ratios = project.baseProject.bars
+    .map((bar) => bar.length / Math.max(1e-9, templateLengths.get(bar.id) ?? bar.length))
+    .filter(Number.isFinite);
+  const driver = project.baseProject.bars.find((bar) => bar.id === project.baseProject.driverId);
+  return {
+    scale: clamp(median(ratios) || 1, 0.65, 1.5),
+    crankRadius: driver?.length ?? 80,
+    stepLength: Math.max(40, stats.step),
+    liftHeight: Math.max(10, stats.lift),
+    stanceRatio: clamp(activeMode ? activeMode.stanceEnd - activeMode.stanceStart : 0.62, 0.35, 0.82),
+    locked: { scale: false, crankRadius: false, stepLength: true, liftHeight: true, stanceRatio: true },
+  };
+}
+
+export function buildVariableLegQuickDesignSeed(
+  source: VariableLegProject,
+  design: VariableLegQuickDesign,
+  preset: VariableLegQuickDesignPreset,
+) {
+  const presetFactors = {
+    stable: { scale: 1.04, crank: 0.96, step: 0.88, lift: 0.94, stance: 0.05 },
+    stride: { scale: 1, crank: 1.08, step: 1.12, lift: 0.96, stance: -0.04 },
+    clearance: { scale: 1.02, crank: 0.94, step: 0.92, lift: 1.18, stance: 0.03 },
+  } satisfies Record<VariableLegQuickDesignPreset, { scale: number; crank: number; step: number; lift: number; stance: number }>;
+  const factors = presetFactors[preset];
+  const selectedScale = clamp(design.scale * (design.locked.scale ? 1 : factors.scale), 0.65, 1.5);
+  const baseProject = scaleVariableLegMechanism(getVariableLegTemplate(source.topology), selectedScale);
+  const driver = baseProject.bars.find((bar) => bar.id === baseProject.driverId);
+  if (driver) {
+    const nextLength = Math.max(5, design.crankRadius * (design.locked.crankRadius ? 1 : factors.crank));
+    driver.length = nextLength;
+    const endpoints = new Set([driver.a, driver.b]);
+    baseProject.dimensions = baseProject.dimensions.map((dimension) => (
+      dimension.type === "distance" && endpoints.has(dimension.a) && endpoints.has(dimension.b)
+        ? { ...dimension, value: nextLength }
+        : dimension
+    ));
+  }
+  let adjustment = createDefaultAdjustment(source.topology, source.adjustment.kind);
+  const targetExists = adjustment.kind === "moving-pivot"
+    ? baseProject.joints.some((joint) => joint.id === source.adjustment.targetId)
+    : baseProject.bars.some((bar) => bar.id === source.adjustment.targetId && bar.id !== baseProject.driverId);
+  if (targetExists) adjustment = { ...adjustment, targetId: source.adjustment.targetId } as VariableLegAdjustment;
+  if (adjustment.kind === "moving-pivot") {
+    const joint = baseProject.joints.find((item) => item.id === adjustment.targetId)!;
+    const travel = 45 * selectedScale;
+    adjustment = { ...adjustment, baseX: joint.x, baseY: joint.y, railAngle: source.adjustment.kind === "moving-pivot" ? source.adjustment.railAngle : -20, minimum: -travel, maximum: travel };
+  } else {
+    const bar = baseProject.bars.find((item) => item.id === adjustment.targetId)!;
+    adjustment = { ...adjustment, baseLength: bar.length, minimum: bar.length * 0.82, maximum: bar.length * 1.18 };
+  }
+  const activeMode = source.modes.find((mode) => mode.id === source.activeModeId) ?? source.modes[0];
+  const activeStats = activeMode ? modeTargetStats(activeMode) : { step: 260, lift: 65, centerX: -210, groundY: 160 };
+  const requestedStep = design.stepLength * (design.locked.stepLength ? 1 : factors.step);
+  const requestedLift = design.liftHeight * (design.locked.liftHeight ? 1 : factors.lift);
+  const requestedStance = clamp(design.stanceRatio + (design.locked.stanceRatio ? 0 : factors.stance), 0.35, 0.82);
+  const stepRatio = requestedStep / Math.max(1, activeStats.step);
+  const liftRatio = requestedLift / Math.max(1, activeStats.lift);
+  const stanceDelta = requestedStance - (activeMode ? activeMode.stanceEnd - activeMode.stanceStart : requestedStance);
+  const modes = source.modes.map((mode) => {
+    const stats = modeTargetStats(mode);
+    const stanceRatio = clamp(mode.stanceEnd - mode.stanceStart + stanceDelta, 0.35, 0.82);
+    const adjustmentValue = adjustment.kind === "moving-pivot"
+      ? clamp(mode.adjustmentValue * selectedScale, adjustment.minimum, adjustment.maximum)
+      : clamp(adjustment.baseLength + (mode.adjustmentValue - (source.adjustment.kind === "telescopic-bar" ? source.adjustment.baseLength : 0)) * selectedScale, adjustment.minimum, adjustment.maximum);
+    return {
+      ...mode,
+      stanceStart: 0,
+      stanceEnd: stanceRatio,
+      adjustmentValue,
+      targetPath: createGaitPath(
+        Math.max(40, stats.step * stepRatio),
+        Math.max(10, stats.lift * liftRatio),
+        stanceRatio,
+        stats.centerX * selectedScale,
+        stats.groundY * selectedScale,
+      ),
+      weight: mode.weight * (preset === "stable" ? 1.08 : preset === "clearance" && mode.id === "obstacle" ? 1.2 : 1),
+    };
+  });
+  return {
+    ...cloneVariableLegProject(source),
+    baseProject,
+    adjustment,
+    modes,
+    activeModeId: modes.some((mode) => mode.id === source.activeModeId) ? source.activeModeId : (modes[0]?.id ?? source.activeModeId),
+    candidates: [],
+    selectedCandidateId: null,
+  } satisfies VariableLegProject;
+}
+
+export function setVariableLegBaseBarLength(source: VariableLegProject, barId: string, nextLength: number) {
+  const project = cloneVariableLegProject(source);
+  if (!Number.isFinite(nextLength) || nextLength <= 0) return project;
+  const bar = project.baseProject.bars.find((item) => item.id === barId);
+  if (!bar) return project;
+  const delta = nextLength - bar.length;
+  const endpoints = new Set([bar.a, bar.b]);
+  project.baseProject.bars = project.baseProject.bars.map((item) => item.id === barId ? { ...item, length: nextLength } : item);
+  project.baseProject.dimensions = project.baseProject.dimensions.map((dimension) => (
+    dimension.type === "distance" && endpoints.has(dimension.a) && endpoints.has(dimension.b)
+      ? { ...dimension, value: nextLength }
+      : dimension
+  ));
+  if (project.adjustment.kind === "telescopic-bar" && project.adjustment.targetId === barId) {
+    project.adjustment = {
+      ...project.adjustment,
+      baseLength: nextLength,
+      minimum: project.adjustment.minimum + delta,
+      maximum: project.adjustment.maximum + delta,
+    };
+    project.modes = project.modes.map((mode) => ({ ...mode, adjustmentValue: mode.adjustmentValue + delta }));
+  }
+  project.candidates = [];
+  project.selectedCandidateId = null;
+  return project;
+}
+
+function variableLegMetricsAreFeasible(metrics: VariableLegModeMetrics[]) {
+  return metrics.every((metric) => metric.validRatio >= 0.999 && metric.branchSwitches === 0 && Number.isFinite(metric.closureError));
+}
+
+export function previewVariableLegBarLength(
+  source: VariableLegProject,
+  barId: string,
+  requestedLength: number,
+  sampleCount = 21,
+  phaseSamples = 30,
+  iterations = 70,
+): VariableLegBarLengthPreview {
+  const sourceBar = source.baseProject.bars.find((bar) => bar.id === barId);
+  if (!sourceBar || !Number.isFinite(requestedLength) || requestedLength <= 0) {
+    return { barId, requestedLength, requestedValid: false, nearestFeasibleLength: null, previewProject: null, metrics: [] };
+  }
+  const evaluate = (length: number) => {
+    const project = setVariableLegBaseBarLength(source, barId, length);
+    const metrics = project.modes.map((mode) => analyzeVariableLegMode(project.baseProject, project.adjustment, mode, phaseSamples, iterations));
+    return { length, project, metrics, feasible: variableLegMetricsAreFeasible(metrics) };
+  };
+  const requested = evaluate(requestedLength);
+  if (requested.feasible) return {
+    barId,
+    requestedLength,
+    requestedValid: true,
+    nearestFeasibleLength: requestedLength,
+    previewProject: requested.project,
+    metrics: requested.metrics,
+  };
+  const lower = Math.max(1, Math.min(sourceBar.length, requestedLength) * 0.72);
+  const upper = Math.max(sourceBar.length, requestedLength) * 1.28;
+  const values = Array.from({ length: Math.max(3, sampleCount) }, (_, index) => lower + (upper - lower) * index / (Math.max(3, sampleCount) - 1));
+  values.push(sourceBar.length, requestedLength);
+  let nearest: ReturnType<typeof evaluate> | null = null;
+  for (const value of [...new Set(values.map((item) => Number(item.toFixed(6))))]) {
+    const result = Math.abs(value - requestedLength) < 1e-8 ? requested : evaluate(value);
+    if (result.feasible && (!nearest || Math.abs(result.length - requestedLength) < Math.abs(nearest.length - requestedLength))) nearest = result;
+  }
+  return {
+    barId,
+    requestedLength,
+    requestedValid: false,
+    nearestFeasibleLength: nearest?.length ?? null,
+    previewProject: nearest?.project ?? null,
+    metrics: requested.metrics,
   };
 }
 

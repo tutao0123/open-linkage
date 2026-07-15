@@ -5,11 +5,13 @@ import {
   analyzeVariableLegProject,
   applyVariableLegDesignerReturn,
   applyVariableLegRecommendedRange,
+  buildVariableLegQuickDesignSeed,
   buildVariableLegFeasibleIntervals,
   cloneVariableLegProject,
   createVariableLegDesignerTransfer,
   createDefaultAdjustment,
   createDefaultVariableLegProject,
+  createVariableLegQuickDesign,
   getVariableLegTemplate,
   isVariableLegProject,
   materializeVariableLegMode,
@@ -17,11 +19,12 @@ import {
   migrateVariableLegProject,
   restoreVariableLegStandardModes,
   scanVariableLegAdjustmentFeasibility,
+  setVariableLegBaseBarLength,
   sampleVariableLeg,
   validateVariableLegDesignerProject,
   type VariableLegAdjustmentFeasibility,
 } from "./variable-leg";
-import { synthesizeVariableLeg } from "./variable-leg-synthesis";
+import { synthesizeVariableLeg, synthesizeVariableLegQuickDesign } from "./variable-leg-synthesis";
 
 describe("variable geometry walking leg", () => {
   it("measures swing clearance from the stance plane", () => {
@@ -175,6 +178,45 @@ describe("variable geometry walking leg", () => {
     expect(returned.project.candidates).toEqual([]);
   });
 
+  it("builds three quick-design directions while keeping locked macro targets exact", () => {
+    const source = createDefaultVariableLegProject();
+    source.deployment.mountSpan = 432;
+    const design = createVariableLegQuickDesign(source);
+    design.stepLength = 310;
+    design.liftHeight = 105;
+    design.crankRadius = 72;
+    design.locked.stepLength = true;
+    design.locked.liftHeight = true;
+    design.locked.crankRadius = true;
+    design.locked.stanceRatio = false;
+    const stable = buildVariableLegQuickDesignSeed(source, design, "stable");
+    const stride = buildVariableLegQuickDesignSeed(source, design, "stride");
+    const clearance = buildVariableLegQuickDesignSeed(source, design, "clearance");
+    for (const seed of [stable, stride, clearance]) {
+      const active = seed.modes.find((mode) => mode.id === seed.activeModeId)!;
+      const xs = active.targetPath.map((point) => point.x);
+      expect(Math.abs((Math.max(...xs) - Math.min(...xs)) - 310)).toBeLessThan(3);
+      expect(Math.abs(measureGaitClearance(active.targetPath, active.stanceStart, active.stanceEnd) - 105)).toBeLessThan(2.5);
+      expect(seed.baseProject.bars.find((bar) => bar.id === seed.baseProject.driverId)?.length).toBeCloseTo(72, 5);
+      expect(seed.topology).toBe(source.topology);
+      expect(seed.deployment.mountSpan).toBe(432);
+    }
+    expect(stable.modes[0].stanceEnd).not.toBe(stride.modes[0].stanceEnd);
+    expect(clearance.modes[0].stanceEnd).not.toBe(stride.modes[0].stanceEnd);
+  });
+
+  it("changes a base bar through a cloned draft and translates telescopic locks", () => {
+    const source = createDefaultVariableLegProject();
+    const target = source.baseProject.bars.find((bar) => bar.id !== source.baseProject.driverId)!;
+    source.adjustment = { kind: "telescopic-bar", targetId: target.id, baseLength: target.length, minimum: target.length - 10, maximum: target.length + 10 };
+    source.modes = source.modes.map((mode) => ({ ...mode, adjustmentValue: target.length }));
+    const next = setVariableLegBaseBarLength(source, target.id, target.length + 12);
+    expect(source.baseProject.bars.find((bar) => bar.id === target.id)?.length).toBe(target.length);
+    expect(next.adjustment.kind === "telescopic-bar" && next.adjustment.baseLength).toBeCloseTo(target.length + 12);
+    expect(next.adjustment.minimum).toBeCloseTo(target.length + 2);
+    expect(next.modes.every((mode) => mode.adjustmentValue === target.length + 12)).toBe(true);
+  });
+
   it("rejects a designer return when required topology was deleted", () => {
     const source = createDefaultVariableLegProject();
     const edited = structuredClone(source.baseProject);
@@ -219,4 +261,17 @@ describe("variable geometry walking leg", () => {
     expect(candidates[0].adjustment.kind).toBe(project.adjustment.kind);
     expect(candidates[0].adjustment.targetId).toBe(project.adjustment.targetId);
   }, 30_000);
+
+  it("returns three current-topology quick-design candidates without changing deployment", async () => {
+    const project = createDefaultVariableLegProject();
+    project.adjustment = createDefaultAdjustment("klann", "telescopic-bar");
+    project.modes = project.modes.map((mode) => ({ ...mode, adjustmentValue: project.adjustment.kind === "telescopic-bar" ? project.adjustment.baseLength : 0 }));
+    project.deployment.mountSpan = 515;
+    const design = createVariableLegQuickDesign(project);
+    const candidates = await synthesizeVariableLegQuickDesign(project, design);
+    expect(candidates.map((candidate) => candidate.label)).toEqual(["稳健基础", "大步幅基础", "高抬腿基础"]);
+    expect(candidates.every((candidate) => candidate.topology === project.topology)).toBe(true);
+    expect(candidates.every((candidate) => candidate.metrics.every((metric) => metric.validRatio >= 0.99 && metric.branchSwitches === 0))).toBe(true);
+    expect(project.deployment.mountSpan).toBe(515);
+  }, 60_000);
 });

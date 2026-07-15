@@ -24,6 +24,7 @@ import {
   createDefaultAdjustment,
   createDefaultVariableLegProject,
   createGaitPath,
+  createVariableLegQuickDesign,
   createVariableLegDesignerTransfer,
   getVariableLegTemplate,
   isVariableLegDesignerTransfer,
@@ -32,12 +33,16 @@ import {
   migrateVariableLegProject,
   restoreVariableLegStandardModes,
   sampleVariableLeg,
+  setVariableLegBaseBarLength,
   smoothClosedPath,
   type VariableLegAdjustmentKind,
   type VariableLegAdjustmentFeasibility,
+  type VariableLegBarLengthPreview,
   type VariableLegCandidate,
   type VariableLegMode,
   type VariableLegProject,
+  type VariableLegQuickDesign,
+  type VariableLegQuickDesignKey,
   type VariableLegTopology,
 } from "@/lib/variable-leg";
 import {
@@ -69,11 +74,14 @@ const LEGACY_STORAGE_KEY = "open-linkage:variable-leg-project:v1";
 const TRANSFER_KEY = "open-linkage:designer-transfer";
 type CanvasMode = "inspect" | "draw" | "points";
 type ViewMode = "mechanism" | "deployment";
+type EditingMode = "guided" | "advanced";
 
 type WorkerResponse =
   | { type: "progress"; requestId: string; progress: VariableLegSynthesisProgress }
   | { type: "result"; requestId: string; candidates: VariableLegCandidate[] }
+  | { type: "quick-design-result"; requestId: string; candidates: VariableLegCandidate[] }
   | { type: "feasibility-result"; requestId: string; feasibility: VariableLegAdjustmentFeasibility }
+  | { type: "bar-preview-result"; requestId: string; preview: VariableLegBarLengthPreview }
   | { type: "cancelled"; requestId: string }
   | { type: "error"; requestId: string; message: string };
 
@@ -121,6 +129,8 @@ export function VariableGeometryLegLab() {
   const [phase, setPhase] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>("mechanism");
+  const [editingMode, setEditingMode] = useState<EditingMode>("guided");
+  const [quickDesign, setQuickDesign] = useState<VariableLegQuickDesign>(() => createVariableLegQuickDesign(initialProject));
   const [bodyWorldX, setBodyWorldX] = useState(0);
   const [footprints, setFootprints] = useState<VariableLegFootprint[]>([]);
   const [canvasMode, setCanvasMode] = useState<CanvasMode>("inspect");
@@ -128,10 +138,11 @@ export function VariableGeometryLegLab() {
   const [drawingPoints, setDrawingPoints] = useState<Point[]>([]);
   const [message, setMessage] = useState("三个默认工况已就绪；调节值在每个周期内保持锁定。");
   const [searching, setSearching] = useState(false);
-  const [workerTask, setWorkerTask] = useState<"synthesis" | "feasibility">("synthesis");
+  const [workerTask, setWorkerTask] = useState<"synthesis" | "quick-design" | "feasibility" | "bar-preview">("synthesis");
   const [feasibility, setFeasibility] = useState<VariableLegAdjustmentFeasibility | null>(null);
   const [feasibilitySourceKey, setFeasibilitySourceKey] = useState<string | null>(null);
   const [selectedBarId, setSelectedBarId] = useState<string | null>(null);
+  const [barLengthPreview, setBarLengthPreview] = useState<VariableLegBarLengthPreview | null>(null);
   const [searchProgress, setSearchProgress] = useState<VariableLegSynthesisProgress>({ progress: 0, stage: "scan", message: "等待开始" });
   const svgRef = useRef<SVGSVGElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -184,6 +195,12 @@ export function VariableGeometryLegLab() {
     [project],
   );
   const visibleFeasibility = feasibilitySourceKey === feasibilityKey ? feasibility : null;
+  const previewPath = useMemo(() => {
+    const previewProject = barLengthPreview?.previewProject;
+    if (!previewProject) return [] as Point[];
+    const previewMode = previewProject.modes.find((mode) => mode.id === activeMode.id) ?? previewProject.modes[0];
+    return previewMode ? analyzeVariableLegProject({ ...previewProject, activeModeId: previewMode.id }, 36, 60).metrics.find((metric) => metric.modeId === previewMode.id)?.path ?? [] : [];
+  }, [activeMode.id, barLengthPreview]);
 
   const resetGaitTrail = useCallback(() => {
     bodyWorldXRef.current = 0;
@@ -201,6 +218,7 @@ export function VariableGeometryLegLab() {
 
   const selectBarForInspection = useCallback((barId: string) => {
     setSelectedBarId(barId);
+    setBarLengthPreview((current) => current?.barId === barId ? current : null);
   }, []);
 
   useEffect(() => {
@@ -310,6 +328,11 @@ export function VariableGeometryLegLab() {
   }, [redo, resetGaitTrail, stopMotion, undo]);
 
   useEffect(() => () => workerRef.current?.terminate(), []);
+
+  useEffect(() => {
+    setQuickDesign(createVariableLegQuickDesign(projectRef.current));
+    setBarLengthPreview(null);
+  }, [project.topology, projectRef]);
 
   const updateProject = (updater: (current: VariableLegProject) => VariableLegProject, status?: string) => {
     stopMotion();
@@ -530,38 +553,17 @@ export function VariableGeometryLegLab() {
     }
     if (Math.abs(nextLength - selectedBar.length) < 1e-8) return;
     const barId = selectedBar.id;
-    const delta = nextLength - selectedBar.length;
-    updateProject((current) => {
-      const bar = current.baseProject.bars.find((item) => item.id === barId);
-      if (!bar) return current;
-      const endpoints = new Set([bar.a, bar.b]);
-      current.baseProject.bars = current.baseProject.bars.map((item) => item.id === barId ? { ...item, length: nextLength } : item);
-      current.baseProject.dimensions = current.baseProject.dimensions.map((dimension) => (
-        dimension.type === "distance" && endpoints.has(dimension.a) && endpoints.has(dimension.b)
-          ? { ...dimension, value: nextLength }
-          : dimension
-      ));
-      if (current.adjustment.kind === "telescopic-bar" && current.adjustment.targetId === barId) {
-        current.adjustment = {
-          ...current.adjustment,
-          baseLength: nextLength,
-          minimum: current.adjustment.minimum + delta,
-          maximum: current.adjustment.maximum + delta,
-        };
-        current.modes = current.modes.map((mode) => ({ ...mode, adjustmentValue: mode.adjustmentValue + delta }));
-      }
-      current.candidates = [];
-      current.selectedCandidateId = null;
-      return current;
-    }, `已将 ${barId} 基础长度改为 ${nextLength.toFixed(2)} mm；旧候选已清空。`);
+    updateProject((current) => setVariableLegBaseBarLength(current, barId, nextLength), `已将 ${barId} 基础长度改为 ${nextLength.toFixed(2)} mm；旧候选已清空。`);
     setFeasibility(null);
+    setBarLengthPreview(null);
   };
 
   const restoreSelectedTemplateLength = () => {
     if (!selectedBar) return;
     const templateBar = getVariableLegTemplate(project.topology).bars.find((bar) => bar.id === selectedBar.id);
     if (!templateBar) return;
-    commitBarLength(templateBar.length);
+    if (editingMode === "guided") runBarLengthPreview(selectedBar.id, templateBar.length);
+    else commitBarLength(templateBar.length);
   };
 
   const runSynthesis = (scope: VariableLegSynthesisScope = "global") => {
@@ -616,6 +618,102 @@ export function VariableGeometryLegLab() {
       setMessage("综合 Worker 运行失败，请刷新后重试。");
     };
     worker.postMessage({ type: "start", requestId, project: cloneVariableLegProject(project), scope });
+  };
+
+  const runQuickDesign = () => {
+    if (searching || project.modes.some((mode) => mode.targetPath.length < 12)) return;
+    workerRef.current?.terminate();
+    const worker = new Worker(new URL("../workers/variable-leg-synthesis.worker.ts", import.meta.url), { type: "module" });
+    workerRef.current = worker;
+    const requestId = `quick-design-${Date.now()}`;
+    requestIdRef.current = requestId;
+    setSearching(true);
+    setWorkerTask("quick-design");
+    setSearchProgress({ progress: 0, stage: "scan", message: "正在从标准拓扑构造三个可行起点" });
+    setMessage(`正在为${topologyName(project.topology)}生成稳健、大步幅和高抬腿三个基础方案……`);
+    worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
+      const response = event.data;
+      if (response.requestId !== requestIdRef.current) return;
+      if (response.type === "progress") {
+        setSearchProgress(response.progress);
+        return;
+      }
+      setSearching(false);
+      worker.terminate();
+      workerRef.current = null;
+      if (response.type === "quick-design-result") {
+        commit({ ...cloneVariableLegProject(projectRef.current), candidates: response.candidates, selectedCandidateId: null });
+        const feasibleCount = response.candidates.filter((candidate) => candidate.metrics.every((metric) => metric.validRatio >= 0.99 && metric.branchSwitches === 0)).length;
+        setMessage(`已生成 ${response.candidates.length} 个基础方案，其中 ${feasibleCount} 个达到整周连续标准；请在右侧预览并选择。`);
+      } else if (response.type === "cancelled") setMessage("引导设计已取消，当前机构未改变。");
+      else if (response.type === "error") setMessage(response.message);
+    };
+    worker.onerror = () => {
+      setSearching(false);
+      worker.terminate();
+      workerRef.current = null;
+      setMessage("引导设计 Worker 运行失败，请刷新后重试。");
+    };
+    worker.postMessage({ type: "quick-design", requestId, project: cloneVariableLegProject(project), design: quickDesign });
+  };
+
+  const runBarLengthPreview = (barId: string, requestedLength: number) => {
+    if (!Number.isFinite(requestedLength) || requestedLength <= 0) {
+      setMessage("杆长必须是大于 0 的有限数字，当前机构未改变。");
+      return;
+    }
+    if (Math.abs(requestedLength - (project.baseProject.bars.find((bar) => bar.id === barId)?.length ?? requestedLength)) < 1e-8) {
+      setBarLengthPreview(null);
+      return;
+    }
+    workerRef.current?.terminate();
+    const worker = new Worker(new URL("../workers/variable-leg-synthesis.worker.ts", import.meta.url), { type: "module" });
+    workerRef.current = worker;
+    const requestId = `bar-preview-${barId}-${requestedLength}`;
+    requestIdRef.current = requestId;
+    setSearching(true);
+    setWorkerTask("bar-preview");
+    setSearchProgress({ progress: 0.35, stage: "scan", message: `正在检查 ${barId} 草稿与附近可行值` });
+    setMessage(`正在检查 ${barId} = ${requestedLength.toFixed(2)} mm；当前机构暂不修改。`);
+    worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
+      const response = event.data;
+      if (response.requestId !== requestIdRef.current) return;
+      setSearching(false);
+      worker.terminate();
+      workerRef.current = null;
+      if (response.type === "bar-preview-result") {
+        setBarLengthPreview(response.preview);
+        setMessage(response.preview.requestedValid
+          ? "草稿整周可达，可以应用；当前机构仍未修改。"
+          : response.preview.nearestFeasibleLength !== null
+            ? `输入值不可达；已找到最近可行值 ${response.preview.nearestFeasibleLength.toFixed(2)} mm。`
+            : "输入值不可达，附近也未找到整周可行值；当前机构保持不变。");
+      } else if (response.type === "error") setMessage(response.message);
+    };
+    worker.onerror = () => {
+      setSearching(false);
+      worker.terminate();
+      workerRef.current = null;
+      setMessage("杆长草稿检查失败，当前机构未改变。");
+    };
+    worker.postMessage({ type: "bar-preview", requestId, project: cloneVariableLegProject(project), barId, requestedLength });
+  };
+
+  const applyBarLengthPreview = () => {
+    if (!barLengthPreview?.previewProject || barLengthPreview.nearestFeasibleLength === null) return;
+    commit(cloneVariableLegProject(barLengthPreview.previewProject));
+    setMessage(`已应用 ${barLengthPreview.barId} = ${barLengthPreview.nearestFeasibleLength.toFixed(2)} mm，并保留为新的可行版本。`);
+    setBarLengthPreview(null);
+    setFeasibility(null);
+  };
+
+  const updateQuickDesignValue = (key: VariableLegQuickDesignKey, value: number) => {
+    if (!Number.isFinite(value)) return;
+    setQuickDesign((current) => ({ ...current, [key]: value }));
+  };
+
+  const toggleQuickDesignLock = (key: VariableLegQuickDesignKey) => {
+    setQuickDesign((current) => ({ ...current, locked: { ...current.locked, [key]: !current.locked[key] } }));
   };
 
   const checkFeasibleRange = () => {
@@ -758,7 +856,7 @@ export function VariableGeometryLegLab() {
         <Link className={styles.brand} href="/"><span className={styles.brandMark} />OpenLinkage</Link>
         <nav>
           <Link href="/lab">四杆设计</Link><Link href="/leg">六杆腿</Link><Link href="/straight-line">直线机构</Link><Link href="/designer">自由设计</Link>
-          <span>可变几何步行腿 · 0.3</span>
+          <span>可变几何步行腿 · 0.4</span>
         </nav>
       </header>
 
@@ -771,7 +869,29 @@ export function VariableGeometryLegLab() {
             <button type="button" disabled={!canRedo} onClick={() => { stopMotion(); if (redo()) { resetGaitTrail(); setMessage("已重做一步。"); } }}>↷ 重做</button>
           </div>
 
-          <section className={styles.configSection}>
+          <div className={styles.workflowTabs} role="group" aria-label="机构编辑流程">
+            <button type="button" className={editingMode === "guided" ? styles.activeWorkflow : ""} onClick={() => setEditingMode("guided")}>引导设计</button>
+            <button type="button" className={editingMode === "advanced" ? styles.activeWorkflow : ""} onClick={() => setEditingMode("advanced")}>高级编辑</button>
+          </div>
+
+          {editingMode === "guided" && <section className={styles.quickDesignSection}>
+            <div className={styles.quickDesignHeader}><span><b>先定目标，再找可行机构</b><small>锁定 = 必须保持；未锁定 = 允许方案方向微调</small></span><button type="button" onClick={() => setQuickDesign(createVariableLegQuickDesign(projectRef.current))}>从当前读取</button></div>
+            <label>基础拓扑
+              <select value={project.topology} onChange={(event) => changeTopology(event.target.value as VariableLegTopology)}>
+                <option value="klann">克兰六杆腿</option><option value="jansen">简森多杆腿</option>
+              </select>
+            </label>
+            <div className={styles.quickDesignGrid}>
+              <label><span>整体尺度</span><span className={styles.quickInput}><input aria-label="快速设计整体尺度" type="number" min="0.65" max="1.5" step="0.01" value={Number(quickDesign.scale.toFixed(2))} onChange={(event) => updateQuickDesignValue("scale", Number(event.target.value))} /><i>×</i><button type="button" className={quickDesign.locked.scale ? styles.lockedParameter : ""} aria-label="锁定整体尺度" aria-pressed={quickDesign.locked.scale} onClick={() => toggleQuickDesignLock("scale")}>{quickDesign.locked.scale ? "锁" : "活"}</button></span></label>
+              <label><span>曲柄半径</span><span className={styles.quickInput}><input aria-label="快速设计曲柄半径" type="number" min="5" step="1" value={Number(quickDesign.crankRadius.toFixed(1))} onChange={(event) => updateQuickDesignValue("crankRadius", Number(event.target.value))} /><i>mm</i><button type="button" className={quickDesign.locked.crankRadius ? styles.lockedParameter : ""} aria-label="锁定曲柄半径" aria-pressed={quickDesign.locked.crankRadius} onClick={() => toggleQuickDesignLock("crankRadius")}>{quickDesign.locked.crankRadius ? "锁" : "活"}</button></span></label>
+              <label><span>期望步长</span><span className={styles.quickInput}><input aria-label="快速设计期望步长" type="number" min="40" step="5" value={Math.round(quickDesign.stepLength)} onChange={(event) => updateQuickDesignValue("stepLength", Number(event.target.value))} /><i>mm</i><button type="button" className={quickDesign.locked.stepLength ? styles.lockedParameter : ""} aria-label="锁定期望步长" aria-pressed={quickDesign.locked.stepLength} onClick={() => toggleQuickDesignLock("stepLength")}>{quickDesign.locked.stepLength ? "锁" : "活"}</button></span></label>
+              <label><span>期望抬脚</span><span className={styles.quickInput}><input aria-label="快速设计期望抬脚" type="number" min="10" step="5" value={Math.round(quickDesign.liftHeight)} onChange={(event) => updateQuickDesignValue("liftHeight", Number(event.target.value))} /><i>mm</i><button type="button" className={quickDesign.locked.liftHeight ? styles.lockedParameter : ""} aria-label="锁定期望抬脚" aria-pressed={quickDesign.locked.liftHeight} onClick={() => toggleQuickDesignLock("liftHeight")}>{quickDesign.locked.liftHeight ? "锁" : "活"}</button></span></label>
+              <label><span>支撑相比例</span><span className={styles.quickInput}><input aria-label="快速设计支撑相比例" type="number" min="35" max="82" step="1" value={Math.round(quickDesign.stanceRatio * 100)} onChange={(event) => updateQuickDesignValue("stanceRatio", Number(event.target.value) / 100)} /><i>%</i><button type="button" className={quickDesign.locked.stanceRatio ? styles.lockedParameter : ""} aria-label="锁定支撑相比例" aria-pressed={quickDesign.locked.stanceRatio} onClick={() => toggleQuickDesignLock("stanceRatio")}>{quickDesign.locked.stanceRatio ? "锁" : "活"}</button></span></label>
+            </div>
+            <small className={styles.quickDesignHint}>三个方向都从标准{topologyName(project.topology)}重新起步。未锁定参数是软目标，不会把预填值当成几何硬约束。</small>
+          </section>}
+
+          {editingMode === "advanced" && <section className={styles.configSection}>
             <label>基础拓扑
               <select value={project.topology} onChange={(event) => changeTopology(event.target.value as VariableLegTopology)}>
                 <option value="klann">克兰六杆腿</option><option value="jansen">简森多杆腿</option>
@@ -821,15 +941,15 @@ export function VariableGeometryLegLab() {
                   : "当前锁止值不在连续可行区间内"}</small>
               </> : <small>扫描 41 个调节值；每个值检查全部工况的 36 个相位。</small>}
             </div>
-          </section>
+          </section>}
 
           <div className={styles.modeHeader}><b>工况</b><span>{missingStandardModeCount > 0 && <button type="button" onClick={restoreStandardModes}>补齐标准工况</button>}{project.modes.length}/6</span></div>
           <div className={styles.modeTabs}>
             {project.modes.map((mode) => <button type="button" key={mode.id} className={mode.id === activeMode.id ? styles.activeMode : ""} style={{ borderColor: mode.color }} onClick={() => selectMode(mode.id)}>{mode.name}</button>)}
           </div>
-          <div className={styles.modeActions}><button type="button" onClick={addMode}>复制工况</button><button type="button" onClick={deleteMode} disabled={project.modes.length <= 1}>删除</button></div>
+          {editingMode === "advanced" && <div className={styles.modeActions}><button type="button" onClick={addMode}>复制工况</button><button type="button" onClick={deleteMode} disabled={project.modes.length <= 1}>删除</button></div>}
 
-          <section className={styles.modeEditor}>
+          {editingMode === "advanced" && <section className={styles.modeEditor}>
             <label>工况名称<input value={activeMode.name} onChange={(event) => updateActiveMode((mode) => ({ ...mode, name: event.target.value.slice(0, 12) }))} /></label>
             <div className={styles.rangePair}>
               <label>步长 mm<input type="number" value={Math.round(activeStats.step)} onChange={(event) => regenerateActivePath(Number(event.target.value), activeStats.lift)} /></label>
@@ -841,7 +961,7 @@ export function VariableGeometryLegLab() {
             </div>
             <input className={styles.adjustmentSlider} aria-label="当前工况锁止值" type="range" min={project.adjustment.minimum} max={project.adjustment.maximum} step="0.1" value={activeMode.adjustmentValue} onChange={(event) => replace({ ...projectRef.current, modes: projectRef.current.modes.map((mode) => mode.id === activeMode.id ? { ...mode, adjustmentValue: Number(event.target.value) } : mode), candidates: [] })} onPointerUp={() => commit(cloneVariableLegProject(projectRef.current))} />
             <small>{project.adjustment.kind === "moving-pivot" ? "单位为沿导轨的位移 mm" : "单位为锁定后的有效杆长 mm"}</small>
-          </section>
+          </section>}
 
           <div className={styles.deploymentHeader}><b>整机部署</b><span>{project.deployment.legCount} 条腿</span></div>
           <section className={styles.deploymentEditor}>
@@ -890,9 +1010,11 @@ export function VariableGeometryLegLab() {
           </section>
 
           <section className={styles.searchBox}>
-            <button className={styles.primaryButton} type="button" onClick={() => runSynthesis("global")} disabled={searching}>{searching && workerTask === "synthesis" ? `${Math.round(searchProgress.progress * 100)}% · ${searchProgress.stage}` : "自动综合 5 套方案"}</button>
+            {editingMode === "guided"
+              ? <button className={styles.primaryButton} type="button" onClick={runQuickDesign} disabled={searching}>{searching && workerTask === "quick-design" ? `${Math.round(searchProgress.progress * 100)}% · ${searchProgress.stage}` : "生成 3 个基础方案"}</button>
+              : <button className={styles.primaryButton} type="button" onClick={() => runSynthesis("global")} disabled={searching}>{searching && workerTask === "synthesis" ? `${Math.round(searchProgress.progress * 100)}% · ${searchProgress.stage}` : "自动综合 5 套方案"}</button>}
             <button type="button" onClick={() => runSynthesis("current-target")} disabled={searching}>精修当前杆件</button>
-            {searching && workerTask === "synthesis" && <button className={styles.cancelButton} type="button" onClick={cancelSynthesis}>取消搜索</button>}
+            {searching && (workerTask === "synthesis" || workerTask === "quick-design") && <button className={styles.cancelButton} type="button" onClick={cancelSynthesis}>取消搜索</button>}
             <div className={styles.progress}><i style={{ width: `${searchProgress.progress * 100}%` }} /></div>
             <small>{searching ? searchProgress.message : message}</small>
           </section>
@@ -908,7 +1030,9 @@ export function VariableGeometryLegLab() {
         <section className={styles.stage}>
           <div className={styles.stageHeader}>
             <span className={activeMetrics.validRatio >= 0.99 ? styles.solved : styles.invalid}>{activeMetrics.validRatio >= 0.99 ? "整周可求解" : "存在不可达相位"}</span>
-            <span>{topologyName(project.topology)}</span><span>{adjustmentName(project.adjustment.kind)} / {project.adjustment.targetId}</span><b>锁止 {activeMode.adjustmentValue.toFixed(1)}</b>
+            <span>{topologyName(project.topology)}</span><span>{adjustmentName(project.adjustment.kind)} / {project.adjustment.targetId}</span>
+            {barLengthPreview && <span className={barLengthPreview.requestedValid ? styles.draftValid : styles.draftInvalid}>{barLengthPreview.requestedValid ? "草稿可行" : "草稿未写入"}</span>}
+            <b>锁止 {activeMode.adjustmentValue.toFixed(1)}</b>
           </div>
           <div className={styles.canvas}>
             <div className={styles.canvasActions} role="group" aria-label="画布显示与编辑工具">
@@ -950,6 +1074,7 @@ export function VariableGeometryLegLab() {
                   <path d={pathData(metric.path)} fill="none" stroke={mode.color} strokeWidth={mode.id === activeMode.id ? 3 : 1.5} className={styles.actualPath} />
                 </g>;
                 })}
+                {previewPath.length > 2 && <path d={pathData(previewPath)} className={styles.previewPath} />}
                 {drawingPoints.length > 1 && <path d={pathData(drawingPoints, false)} className={styles.draftPath} />}
 
                 {project.adjustment.kind === "moving-pivot" && (() => {
@@ -1016,13 +1141,16 @@ export function VariableGeometryLegLab() {
         <aside className={`${styles.panel} ${styles.analysisPanel}`}>
           <div className={styles.panelTitle}><div><span>02</span><h2>候选与工程检查</h2></div></div>
           {project.candidates?.length ? <div className={styles.candidateList}>
-            {project.candidates.map((candidate, index) => <button type="button" key={candidate.id} className={candidate.id === project.selectedCandidateId ? styles.selectedCandidate : ""} onClick={() => applyCandidate(candidate)}>
+            {project.candidates.map((candidate, index) => {
+              const feasible = candidate.metrics.every((metric) => metric.validRatio >= 0.99 && metric.branchSwitches === 0);
+              return <button type="button" key={candidate.id} className={candidate.id === project.selectedCandidateId ? styles.selectedCandidate : ""} onClick={() => applyCandidate(candidate)}>
               <span className={styles.rank}>{String(index + 1).padStart(2, "0")}</span>
-              <span><b>{candidate.label}</b><small>{topologyName(candidate.topology)} · {adjustmentName(candidate.adjustment.kind)} · {candidate.adjustment.targetId}</small></span>
+              <span><b>{candidate.label} <i className={feasible ? styles.candidateFeasible : styles.candidateNear}>{feasible ? "整周可行" : "接近可行"}</i></b><small>{topologyName(candidate.topology)} · {adjustmentName(candidate.adjustment.kind)} · {candidate.adjustment.targetId}</small></span>
               <strong>{candidate.score.toFixed(0)}</strong>
               <em>平均 RMSE {candidate.familyRmse.toFixed(1)} mm · 调节行程 {candidate.adjustmentStroke.toFixed(1)} mm</em>
-            </button>)}
-          </div> : <div className={styles.emptyState}><b>等待多轨迹综合</b><p>系统会保持当前基础拓扑，比较适合移动的固定铰点或伸缩杆，再精修各工况锁止值并返回五套候选。</p></div>}
+            </button>;
+            })}
+          </div> : <div className={styles.emptyState}><b>{editingMode === "guided" ? "等待基础方案" : "等待多轨迹综合"}</b><p>{editingMode === "guided" ? "先填写五个宏观目标并决定哪些必须锁定，再生成稳健、大步幅和高抬腿三个当前拓扑方案。生成前不会改动当前机构。" : "系统会保持当前基础拓扑，比较适合移动的固定铰点或伸缩杆，再精修各工况锁止值并返回五套候选。"}</p></div>}
 
           {viewMode === "deployment" && <>
             <div className={styles.analysisSectionTitle}><span>整机步态</span><b>{project.deployment.legCount} 腿 · {project.deployment.preset === "custom" ? "自定义" : "预设"}</b></div>
@@ -1049,12 +1177,26 @@ export function VariableGeometryLegLab() {
                   inputMode="decimal"
                   key={`${selectedBar.id}-${selectedBar.length}`}
                   defaultValue={String(Number(selectedBar.length.toFixed(4)))}
-                  onBlur={(event) => { const value = Number(event.currentTarget.value); commitBarLength(value); if (!Number.isFinite(value) || value <= 0) event.currentTarget.value = String(Number(selectedBar.length.toFixed(4))); }}
+                  onBlur={(event) => {
+                    const value = Number(event.currentTarget.value);
+                    if (editingMode === "guided") runBarLengthPreview(selectedBar.id, value);
+                    else commitBarLength(value);
+                    if (!Number.isFinite(value) || value <= 0) event.currentTarget.value = String(Number(selectedBar.length.toFixed(4)));
+                  }}
                   onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") event.currentTarget.value = String(Number(selectedBar.length.toFixed(4))); }}
                 />
                 <i>mm</i>
               </span>
             </label>
+            {editingMode === "guided" && barLengthPreview?.barId === selectedBar.id && <div className={barLengthPreview.requestedValid ? styles.draftPreviewGood : styles.draftPreviewWarn}>
+              <b>{barLengthPreview.requestedValid ? "草稿可行" : "草稿未写入当前机构"}</b>
+              <p>{barLengthPreview.requestedValid
+                ? `${barLengthPreview.requestedLength.toFixed(2)} mm 已通过全部工况整周检查。`
+                : barLengthPreview.nearestFeasibleLength !== null
+                  ? `输入 ${barLengthPreview.requestedLength.toFixed(2)} mm 不可达；最近可行值为 ${barLengthPreview.nearestFeasibleLength.toFixed(2)} mm。画布紫色虚线显示可应用预览。`
+                  : `输入 ${barLengthPreview.requestedLength.toFixed(2)} mm 不可达，附近未找到可行值。`}</p>
+              <div><button type="button" onClick={applyBarLengthPreview} disabled={!barLengthPreview.previewProject}>{barLengthPreview.requestedValid ? "应用草稿" : "应用最近可行值"}</button><button type="button" onClick={() => setBarLengthPreview(null)}>取消草稿</button></div>
+            </div>}
             <button type="button" onClick={restoreSelectedTemplateLength}>恢复模板长度</button>
             <div className={styles.barMetricGrid}>
               <span>当前有效长度<b>{selectedBarMetrics.effectiveLength.toFixed(2)} mm</b></span>

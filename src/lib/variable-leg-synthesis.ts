@@ -210,7 +210,11 @@ export async function synthesizeVariableLeg(
   }
   if (scope === "current-target") return refineCurrentTarget(source, onProgress, shouldCancel);
 
-  const topologies: VariableLegTopology[] = ["klann", "jansen"];
+  // The topology selector is an engineering constraint, not merely the
+  // initial preview. Global synthesis explores adjustment targets and scales
+  // within the selected family so a Klann project cannot silently turn into a
+  // Jansen project (and vice versa).
+  const topologies: VariableLegTopology[] = [source.topology];
   const scales = [0.86, 1, 1.14];
   const combinations = topologies.flatMap((topology) => {
     const options = VARIABLE_LEG_OPTIONS[topology];

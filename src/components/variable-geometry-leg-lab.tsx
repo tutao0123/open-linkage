@@ -574,7 +574,7 @@ export function VariableGeometryLegLab() {
     setSearching(true);
     setWorkerTask("synthesis");
     setSearchProgress({ progress: 0, stage: "scan", message: "正在准备灵敏度扫描" });
-    setMessage(scope === "global" ? "正在比较克兰、简森以及两类调节结构……" : `正在精修 ${project.adjustment.targetId} 与各工况锁止值……`);
+    setMessage(scope === "global" ? `正在保持${topologyName(project.topology)}拓扑，比较不同调节对象与尺度……` : `正在精修 ${project.adjustment.targetId} 与各工况锁止值……`);
     worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
       const response = event.data;
       if (response.requestId !== requestIdRef.current) return;
@@ -1022,7 +1022,7 @@ export function VariableGeometryLegLab() {
               <strong>{candidate.score.toFixed(0)}</strong>
               <em>平均 RMSE {candidate.familyRmse.toFixed(1)} mm · 调节行程 {candidate.adjustmentStroke.toFixed(1)} mm</em>
             </button>)}
-          </div> : <div className={styles.emptyState}><b>等待多轨迹综合</b><p>系统会先比较适合移动的固定铰点或伸缩杆，再精修各工况锁止值，并返回五套差异化方案。</p></div>}
+          </div> : <div className={styles.emptyState}><b>等待多轨迹综合</b><p>系统会保持当前基础拓扑，比较适合移动的固定铰点或伸缩杆，再精修各工况锁止值并返回五套候选。</p></div>}
 
           {viewMode === "deployment" && <>
             <div className={styles.analysisSectionTitle}><span>整机步态</span><b>{project.deployment.legCount} 腿 · {project.deployment.preset === "custom" ? "自定义" : "预设"}</b></div>

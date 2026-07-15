@@ -198,6 +198,7 @@ describe("variable geometry walking leg", () => {
     const first = await synthesizeVariableLeg(project);
     const second = await synthesizeVariableLeg(project);
     expect(first).toHaveLength(5);
+    expect(first.every((candidate) => candidate.topology === project.topology)).toBe(true);
     expect(first[0].score).toBeGreaterThan(baseline);
     const obstacleIndex = first[0].modes.findIndex((mode) => mode.id === "obstacle");
     const obstacleMode = first[0].modes[obstacleIndex];

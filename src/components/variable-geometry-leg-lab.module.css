@@ -36,6 +36,8 @@
 .baseRangeMarker { width:0; height:31px; position:absolute; top:-4px; border-left:2px dashed #111; transform:translateX(-50%); }
 .feasibilityBox>small { margin-top:6px; display:block; color:#686e68; font-size:9px; line-height:1.45; }
 .modeHeader { margin-top:16px; display:flex; justify-content:space-between; color:#686e68; font-size:11px; }
+.modeHeader>span { display:flex; align-items:center; gap:8px; }
+.modeHeader button { padding:4px 7px; border:1px solid #a9bf7c; background:#e6efd4; color:#334124; cursor:pointer; font-size:9px; }
 .deploymentHeader { margin-top:16px; display:flex; justify-content:space-between; color:#686e68; font-size:11px; }
 .deploymentEditor { margin-top:8px; }
 .legCountTabs { margin-bottom:12px; display:grid; grid-template-columns:repeat(4,1fr); gap:5px; }

@@ -30,6 +30,7 @@ import {
   materializeVariableLegMode,
   measureGaitClearance,
   migrateVariableLegProject,
+  restoreVariableLegStandardModes,
   sampleVariableLeg,
   smoothClosedPath,
   type VariableLegAdjustmentKind,
@@ -144,6 +145,7 @@ export function VariableGeometryLegLab() {
   const viewport = useSvgViewport(viewportBase);
 
   const activeMode = project.modes.find((mode) => mode.id === project.activeModeId) ?? project.modes[0];
+  const missingStandardModeCount = ["cruise", "sprint", "obstacle"].filter((id) => !project.modes.some((mode) => mode.id === id)).length;
   const activeModeIndex = Math.max(0, project.modes.findIndex((mode) => mode.id === activeMode.id));
   const cycleSamples = useMemo(
     () => sampleVariableLeg(project.baseProject, project.adjustment, activeMode.adjustmentValue, 72, 90),
@@ -232,7 +234,10 @@ export function VariableGeometryLegLab() {
         if (!migrated) throw new Error("invalid");
         resetHistory(migrated);
         setMotionPhase(migrated.inputPhase || 0);
-        setMessage("已恢复上次的可变几何步行腿项目。");
+        const missingStandardModes = ["cruise", "sprint", "obstacle"].filter((id) => !migrated.modes.some((mode) => mode.id === id));
+        setMessage(missingStandardModes.length
+          ? "已恢复旧本地项目；检测到标准工况缺失，可点击“补齐标准工况”恢复。"
+          : "已恢复上次的可变几何步行腿项目。");
       } catch {
         setMessage("自动保存数据无效，已保留默认工况。");
       }
@@ -419,6 +424,13 @@ export function VariableGeometryLegLab() {
       const nextModes = current.modes.filter((mode) => mode.id !== current.activeModeId);
       return { ...current, modes: nextModes, activeModeId: nextModes[0].id, candidates: [], selectedCandidateId: null };
     }, "当前工况已删除。");
+  };
+
+  const restoreStandardModes = () => {
+    updateProject(
+      (current) => restoreVariableLegStandardModes(current),
+      "已补齐巡航、高速和越障标准工况；现有同名工况、机构与整机部署均已保留。",
+    );
   };
 
   const canvasPoint = (event: { clientX: number; clientY: number }) => {
@@ -811,7 +823,7 @@ export function VariableGeometryLegLab() {
             </div>
           </section>
 
-          <div className={styles.modeHeader}><b>工况</b><span>{project.modes.length}/6</span></div>
+          <div className={styles.modeHeader}><b>工况</b><span>{missingStandardModeCount > 0 && <button type="button" onClick={restoreStandardModes}>补齐标准工况</button>}{project.modes.length}/6</span></div>
           <div className={styles.modeTabs}>
             {project.modes.map((mode) => <button type="button" key={mode.id} className={mode.id === activeMode.id ? styles.activeMode : ""} style={{ borderColor: mode.color }} onClick={() => selectMode(mode.id)}>{mode.name}</button>)}
           </div>

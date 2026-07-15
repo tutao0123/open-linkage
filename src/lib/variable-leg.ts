@@ -302,6 +302,31 @@ export function createDefaultModes(): VariableLegMode[] {
   ];
 }
 
+export function restoreVariableLegStandardModes(source: VariableLegProject) {
+  const project = cloneVariableLegProject(source);
+  const standardIds = new Set(["cruise", "sprint", "obstacle"]);
+  const existingModes = new Map(project.modes.map((mode) => [mode.id, mode]));
+  const span = Math.max(0, project.adjustment.maximum - project.adjustment.minimum);
+  const restored = createDefaultModes().map((mode, index) => {
+    const existing = existingModes.get(mode.id);
+    if (existing) return existing;
+    const adjustmentValue = project.adjustment.kind === "moving-pivot"
+      ? clamp(mode.adjustmentValue, project.adjustment.minimum, project.adjustment.maximum)
+      : clamp(
+        project.adjustment.baseLength + (index === 1 ? span * 0.25 : index === 2 ? -span * 0.25 : 0),
+        project.adjustment.minimum,
+        project.adjustment.maximum,
+      );
+    return { ...mode, adjustmentValue };
+  });
+  const customModes = project.modes.filter((mode) => !standardIds.has(mode.id));
+  project.modes = [...restored, ...customModes].slice(0, 6);
+  if (!project.modes.some((mode) => mode.id === project.activeModeId)) project.activeModeId = "cruise";
+  project.candidates = [];
+  project.selectedCandidateId = null;
+  return project;
+}
+
 export function createDefaultAdjustment(topology: VariableLegTopology, kind: VariableLegAdjustmentKind): VariableLegAdjustment {
   const template = getVariableLegTemplate(topology);
   if (kind === "moving-pivot") {

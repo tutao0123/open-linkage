@@ -15,6 +15,7 @@ import {
   materializeVariableLegMode,
   measureGaitClearance,
   migrateVariableLegProject,
+  restoreVariableLegStandardModes,
   scanVariableLegAdjustmentFeasibility,
   sampleVariableLeg,
   validateVariableLegDesignerProject,
@@ -137,6 +138,19 @@ describe("variable geometry walking leg", () => {
     expect(migrated?.version).toBe(2);
     expect(migrated?.deployment.legCount).toBe(2);
     expect(migrated?.deployment.preset).toBe("alternating");
+  });
+
+  it("restores missing standard modes without replacing the existing obstacle mode", () => {
+    const source = createDefaultVariableLegProject();
+    const obstacle = source.modes.find((mode) => mode.id === "obstacle")!;
+    obstacle.name = "我的越障";
+    source.modes = [obstacle];
+    source.activeModeId = obstacle.id;
+    const restored = restoreVariableLegStandardModes(source);
+    expect(restored.modes.map((mode) => mode.id)).toEqual(["cruise", "sprint", "obstacle"]);
+    expect(restored.modes.find((mode) => mode.id === "obstacle")?.name).toBe("我的越障");
+    expect(restored.activeModeId).toBe("obstacle");
+    expect(restored.deployment).toEqual(source.deployment);
   });
 
   it("round-trips designer edits and shifts a telescopic range by the base length delta", () => {

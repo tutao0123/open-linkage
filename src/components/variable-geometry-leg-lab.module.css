@@ -24,6 +24,17 @@
 .unitInput i { align-self:stretch; padding:8px; display:flex; align-items:center; border:1px solid #c5c7bf; background:#ecebe5; font-style:normal; }
 .rangePair { display:grid; grid-template-columns:1fr 1fr; gap:7px; }
 .rangePair label { min-width:0; display:grid; gap:5px; color:#606660; font-size:10px; }
+.feasibilityBox { margin-top:10px; padding-top:10px; border-top:1px solid #c9cbc3; }
+.feasibilityActions { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+.feasibilityActions button { padding:8px 4px; border:1px solid #bfc2b8; background:#f4f3ed; cursor:pointer; font-size:9px; }
+.feasibilityActions button:disabled { cursor:not-allowed; opacity:.42; }
+.feasibilityTrack { height:24px; margin-top:10px; position:relative; display:flex; gap:1px; padding:4px; border:1px solid #babdb4; background:#d5d7cf; }
+.feasibilityTrack>i { min-width:1px; flex:1; }
+.feasibleCell { background:#8dbd24; }
+.infeasibleCell { background:#bd7659; }
+.modeRangeMarker { width:3px; height:30px; position:absolute; top:-4px; border:1px solid #fff; transform:translateX(-50%); box-shadow:0 0 0 1px #222; }
+.baseRangeMarker { width:0; height:31px; position:absolute; top:-4px; border-left:2px dashed #111; transform:translateX(-50%); }
+.feasibilityBox>small { margin-top:6px; display:block; color:#686e68; font-size:9px; line-height:1.45; }
 .modeHeader { margin-top:16px; display:flex; justify-content:space-between; color:#686e68; font-size:11px; }
 .deploymentHeader { margin-top:16px; display:flex; justify-content:space-between; color:#686e68; font-size:11px; }
 .deploymentEditor { margin-top:8px; }
@@ -41,6 +52,8 @@
 .adjustmentSlider { margin-top:11px; width:100%; accent-color:#111515; }
 .modeEditor small { display:block; margin-top:5px; color:#777d77; font-size:9px; line-height:1.45; }
 .searchBox { margin-top:16px; padding-top:14px; border-top:1px solid #ced0c7; }
+.searchBox>button:not(.primaryButton):not(.cancelButton) { width:100%; margin-top:7px; padding:10px; border:1px solid #aabf7d; background:#e6efd4; cursor:pointer; font-weight:650; }
+.searchBox>button:disabled { cursor:not-allowed; opacity:.48; }
 .primaryButton,.cancelButton { width:100%; padding:12px; border:0; cursor:pointer; font-weight:700; }
 .primaryButton { background:#111515; color:#c8ff3d; }
 .primaryButton:disabled { cursor:not-allowed; opacity:.48; }
@@ -72,6 +85,9 @@
 .draftPath { fill:none; stroke:#a346a6; stroke-width:4; }
 .rigidBody { fill:rgb(163 189 98 / 18%); stroke:#6f8f24; stroke-width:5; stroke-linejoin:round; }
 .link { stroke:#202423; stroke-width:11; stroke-linecap:round; }
+.selectableBar { cursor:pointer; }
+.barHitArea { stroke:transparent; stroke-width:30; stroke-linecap:round; pointer-events:stroke; }
+.selectedBar { stroke:#19a7ce!important; stroke-width:18!important; filter:drop-shadow(0 0 4px rgb(25 167 206 / 70%)); }
 .driver { stroke:#c8ff3d; stroke-width:14; }
 .telescopic { stroke:#d4663b; stroke-width:15; stroke-dasharray:18 7; }
 .fixedJoint circle:first-child,.movingJoint circle:first-child { fill:#f1f1eb; stroke:#151918; stroke-width:4; }
@@ -131,6 +147,20 @@
 .modeSummary>div { padding:10px 0; display:flex; justify-content:space-between; align-items:end; border-bottom:1px solid #d2d3cc; }
 .analysisSectionTitle { margin-top:16px; padding:8px 0; display:flex; justify-content:space-between; border-top:1px solid #c9cbc3; color:#6a706a; font-size:10px; }
 .analysisSectionTitle b { color:#2b302d; font-weight:600; }
+.barInspector { padding:12px; border:1px solid #b7c9ca; background:#e4eff0; }
+.barIdentity { margin-bottom:11px; display:flex; align-items:start; justify-content:space-between; gap:10px; }
+.barIdentity>span { display:flex; flex-direction:column; }
+.barIdentity b { font:18px "Cascadia Mono",Consolas,monospace; }
+.barIdentity small { margin-top:2px; color:#667071; font-size:9px; }
+.barIdentity em { padding:4px 6px; background:#c9dfe2; color:#315a61; font-size:8px; font-style:normal; }
+.barInspector>label { display:grid; gap:5px; color:#60696a; font-size:9px; }
+.barLengthEditor { display:flex; }
+.barLengthEditor input { min-width:0; width:100%; padding:8px; border:1px solid #aebfc0; background:#f3f7f7; font:12px "Cascadia Mono",Consolas,monospace; }
+.barLengthEditor i { padding:8px; border:1px solid #aebfc0; border-left:0; background:#d7e5e6; font-size:10px; font-style:normal; }
+.barInspector>button { width:100%; margin-top:7px; padding:7px; border:1px solid #aebfc0; background:#f3f7f7; cursor:pointer; font-size:9px; }
+.barMetricGrid { margin-top:10px; display:grid; grid-template-columns:1fr 1fr; gap:1px; border:1px solid #bdcccd; background:#bdcccd; }
+.barMetricGrid span { min-width:0; padding:8px; display:flex; flex-direction:column; gap:4px; background:#eef4f4; color:#657071; font-size:8px; }
+.barMetricGrid b { overflow-wrap:anywhere; color:#172326; font:10px "Cascadia Mono",Consolas,monospace; }
 .gaitSummary { padding:0 10px; border:1px solid #b9cf8b; background:#e5efd0; }
 .modeSummary span { color:#676c67; font-size:10px; }
 .modeSummary strong { font:18px "Cascadia Mono",Consolas,monospace; }

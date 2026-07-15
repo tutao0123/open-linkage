@@ -46,6 +46,11 @@ import {
   type HydraulicLoadAnalysis,
   type CycleAnalysis,
 } from "@/lib/free-mechanism";
+import {
+  isVariableLegDesignerTransfer,
+  validateVariableLegDesignerProject,
+  type VariableLegDesignerTransfer,
+} from "@/lib/variable-leg";
 import { SvgViewportControls } from "./svg-viewport-controls";
 import { useMechanismHistory } from "./use-mechanism-history";
 import { useSvgViewport } from "./use-svg-viewport";
@@ -125,6 +130,7 @@ export function FreeMechanismDesigner({ initialTemplateId, loadTransfer = false 
   const [message, setMessage] = useState(initialTemplate
     ? `${initialTemplate.name}模板已载入，可直接播放或继续修改拓扑。`
     : "四杆模板已就绪。可直接播放，或继续添加移动副、杆件和尺寸约束。");
+  const [variableLegTransfer, setVariableLegTransfer] = useState<VariableLegDesignerTransfer | null>(null);
   const viewportBase = useMemo(() => ({ x: -420, y: -300, width: 840, height: 600 }), []);
   const viewport = useSvgViewport(viewportBase);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -142,16 +148,18 @@ export function FreeMechanismDesigner({ initialTemplateId, loadTransfer = false 
         return;
       }
       try {
-        const imported = migrateProject(JSON.parse(raw) as unknown);
-        if (!imported) throw new Error("invalid transfer");
-        window.sessionStorage.removeItem("open-linkage:designer-transfer");
+        const parsed = JSON.parse(raw) as unknown;
+        if (!isVariableLegDesignerTransfer(parsed) || parsed.direction !== "to-designer") throw new Error("invalid transfer");
+        const imported = migrateProject(parsed.editableProject);
+        if (!imported) throw new Error("invalid project");
+        setVariableLegTransfer(parsed);
         replace(imported);
         const nextPhase = driverPhase(imported);
         phaseRef.current = nextPhase;
         setPhase(nextPhase);
         setSelection(null);
         setTrails({});
-        setMessage("已载入可变几何步行腿的当前锁止工况，可继续自由修改拓扑和尺寸。");
+        setMessage("已载入步行腿基础机构；可修改杆长、铰点位置和现有尺寸约束。");
       } catch {
         setMessage("可变几何步行腿传入的数据无效，已保留默认机构。");
       }
@@ -175,6 +183,10 @@ export function FreeMechanismDesigner({ initialTemplateId, loadTransfer = false 
     ? project.bars.filter((bar) => bar.a !== selectedJoint.id && bar.b !== selectedJoint.id)
     : [];
   const driverReady = hasValidDriver(project);
+  const variableLegReturnValidation = useMemo(
+    () => variableLegTransfer ? validateVariableLegDesignerProject(variableLegTransfer.variableProject.baseProject, project) : null,
+    [project, variableLegTransfer],
+  );
   const hydraulicActuators = getHydraulicActuators(project);
   const selectedActuator = selectedBar ? (project.hydraulicActuators ?? []).find((actuator) => actuator.barId === selectedBar.id) ?? null : null;
   const dof = estimateDof(project.joints, project.bars, project.dimensions, project.bodies);
@@ -826,12 +838,29 @@ export function FreeMechanismDesigner({ initialTemplateId, loadTransfer = false 
   });
   const trailSampleCount = Object.values(trails).reduce((total, points) => total + points.length, 0);
 
+  const saveAndReturnToVariableLeg = () => {
+    if (!variableLegTransfer || !variableLegReturnValidation?.valid) return;
+    const returned: VariableLegDesignerTransfer = {
+      ...variableLegTransfer,
+      direction: "to-variable-leg",
+      editableProject: cloneProject(project),
+    };
+    window.sessionStorage.setItem("open-linkage:designer-transfer", JSON.stringify(returned));
+    window.location.href = "/variable-leg?transfer=designer";
+  };
+
   return (
     <main className={styles.workspace}>
       <header className={styles.header}>
         <Link className={styles.brand} href="/"><span className={styles.brandMark} />OpenLinkage</Link>
         <nav><Link href="/lab">四杆设计</Link><Link href="/straight-line">直线机构</Link><Link href="/leg">六杆腿设计</Link><Link href="/variable-leg">可变步行腿</Link><span>自由机构设计器 · 0.7</span></nav>
       </header>
+
+      {variableLegTransfer && <div className={styles.variableLegBanner}>
+        <span><b>正在编辑步行腿基础机构</b><small>工况锁止值尚未应用；允许修改杆长、铰点位置和现有尺寸约束。</small></span>
+        <button type="button" onClick={saveAndReturnToVariableLeg} disabled={!variableLegReturnValidation?.valid}>保存并返回步行腿</button>
+        {!variableLegReturnValidation?.valid && <em>{variableLegReturnValidation?.reasons.join("；")}</em>}
+      </div>}
 
       <div className={styles.layout}>
         <aside className={styles.panel}>

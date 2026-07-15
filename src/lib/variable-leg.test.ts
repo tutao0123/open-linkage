@@ -1,8 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  analyzeVariableLegBarSamples,
   analyzeVariableLegProject,
+  applyVariableLegDesignerReturn,
+  applyVariableLegRecommendedRange,
+  buildVariableLegFeasibleIntervals,
   cloneVariableLegProject,
+  createVariableLegDesignerTransfer,
   createDefaultAdjustment,
   createDefaultVariableLegProject,
   getVariableLegTemplate,
@@ -10,7 +15,10 @@ import {
   materializeVariableLegMode,
   measureGaitClearance,
   migrateVariableLegProject,
+  scanVariableLegAdjustmentFeasibility,
   sampleVariableLeg,
+  validateVariableLegDesignerProject,
+  type VariableLegAdjustmentFeasibility,
 } from "./variable-leg";
 import { synthesizeVariableLeg } from "./variable-leg-synthesis";
 
@@ -49,6 +57,69 @@ describe("variable geometry walking leg", () => {
     expect(bar.type).toBe("telescopic");
   });
 
+  it("allows any non-driver bar to be the locked telescopic target", () => {
+    const project = createDefaultVariableLegProject();
+    const bar = project.baseProject.bars.find((item) => item.id !== project.baseProject.driverId)!;
+    const adjustment = {
+      kind: "telescopic-bar" as const,
+      targetId: bar.id,
+      baseLength: bar.length,
+      minimum: bar.length - 20,
+      maximum: bar.length + 20,
+    };
+    const materialized = materializeVariableLegMode(project.baseProject, adjustment, bar.length + 12);
+    expect(materialized.bars.find((item) => item.id === bar.id)?.length).toBeCloseTo(bar.length + 12);
+  });
+
+  it("unwraps bar angles across plus and minus 180 degrees", () => {
+    const project = createDefaultVariableLegProject();
+    const bar = project.baseProject.bars.find((item) => item.id !== project.baseProject.driverId)!;
+    const makeSample = (angle: number, phase: number) => {
+      const state = structuredClone(project.baseProject);
+      const first = state.joints.find((joint) => joint.id === bar.a)!;
+      const second = state.joints.find((joint) => joint.id === bar.b)!;
+      second.x = first.x + bar.length * Math.cos(angle * Math.PI / 180);
+      second.y = first.y + bar.length * Math.sin(angle * Math.PI / 180);
+      return { phase, project: state, tracer: { x: 0, y: 0 }, error: 0, singularityMargin: 20 };
+    };
+    const metrics = analyzeVariableLegBarSamples(
+      project.baseProject,
+      project.adjustment,
+      [makeSample(179, 0), makeSample(-179, Math.PI)],
+      bar.id,
+    );
+    expect(metrics?.angleRangeDegrees).toBeCloseTo(2, 5);
+  });
+
+  it("builds a recommended feasible interval containing the active lock", () => {
+    const result = buildVariableLegFeasibleIntervals([
+      { value: 0, feasible: false, failedModeIds: ["cruise"] },
+      { value: 1, feasible: true, failedModeIds: [] },
+      { value: 2, feasible: true, failedModeIds: [] },
+      { value: 3, feasible: false, failedModeIds: ["obstacle"] },
+      { value: 4, feasible: true, failedModeIds: [] },
+    ], 1.5);
+    expect(result.intervals).toEqual([{ minimum: 1, maximum: 2 }, { minimum: 4, maximum: 4 }]);
+    expect(result.recommendedInterval).toEqual({ minimum: 1, maximum: 2 });
+  });
+
+  it("scans every mode and clamps lock values to the recommended range", () => {
+    const project = createDefaultVariableLegProject();
+    const scan = scanVariableLegAdjustmentFeasibility(project, 3, 12, 30);
+    expect(scan.samples).toHaveLength(3);
+    expect(scan.samples.every((sample) => Array.isArray(sample.failedModeIds))).toBe(true);
+    const feasibility: VariableLegAdjustmentFeasibility = {
+      minimum: -45,
+      maximum: 45,
+      samples: [],
+      intervals: [{ minimum: -10, maximum: 10 }],
+      recommendedInterval: { minimum: -10, maximum: 10 },
+    };
+    const applied = applyVariableLegRecommendedRange(project, feasibility);
+    expect(applied.project.modes.every((mode) => mode.adjustmentValue >= -10 && mode.adjustmentValue <= 10)).toBe(true);
+    expect(applied.clampedModeIds).toEqual(expect.arrayContaining(["sprint", "obstacle"]));
+  });
+
   it("round-trips the versioned project format", () => {
     const source = createDefaultVariableLegProject();
     const parsed = JSON.parse(JSON.stringify(source)) as unknown;
@@ -66,6 +137,37 @@ describe("variable geometry walking leg", () => {
     expect(migrated?.version).toBe(2);
     expect(migrated?.deployment.legCount).toBe(2);
     expect(migrated?.deployment.preset).toBe("alternating");
+  });
+
+  it("round-trips designer edits and shifts a telescopic range by the base length delta", () => {
+    const source = createDefaultVariableLegProject();
+    const target = source.baseProject.bars.find((bar) => bar.id !== source.baseProject.driverId)!;
+    source.adjustment = {
+      kind: "telescopic-bar",
+      targetId: target.id,
+      baseLength: target.length,
+      minimum: target.length - 20,
+      maximum: target.length + 20,
+    };
+    source.modes = source.modes.map((mode) => ({ ...mode, adjustmentValue: target.length }));
+    const transfer = createVariableLegDesignerTransfer(source);
+    transfer.direction = "to-variable-leg";
+    transfer.editableProject.bars.find((bar) => bar.id === target.id)!.length += 15;
+    const returned = applyVariableLegDesignerReturn(transfer);
+    expect(returned.validation.valid).toBe(true);
+    expect(returned.project.adjustment.minimum).toBeCloseTo(target.length - 5);
+    expect(returned.project.modes[0].adjustmentValue).toBeCloseTo(target.length + 15);
+    expect(returned.project.deployment).toEqual(source.deployment);
+    expect(returned.project.candidates).toEqual([]);
+  });
+
+  it("rejects a designer return when required topology was deleted", () => {
+    const source = createDefaultVariableLegProject();
+    const edited = structuredClone(source.baseProject);
+    edited.bars.pop();
+    const validation = validateVariableLegDesignerProject(source.baseProject, edited);
+    expect(validation.valid).toBe(false);
+    expect(validation.reasons.join(" ")).toContain("杆件");
   });
 
   it("produces deterministic project metrics", () => {
@@ -93,4 +195,13 @@ describe("variable geometry walking leg", () => {
     expect(first.map((candidate) => [candidate.topology, candidate.adjustment.kind, candidate.adjustment.targetId, candidate.score]))
       .toEqual(second.map((candidate) => [candidate.topology, candidate.adjustment.kind, candidate.adjustment.targetId, candidate.score]));
   }, 60_000);
+
+  it("refines only the current topology and adjustment target", async () => {
+    const project = createDefaultVariableLegProject();
+    const candidates = await synthesizeVariableLeg(project, undefined, () => false, "current-target");
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0].topology).toBe(project.topology);
+    expect(candidates[0].adjustment.kind).toBe(project.adjustment.kind);
+    expect(candidates[0].adjustment.targetId).toBe(project.adjustment.targetId);
+  }, 30_000);
 });

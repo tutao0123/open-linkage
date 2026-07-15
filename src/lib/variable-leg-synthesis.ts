@@ -20,6 +20,8 @@ export type VariableLegSynthesisProgress = {
   message: string;
 };
 
+export type VariableLegSynthesisScope = "global" | "current-target";
+
 export class VariableLegSynthesisCancelled extends Error {
   constructor() {
     super("可变几何综合已取消");
@@ -114,14 +116,99 @@ async function yieldToWorker() {
   await new Promise<void>((resolve) => globalThis.setTimeout(resolve, 0));
 }
 
+async function refineCurrentTarget(
+  source: VariableLegProject,
+  onProgress: ((progress: VariableLegSynthesisProgress) => void) | undefined,
+  shouldCancel: () => boolean,
+) {
+  const random = createRandom(20260715);
+  let best: SearchSeed = {
+    topology: source.topology,
+    baseProject: cloneProject(source.baseProject),
+    adjustment: { ...source.adjustment },
+    modes: cloneModes(source.modes),
+    score: -1,
+    cost: Number.POSITIVE_INFINITY,
+  };
+  const initialMetrics = best.modes.map((mode) => analyzeVariableLegMode(best.baseProject, best.adjustment, mode, 42, 56));
+  const initialFamily = scoreVariableLegFamily(initialMetrics, best.modes, best.adjustment);
+  best = { ...best, score: initialFamily.score, cost: initialFamily.cost };
+  const iterations = 32;
+  for (let iteration = 0; iteration < iterations; iteration += 1) {
+    if (shouldCancel()) throw new VariableLegSynthesisCancelled();
+    const temperature = 1 - iteration / iterations;
+    const testProject = cloneProject(best.baseProject);
+    let testAdjustment: VariableLegAdjustment = { ...best.adjustment };
+    let adjustmentDelta = 0;
+    const mutableBars = testProject.bars.filter((bar) => bar.id !== testProject.driverId);
+    const bar = mutableBars[Math.floor(random() * mutableBars.length)];
+    if (bar) {
+      const previousLength = bar.length;
+      bar.length *= 1 + (random() * 2 - 1) * 0.05 * temperature;
+      if (testAdjustment.kind === "telescopic-bar" && bar.id === testAdjustment.targetId) {
+        const delta = bar.length - previousLength;
+        adjustmentDelta = delta;
+        testAdjustment = {
+          ...testAdjustment,
+          baseLength: bar.length,
+          minimum: testAdjustment.minimum + delta,
+          maximum: testAdjustment.maximum + delta,
+        };
+      }
+    }
+    const testModes = best.modes.map((mode) => ({
+      ...mode,
+      targetPath: mode.targetPath.map((point) => ({ ...point })),
+      adjustmentValue: clamp(
+        mode.adjustmentValue + adjustmentDelta + (random() * 2 - 1) * (testAdjustment.maximum - testAdjustment.minimum) * 0.16 * temperature,
+        testAdjustment.minimum,
+        testAdjustment.maximum,
+      ),
+    }));
+    const metrics = testModes.map((mode) => analyzeVariableLegMode(testProject, testAdjustment, mode, 42, 56));
+    const family = scoreVariableLegFamily(metrics, testModes, testAdjustment);
+    if (family.score >= best.score) best = {
+      ...best,
+      baseProject: testProject,
+      adjustment: testAdjustment,
+      modes: testModes,
+      score: family.score,
+      cost: family.cost,
+    };
+    onProgress?.({
+      progress: (iteration + 1) / iterations * 0.92,
+      stage: "refine",
+      message: `精修当前杆件：${iteration + 1}/${iterations}`,
+    });
+    if (iteration % 2 === 1) await yieldToWorker();
+  }
+  const metrics = best.modes.map((mode) => analyzeVariableLegMode(best.baseProject, best.adjustment, mode, 72, 90));
+  const family = scoreVariableLegFamily(metrics, best.modes, best.adjustment);
+  onProgress?.({ progress: 1, stage: "finalize", message: "当前杆件精修完成" });
+  return [{
+    id: "variable-leg-current-target",
+    label: "当前杆精修",
+    topology: best.topology,
+    baseProject: best.baseProject,
+    adjustment: best.adjustment,
+    modes: best.modes,
+    score: family.score,
+    familyRmse: metrics.reduce((sum, metric) => sum + metric.rmse, 0) / Math.max(1, metrics.length),
+    adjustmentStroke: family.stroke,
+    metrics,
+  } satisfies VariableLegCandidate];
+}
+
 export async function synthesizeVariableLeg(
   source: VariableLegProject,
   onProgress?: (progress: VariableLegSynthesisProgress) => void,
   shouldCancel: () => boolean = () => false,
+  scope: VariableLegSynthesisScope = "global",
 ): Promise<VariableLegCandidate[]> {
   if (source.modes.length === 0 || source.modes.some((mode) => mode.targetPath.length < 12)) {
     throw new Error("每个工况至少需要 12 个目标轨迹点");
   }
+  if (scope === "current-target") return refineCurrentTarget(source, onProgress, shouldCancel);
 
   const topologies: VariableLegTopology[] = ["klann", "jansen"];
   const scales = [0.86, 1, 1.14];

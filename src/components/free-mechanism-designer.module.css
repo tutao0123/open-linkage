@@ -6,6 +6,13 @@
 .header nav { display:flex; gap:18px; align-items:center; color:#686e68; font:11px "Cascadia Mono",Consolas,monospace; }
 .header nav a { color:inherit; }
 .header nav a:hover { color:#111515; text-decoration:underline; }
+.variableLegBanner { min-height:58px; padding:9px 22px; display:flex; align-items:center; gap:14px; border-bottom:1px solid #9fb56e; background:#e5efd0; }
+.variableLegBanner>span { display:flex; flex:1; flex-direction:column; gap:3px; }
+.variableLegBanner b { font-size:12px; }
+.variableLegBanner small { color:#5f6a52; font-size:9px; }
+.variableLegBanner button { padding:9px 14px; border:0; background:#111515; color:#c8ff3d; cursor:pointer; font-weight:700; }
+.variableLegBanner button:disabled { background:#a9ada5; color:#e2e3dd; cursor:not-allowed; }
+.variableLegBanner em { max-width:340px; color:#7a382b; font-size:9px; font-style:normal; line-height:1.4; }
 .layout { min-height:calc(100vh - 66px); display:grid; grid-template-columns:300px minmax(560px,1fr) 310px; }
 .panel { padding:22px; background:#f2f1eb; border-right:1px solid #c5c6be; }
 .inspector { border-right:0; border-left:1px solid #c5c6be; }

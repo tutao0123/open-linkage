@@ -16,19 +16,24 @@ import {
   VARIABLE_LEG_MODE_COLORS,
   VARIABLE_LEG_OPTIONS,
   alignedTargetPath,
+  analyzeVariableLegBarSamples,
   analyzeVariableLegProject,
+  applyVariableLegDesignerReturn,
+  applyVariableLegRecommendedRange,
   cloneVariableLegProject,
   createDefaultAdjustment,
   createDefaultVariableLegProject,
   createGaitPath,
+  createVariableLegDesignerTransfer,
   getVariableLegTemplate,
+  isVariableLegDesignerTransfer,
   materializeVariableLegMode,
   measureGaitClearance,
   migrateVariableLegProject,
-  projectForFreeDesigner,
   sampleVariableLeg,
   smoothClosedPath,
   type VariableLegAdjustmentKind,
+  type VariableLegAdjustmentFeasibility,
   type VariableLegCandidate,
   type VariableLegMode,
   type VariableLegProject,
@@ -51,6 +56,7 @@ import {
 } from "@/lib/variable-leg-gait";
 import { resampleClosedPath } from "@/lib/path-synthesis";
 import type { VariableLegSynthesisProgress } from "@/lib/variable-leg-synthesis";
+import type { VariableLegSynthesisScope } from "@/lib/variable-leg-synthesis";
 import { SvgViewportControls } from "./svg-viewport-controls";
 import { useSnapshotHistory } from "./use-snapshot-history";
 import { useSvgViewport } from "./use-svg-viewport";
@@ -66,6 +72,7 @@ type ViewMode = "mechanism" | "deployment";
 type WorkerResponse =
   | { type: "progress"; requestId: string; progress: VariableLegSynthesisProgress }
   | { type: "result"; requestId: string; candidates: VariableLegCandidate[] }
+  | { type: "feasibility-result"; requestId: string; feasibility: VariableLegAdjustmentFeasibility }
   | { type: "cancelled"; requestId: string }
   | { type: "error"; requestId: string; message: string };
 
@@ -94,6 +101,18 @@ function adjustmentName(kind: VariableLegAdjustmentKind) {
   return kind === "moving-pivot" ? "移动固定铰点" : "可锁止伸缩杆";
 }
 
+function barRoleName(role: "driver" | "adjustment" | "tracer-carrier" | "link") {
+  return { driver: "主动杆", adjustment: "调节对象", "tracer-carrier": "足端关联杆", link: "传动连杆" }[role];
+}
+
+function feasibilityProjectKey(project: VariableLegProject) {
+  return JSON.stringify({
+    baseProject: project.baseProject,
+    adjustment: project.adjustment,
+    modes: project.modes.map((mode) => ({ id: mode.id, adjustmentValue: mode.adjustmentValue })),
+  });
+}
+
 export function VariableGeometryLegLab() {
   const initialProject = useMemo(() => createDefaultVariableLegProject(), []);
   const history = useSnapshotHistory(initialProject, cloneVariableLegProject);
@@ -108,6 +127,10 @@ export function VariableGeometryLegLab() {
   const [drawingPoints, setDrawingPoints] = useState<Point[]>([]);
   const [message, setMessage] = useState("三个默认工况已就绪；调节值在每个周期内保持锁定。");
   const [searching, setSearching] = useState(false);
+  const [workerTask, setWorkerTask] = useState<"synthesis" | "feasibility">("synthesis");
+  const [feasibility, setFeasibility] = useState<VariableLegAdjustmentFeasibility | null>(null);
+  const [feasibilitySourceKey, setFeasibilitySourceKey] = useState<string | null>(null);
+  const [selectedBarId, setSelectedBarId] = useState<string | null>(null);
   const [searchProgress, setSearchProgress] = useState<VariableLegSynthesisProgress>({ progress: 0, stage: "scan", message: "等待开始" });
   const svgRef = useRef<SVGSVGElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -137,9 +160,28 @@ export function VariableGeometryLegLab() {
   const currentTracer = cycleSamples[sampleIndex]?.tracer ?? null;
   const currentJointMap = useMemo(() => new Map(currentFrame.joints.map((joint) => [joint.id, joint])), [currentFrame]);
   const activeStats = targetStats(activeMode);
+  const recommendedTelescopicIds = useMemo(
+    () => new Set(VARIABLE_LEG_OPTIONS[project.topology].telescopicBars.map((option) => option.id)),
+    [project.topology],
+  );
   const adjustableOptions = project.adjustment.kind === "moving-pivot"
     ? VARIABLE_LEG_OPTIONS[project.topology].movingPivots
-    : VARIABLE_LEG_OPTIONS[project.topology].telescopicBars;
+    : project.baseProject.bars
+      .filter((bar) => bar.id !== project.baseProject.driverId)
+      .map((bar) => ({ id: bar.id, label: `${bar.id} · ${bar.a}–${bar.b}${recommendedTelescopicIds.has(bar.id) ? "（推荐）" : "（实验对象）"}` }));
+  const selectedBar = project.baseProject.bars.find((bar) => bar.id === selectedBarId) ?? null;
+  const selectedBarMetrics = useMemo(
+    () => {
+      const metrics = selectedBarId ? analyzeVariableLegBarSamples(project.baseProject, project.adjustment, cycleSamples, selectedBarId) : null;
+      return metrics ? { ...metrics, peakAngularSpeedDegrees: metrics.peakAngularSpeedDegrees * activeMode.rpm / 60 } : null;
+    },
+    [activeMode.rpm, cycleSamples, project.adjustment, project.baseProject, selectedBarId],
+  );
+  const feasibilityKey = useMemo(
+    () => feasibilityProjectKey(project),
+    [project],
+  );
+  const visibleFeasibility = feasibilitySourceKey === feasibilityKey ? feasibility : null;
 
   const resetGaitTrail = useCallback(() => {
     bodyWorldXRef.current = 0;
@@ -155,10 +197,35 @@ export function VariableGeometryLegLab() {
 
   const stopMotion = useCallback(() => setPlaying(false), []);
 
+  const selectBarForInspection = useCallback((barId: string) => {
+    setSelectedBarId(barId);
+  }, []);
+
   useEffect(() => {
-    const saved = window.localStorage.getItem(STORAGE_KEY) ?? window.localStorage.getItem(LEGACY_STORAGE_KEY);
-    if (!saved) return;
     const timer = window.setTimeout(() => {
+      const transferValue = window.sessionStorage.getItem(TRANSFER_KEY);
+      if (transferValue) {
+        try {
+          const transfer = JSON.parse(transferValue) as unknown;
+          if (isVariableLegDesignerTransfer(transfer) && transfer.direction === "to-variable-leg") {
+            const returned = applyVariableLegDesignerReturn(transfer);
+            window.sessionStorage.removeItem(TRANSFER_KEY);
+            if (returned.validation.valid) {
+              resetHistory(returned.project);
+              setMotionPhase(returned.project.inputPhase || 0);
+              setMessage("已接收自由设计器修改；工况和整机部署已保留，旧候选已清空。");
+            } else {
+              setMessage(`设计器返回失败：${returned.validation.reasons.join("；")}`);
+            }
+            window.history.replaceState(null, "", "/variable-leg");
+            return;
+          }
+        } catch {
+          window.sessionStorage.removeItem(TRANSFER_KEY);
+        }
+      }
+      const saved = window.localStorage.getItem(STORAGE_KEY) ?? window.localStorage.getItem(LEGACY_STORAGE_KEY);
+      if (!saved) return;
       try {
         const parsed = JSON.parse(saved) as unknown;
         const migrated = migrateVariableLegProject(parsed);
@@ -265,15 +332,21 @@ export function VariableGeometryLegLab() {
 
   const changeTopology = (topology: VariableLegTopology) => {
     const kind = project.adjustment.kind;
-    updateProject((current) => ({
-      ...current,
-      topology,
-      baseProject: getVariableLegTemplate(topology),
-      adjustment: createDefaultAdjustment(topology, kind),
-      modes: current.modes.map((mode, index) => ({ ...mode, adjustmentValue: index === 0 ? 0 : index === 1 ? 28 : -22 })),
-      candidates: [],
-      selectedCandidateId: null,
-    }), `已切换为${topologyName(topology)}。`);
+    updateProject((current) => {
+      const adjustment = createDefaultAdjustment(topology, kind);
+      return {
+        ...current,
+        topology,
+        baseProject: getVariableLegTemplate(topology),
+        adjustment,
+        modes: current.modes.map((mode, index) => ({
+          ...mode,
+          adjustmentValue: adjustment.kind === "moving-pivot" ? (index === 0 ? 0 : index === 1 ? 28 : -22) : adjustment.baseLength,
+        })),
+        candidates: [],
+        selectedCandidateId: null,
+      };
+    }, `已切换为${topologyName(topology)}。`);
     viewport.resetView();
   };
 
@@ -437,7 +510,49 @@ export function VariableGeometryLegLab() {
     setMessage("已恢复克兰腿与三个默认工况。");
   };
 
-  const runSynthesis = () => {
+  const commitBarLength = (nextLength: number) => {
+    if (!selectedBar) return;
+    if (!Number.isFinite(nextLength) || nextLength <= 0) {
+      setMessage("杆长必须是大于 0 的有限数字，项目未被修改。");
+      return;
+    }
+    if (Math.abs(nextLength - selectedBar.length) < 1e-8) return;
+    const barId = selectedBar.id;
+    const delta = nextLength - selectedBar.length;
+    updateProject((current) => {
+      const bar = current.baseProject.bars.find((item) => item.id === barId);
+      if (!bar) return current;
+      const endpoints = new Set([bar.a, bar.b]);
+      current.baseProject.bars = current.baseProject.bars.map((item) => item.id === barId ? { ...item, length: nextLength } : item);
+      current.baseProject.dimensions = current.baseProject.dimensions.map((dimension) => (
+        dimension.type === "distance" && endpoints.has(dimension.a) && endpoints.has(dimension.b)
+          ? { ...dimension, value: nextLength }
+          : dimension
+      ));
+      if (current.adjustment.kind === "telescopic-bar" && current.adjustment.targetId === barId) {
+        current.adjustment = {
+          ...current.adjustment,
+          baseLength: nextLength,
+          minimum: current.adjustment.minimum + delta,
+          maximum: current.adjustment.maximum + delta,
+        };
+        current.modes = current.modes.map((mode) => ({ ...mode, adjustmentValue: mode.adjustmentValue + delta }));
+      }
+      current.candidates = [];
+      current.selectedCandidateId = null;
+      return current;
+    }, `已将 ${barId} 基础长度改为 ${nextLength.toFixed(2)} mm；旧候选已清空。`);
+    setFeasibility(null);
+  };
+
+  const restoreSelectedTemplateLength = () => {
+    if (!selectedBar) return;
+    const templateBar = getVariableLegTemplate(project.topology).bars.find((bar) => bar.id === selectedBar.id);
+    if (!templateBar) return;
+    commitBarLength(templateBar.length);
+  };
+
+  const runSynthesis = (scope: VariableLegSynthesisScope = "global") => {
     if (searching || project.modes.some((mode) => mode.targetPath.length < 12)) return;
     workerRef.current?.terminate();
     const worker = new Worker(new URL("../workers/variable-leg-synthesis.worker.ts", import.meta.url), { type: "module" });
@@ -445,8 +560,9 @@ export function VariableGeometryLegLab() {
     const requestId = `request-${Date.now()}`;
     requestIdRef.current = requestId;
     setSearching(true);
+    setWorkerTask("synthesis");
     setSearchProgress({ progress: 0, stage: "scan", message: "正在准备灵敏度扫描" });
-    setMessage("正在比较克兰、简森以及两类调节结构……");
+    setMessage(scope === "global" ? "正在比较克兰、简森以及两类调节结构……" : `正在精修 ${project.adjustment.targetId} 与各工况锁止值……`);
     worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
       const response = event.data;
       if (response.requestId !== requestIdRef.current) return;
@@ -474,10 +590,10 @@ export function VariableGeometryLegLab() {
           activeModeId: first.modes[0].id,
         });
         resetGaitTrail();
-        setMessage(`已生成 ${response.candidates.length} 套多工况候选，当前载入综合推荐。`);
+        setMessage(scope === "global" ? `已生成 ${response.candidates.length} 套多工况候选，当前载入综合推荐。` : "当前杆件精修完成，已载入结果。");
       } else if (response.type === "cancelled") {
         setMessage("自动综合已取消，当前机构和目标轨迹未改变。");
-      } else {
+      } else if (response.type === "error") {
         setMessage(response.message);
       }
     };
@@ -487,7 +603,52 @@ export function VariableGeometryLegLab() {
       workerRef.current = null;
       setMessage("综合 Worker 运行失败，请刷新后重试。");
     };
-    worker.postMessage({ type: "start", requestId, project: cloneVariableLegProject(project) });
+    worker.postMessage({ type: "start", requestId, project: cloneVariableLegProject(project), scope });
+  };
+
+  const checkFeasibleRange = () => {
+    if (searching) return;
+    workerRef.current?.terminate();
+    const worker = new Worker(new URL("../workers/variable-leg-synthesis.worker.ts", import.meta.url), { type: "module" });
+    workerRef.current = worker;
+    const requestId = `feasibility-${Date.now()}`;
+    requestIdRef.current = requestId;
+    const scannedKey = feasibilityKey;
+    setSearching(true);
+    setWorkerTask("feasibility");
+    setSearchProgress({ progress: 0, stage: "scan", message: "正在扫描 41 个调节值 × 全部工况 36 相位" });
+    setMessage("正在检查整周可解、分支连续、闭环误差与 5° 最小夹角……");
+    worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
+      const response = event.data;
+      if (response.requestId !== requestIdRef.current) return;
+      setSearching(false);
+      worker.terminate();
+      workerRef.current = null;
+      if (response.type === "feasibility-result") {
+        if (scannedKey === feasibilityProjectKey(projectRef.current)) {
+          setFeasibility(response.feasibility);
+          setFeasibilitySourceKey(scannedKey);
+        }
+        setMessage(response.feasibility.recommendedInterval ? "可行范围检查完成，已找到包含当前锁止值的推荐区间。" : "检查完成，但当前锁止值不在任何连续可行区间内。");
+      } else if (response.type === "error") setMessage(response.message);
+    };
+    worker.onerror = () => {
+      setSearching(false);
+      worker.terminate();
+      workerRef.current = null;
+      setMessage("可行范围 Worker 运行失败，请刷新后重试。");
+    };
+    worker.postMessage({ type: "feasibility", requestId, project: cloneVariableLegProject(project) });
+  };
+
+  const applyRecommendedRange = () => {
+    if (!visibleFeasibility?.recommendedInterval) return;
+    const result = applyVariableLegRecommendedRange(projectRef.current, visibleFeasibility);
+    commit(result.project);
+    setFeasibility(null);
+    setFeasibilitySourceKey(null);
+    const names = result.clampedModeIds.map((id) => project.modes.find((mode) => mode.id === id)?.name ?? id);
+    setMessage(names.length ? `已应用推荐范围；${names.join("、")}的锁止值已吸附到最近边界。` : "已应用推荐范围；所有工况锁止值均无需调整。");
   };
 
   const cancelSynthesis = () => {
@@ -538,8 +699,8 @@ export function VariableGeometryLegLab() {
   };
 
   const openInDesigner = () => {
-    const freeProject = projectForFreeDesigner(project);
-    window.sessionStorage.setItem(TRANSFER_KEY, JSON.stringify(freeProject));
+    const transfer = createVariableLegDesignerTransfer(project);
+    window.sessionStorage.setItem(TRANSFER_KEY, JSON.stringify(transfer));
     window.location.href = "/designer?transfer=variable-leg";
   };
 
@@ -585,7 +746,7 @@ export function VariableGeometryLegLab() {
         <Link className={styles.brand} href="/"><span className={styles.brandMark} />OpenLinkage</Link>
         <nav>
           <Link href="/lab">四杆设计</Link><Link href="/leg">六杆腿</Link><Link href="/straight-line">直线机构</Link><Link href="/designer">自由设计</Link>
-          <span>可变几何步行腿 · 0.2</span>
+          <span>可变几何步行腿 · 0.3</span>
         </nav>
       </header>
 
@@ -622,6 +783,31 @@ export function VariableGeometryLegLab() {
             <div className={styles.rangePair}>
               <label>最小值<input type="number" value={Number(project.adjustment.minimum.toFixed(1))} onChange={(event) => updateProject((current) => ({ ...current, adjustment: { ...current.adjustment, minimum: Number(event.target.value) }, candidates: [] }))} /></label>
               <label>最大值<input type="number" value={Number(project.adjustment.maximum.toFixed(1))} onChange={(event) => updateProject((current) => ({ ...current, adjustment: { ...current.adjustment, maximum: Number(event.target.value) }, candidates: [] }))} /></label>
+            </div>
+            <div className={styles.feasibilityBox}>
+              <div className={styles.feasibilityActions}>
+                <button type="button" onClick={checkFeasibleRange} disabled={searching}>检查可行范围</button>
+                <button type="button" onClick={applyRecommendedRange} disabled={!visibleFeasibility?.recommendedInterval}>应用推荐范围</button>
+              </div>
+              {visibleFeasibility ? <>
+                <div className={styles.feasibilityTrack} aria-label="调节可行范围">
+                  {visibleFeasibility.samples.map((sample) => <i key={sample.value} className={sample.feasible ? styles.feasibleCell : styles.infeasibleCell} title={`${sample.value.toFixed(1)}：${sample.feasible ? "可行" : `不可行（${sample.failedModeIds.join("、")}）`}`} />)}
+                  <span
+                    className={styles.baseRangeMarker}
+                    title={`基础值 ${project.adjustment.kind === "telescopic-bar" ? project.adjustment.baseLength.toFixed(1) : "0.0"}`}
+                    style={{ left: `${Math.max(0, Math.min(100, ((project.adjustment.kind === "telescopic-bar" ? project.adjustment.baseLength : 0) - visibleFeasibility.minimum) / Math.max(1e-9, visibleFeasibility.maximum - visibleFeasibility.minimum) * 100))}%` }}
+                  />
+                  {project.modes.map((mode) => <span
+                    key={mode.id}
+                    className={styles.modeRangeMarker}
+                    title={`${mode.name} ${mode.adjustmentValue.toFixed(1)}`}
+                    style={{ left: `${Math.max(0, Math.min(100, (mode.adjustmentValue - visibleFeasibility.minimum) / Math.max(1e-9, visibleFeasibility.maximum - visibleFeasibility.minimum) * 100))}%`, background: mode.color }}
+                  />)}
+                </div>
+                <small>{visibleFeasibility.recommendedInterval
+                  ? `推荐 ${visibleFeasibility.recommendedInterval.minimum.toFixed(1)} – ${visibleFeasibility.recommendedInterval.maximum.toFixed(1)}`
+                  : "当前锁止值不在连续可行区间内"}</small>
+              </> : <small>扫描 41 个调节值；每个值检查全部工况的 36 个相位。</small>}
             </div>
           </section>
 
@@ -692,8 +878,9 @@ export function VariableGeometryLegLab() {
           </section>
 
           <section className={styles.searchBox}>
-            <button className={styles.primaryButton} type="button" onClick={runSynthesis} disabled={searching}>{searching ? `${Math.round(searchProgress.progress * 100)}% · ${searchProgress.stage}` : "自动综合 5 套方案"}</button>
-            {searching && <button className={styles.cancelButton} type="button" onClick={cancelSynthesis}>取消搜索</button>}
+            <button className={styles.primaryButton} type="button" onClick={() => runSynthesis("global")} disabled={searching}>{searching && workerTask === "synthesis" ? `${Math.round(searchProgress.progress * 100)}% · ${searchProgress.stage}` : "自动综合 5 套方案"}</button>
+            <button type="button" onClick={() => runSynthesis("current-target")} disabled={searching}>精修当前杆件</button>
+            {searching && workerTask === "synthesis" && <button className={styles.cancelButton} type="button" onClick={cancelSynthesis}>取消搜索</button>}
             <div className={styles.progress}><i style={{ width: `${searchProgress.progress * 100}%` }} /></div>
             <small>{searching ? searchProgress.message : message}</small>
           </section>
@@ -773,7 +960,11 @@ export function VariableGeometryLegLab() {
                 const b = currentJointMap.get(bar.b);
                 if (!a || !b) return null;
                 const adjustable = project.adjustment.kind === "telescopic-bar" && bar.id === project.adjustment.targetId;
-                return <line key={bar.id} x1={a.x} y1={a.y} x2={b.x} y2={b.y} className={`${styles.link} ${bar.id === currentFrame.driverId ? styles.driver : ""} ${adjustable ? styles.telescopic : ""}`} />;
+                const selected = bar.id === selectedBarId;
+                return <g key={bar.id} role="button" tabIndex={0} aria-label={`检查杆件 ${bar.id}`} className={styles.selectableBar} onPointerDown={(event) => { event.stopPropagation(); selectBarForInspection(bar.id); setCanvasMode("inspect"); }} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); selectBarForInspection(bar.id); setCanvasMode("inspect"); } }}>
+                  <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} className={styles.barHitArea} />
+                  <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} className={`${styles.link} ${bar.id === currentFrame.driverId ? styles.driver : ""} ${adjustable ? styles.telescopic : ""} ${selected ? styles.selectedBar : ""}`} />
+                </g>;
                 })}
                 {currentFrame.joints.map((joint) => <g key={joint.id} className={joint.fixed ? styles.fixedJoint : styles.movingJoint}><circle cx={joint.x} cy={joint.y} r="9" /><circle cx={joint.x} cy={joint.y} r="3" /><text x={joint.x + 10} y={joint.y - 10}>{joint.id}</text></g>)}
                 {currentTracer && <circle cx={currentTracer.x} cy={currentTracer.y} r="11" className={styles.foot} />}
@@ -789,6 +980,8 @@ export function VariableGeometryLegLab() {
                 phase={phase}
                 bodyWorldX={bodyWorldX}
                 footprints={footprints}
+                selectedBarId={selectedBarId}
+                onSelectBar={selectBarForInspection}
               />}
             </svg>
             {searching && <div className={styles.searchOverlay}><strong>{Math.round(searchProgress.progress * 100)}%</strong><span>{searchProgress.message}</span></div>}
@@ -830,6 +1023,36 @@ export function VariableGeometryLegLab() {
               <div><span>支撑相滑移</span><strong>{gaitMetrics.stanceSlip.toFixed(2)}<small>mm RMS</small></strong></div>
             </div>
           </>}
+
+          <div className={styles.analysisSectionTitle}><span>杆件检查</span><b>{selectedBar?.id ?? "点击画布杆件"}</b></div>
+          {selectedBar && selectedBarMetrics ? <div className={styles.barInspector}>
+            <div className={styles.barIdentity}>
+              <span><b>{selectedBar.id}</b><small>{selectedBar.a} → {selectedBar.b}</small></span>
+              <em>{barRoleName(selectedBarMetrics.role)}{project.adjustment.targetId === selectedBar.id ? " · 当前调节对象" : ""}</em>
+            </div>
+            <label>基础杆长
+              <span className={styles.barLengthEditor}>
+                <input
+                  aria-label={`${selectedBar.id}基础杆长`}
+                  inputMode="decimal"
+                  key={`${selectedBar.id}-${selectedBar.length}`}
+                  defaultValue={String(Number(selectedBar.length.toFixed(4)))}
+                  onBlur={(event) => { const value = Number(event.currentTarget.value); commitBarLength(value); if (!Number.isFinite(value) || value <= 0) event.currentTarget.value = String(Number(selectedBar.length.toFixed(4))); }}
+                  onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") event.currentTarget.value = String(Number(selectedBar.length.toFixed(4))); }}
+                />
+                <i>mm</i>
+              </span>
+            </label>
+            <button type="button" onClick={restoreSelectedTemplateLength}>恢复模板长度</button>
+            <div className={styles.barMetricGrid}>
+              <span>当前有效长度<b>{selectedBarMetrics.effectiveLength.toFixed(2)} mm</b></span>
+              <span>整周转角范围<b>{selectedBarMetrics.angleRangeDegrees.toFixed(1)}°</b></span>
+              <span>峰值角速度<b>{selectedBarMetrics.peakAngularSpeedDegrees.toFixed(0)} °/s</b></span>
+              <span>最大约束残差<b>{selectedBarMetrics.maxConstraintResidual.toFixed(3)} mm</b></span>
+              <span>相邻铰点最小夹角<b>{selectedBarMetrics.minimumJointAngle.toFixed(1)}°</b></span>
+              <span>不可达相位<b>{selectedBarMetrics.invalidPhases.length ? selectedBarMetrics.invalidPhases.map((value) => `${Math.round(value * 180 / Math.PI)}°`).join("、") : "无"}</b></span>
+            </div>
+          </div> : <div className={styles.emptyState}><b>尚未选择杆件</b><p>在单腿或整机画布中点击任意杆件，同编号杆件会同步高亮并显示整周检查结果。</p></div>}
 
           <div className={styles.analysisSectionTitle}><span>单腿机构</span><b>{activeMode.name}</b></div>
           <div className={styles.modeSummary}>

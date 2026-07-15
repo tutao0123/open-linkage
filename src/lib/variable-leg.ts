@@ -106,6 +106,53 @@ export type VariableLegSample = {
   singularityMargin: number;
 };
 
+export type VariableLegBarRole = "driver" | "adjustment" | "tracer-carrier" | "link";
+
+export type VariableLegBarMetrics = {
+  barId: string;
+  endpointA: string;
+  endpointB: string;
+  role: VariableLegBarRole;
+  baseLength: number;
+  effectiveLength: number;
+  angleRangeDegrees: number;
+  peakAngularSpeedDegrees: number;
+  maxConstraintResidual: number;
+  minimumJointAngle: number;
+  invalidPhases: number[];
+};
+
+export type VariableLegAdjustmentFeasibilitySample = {
+  value: number;
+  feasible: boolean;
+  failedModeIds: string[];
+};
+
+export type VariableLegFeasibleInterval = {
+  minimum: number;
+  maximum: number;
+};
+
+export type VariableLegAdjustmentFeasibility = {
+  minimum: number;
+  maximum: number;
+  samples: VariableLegAdjustmentFeasibilitySample[];
+  intervals: VariableLegFeasibleInterval[];
+  recommendedInterval: VariableLegFeasibleInterval | null;
+};
+
+export type VariableLegDesignerTransfer = {
+  version: 1;
+  direction: "to-designer" | "to-variable-leg";
+  variableProject: VariableLegProject;
+  editableProject: FreeMechanismProject;
+};
+
+export type VariableLegDesignerValidation = {
+  valid: boolean;
+  reasons: string[];
+};
+
 export const VARIABLE_LEG_MODE_COLORS = ["#287fa8", "#d4663b", "#7b68b4", "#2f8f61", "#b38726", "#c34f83"] as const;
 
 export const VARIABLE_LEG_OPTIONS: Record<VariableLegTopology, {
@@ -355,6 +402,11 @@ function branchSignature(project: FreeMechanismProject) {
   return Math.sign((second.x - first.x) * (tracer.y - first.y) - (second.y - first.y) * (tracer.x - first.x));
 }
 
+function variableLegConstraintTolerance(project: FreeMechanismProject) {
+  const longestBar = Math.max(1, ...project.bars.map((bar) => bar.length));
+  return Math.max(0.75, longestBar * 0.025);
+}
+
 export function sampleVariableLeg(
   baseProject: FreeMechanismProject,
   adjustment: VariableLegAdjustment,
@@ -424,8 +476,7 @@ export function analyzeVariableLegMode(
   // The generic constraint solver reports a summed positional residual rather
   // than a normalized per-joint error. Scale the acceptance threshold with the
   // mechanism so the same project behaves consistently in mm-sized templates.
-  const longestBar = Math.max(1, ...baseProject.bars.map((bar) => bar.length));
-  const constraintTolerance = Math.max(0.75, longestBar * 0.025);
+  const constraintTolerance = variableLegConstraintTolerance(baseProject);
   const validSamples = samples.filter(
     (sample) => sample.tracer && Number.isFinite(sample.error) && sample.error <= constraintTolerance,
   );
@@ -480,6 +531,195 @@ export function analyzeVariableLegMode(
     targetPhaseOffset: path.length ? match.shift / path.length : 0,
     path,
   };
+}
+
+function angularDeltaDegrees(next: number, previous: number) {
+  return ((next - previous + 540) % 360) - 180;
+}
+
+function selectedBarJointAngle(project: FreeMechanismProject, barId: string) {
+  const bar = project.bars.find((item) => item.id === barId);
+  if (!bar) return 0;
+  const joints = new Map(project.joints.map((joint) => [joint.id, joint]));
+  let minimum = 180;
+  for (const endpointId of [bar.a, bar.b]) {
+    const endpoint = joints.get(endpointId);
+    const opposite = joints.get(endpointId === bar.a ? bar.b : bar.a);
+    if (!endpoint || !opposite) continue;
+    const adjacentIds = project.bars
+      .filter((item) => item.id !== barId && (item.a === endpointId || item.b === endpointId))
+      .map((item) => item.a === endpointId ? item.b : item.a);
+    const bodyAdjacentIds = project.bodies.flatMap((body) => body.pairs
+      .filter((pair) => pair.a === endpointId || pair.b === endpointId)
+      .map((pair) => pair.a === endpointId ? pair.b : pair.a));
+    for (const adjacentId of [...new Set([...adjacentIds, ...bodyAdjacentIds])]) {
+      if (adjacentId === opposite.id) continue;
+      const adjacent = joints.get(adjacentId);
+      if (!adjacent) continue;
+      const ax = opposite.x - endpoint.x;
+      const ay = opposite.y - endpoint.y;
+      const bx = adjacent.x - endpoint.x;
+      const by = adjacent.y - endpoint.y;
+      const denominator = Math.hypot(ax, ay) * Math.hypot(bx, by);
+      if (denominator < 1e-6) return 0;
+      const angle = Math.acos(clamp((ax * bx + ay * by) / denominator, -1, 1)) * 180 / Math.PI;
+      minimum = Math.min(minimum, angle, 180 - angle);
+    }
+  }
+  return minimum === 180 ? 90 : minimum;
+}
+
+export function analyzeVariableLegBarSamples(
+  baseProject: FreeMechanismProject,
+  adjustment: VariableLegAdjustment,
+  samples: VariableLegSample[],
+  barId: string,
+): VariableLegBarMetrics | null {
+  const baseBar = baseProject.bars.find((bar) => bar.id === barId);
+  if (!baseBar) return null;
+  const activeTracer = baseProject.tracers.find((tracer) => tracer.id === baseProject.activeTracerId);
+  const angles: number[] = [];
+  const invalidPhases: number[] = [];
+  let maximumResidual = 0;
+  let minimumJointAngle = 90;
+  let effectiveLength = baseBar.length;
+  for (const sample of samples) {
+    const bar = sample.project.bars.find((item) => item.id === barId);
+    const first = sample.project.joints.find((joint) => joint.id === bar?.a);
+    const second = sample.project.joints.find((joint) => joint.id === bar?.b);
+    if (!bar || !first || !second || !Number.isFinite(sample.error)) {
+      invalidPhases.push(sample.phase);
+      continue;
+    }
+    angles.push(Math.atan2(second.y - first.y, second.x - first.x) * 180 / Math.PI);
+    effectiveLength = bar.length;
+    maximumResidual = Math.max(maximumResidual, sample.error);
+    minimumJointAngle = Math.min(minimumJointAngle, selectedBarJointAngle(sample.project, barId));
+    if (!sample.tracer || sample.error > variableLegConstraintTolerance(baseProject)) invalidPhases.push(sample.phase);
+  }
+  const unwrapped: number[] = [];
+  for (const angle of angles) {
+    const previous = unwrapped.at(-1);
+    unwrapped.push(previous === undefined ? angle : previous + angularDeltaDegrees(angle, previous));
+  }
+  const circularDeltas = unwrapped.length > 1
+    ? unwrapped.map((angle, index) => Math.abs(angularDeltaDegrees(unwrapped[(index + 1) % unwrapped.length], angle)))
+    : [0];
+  const tracerCarrier = activeTracer?.kind === "bar" && activeTracer.barId === barId
+    || activeTracer?.kind === "joint" && (activeTracer.jointId === baseBar.a || activeTracer.jointId === baseBar.b);
+  return {
+    barId,
+    endpointA: baseBar.a,
+    endpointB: baseBar.b,
+    role: baseProject.driverId === barId
+      ? "driver"
+      : adjustment.targetId === barId
+        ? "adjustment"
+        : tracerCarrier
+          ? "tracer-carrier"
+          : "link",
+    baseLength: baseBar.length,
+    effectiveLength,
+    angleRangeDegrees: unwrapped.length ? Math.max(...unwrapped) - Math.min(...unwrapped) : 0,
+    peakAngularSpeedDegrees: Math.max(0, ...circularDeltas) * samples.length,
+    maxConstraintResidual: maximumResidual,
+    minimumJointAngle,
+    invalidPhases,
+  };
+}
+
+export function analyzeVariableLegBar(
+  project: VariableLegProject,
+  mode: VariableLegMode,
+  barId: string,
+  sampleCount = 72,
+  iterations = 90,
+) {
+  const samples = sampleVariableLeg(project.baseProject, project.adjustment, mode.adjustmentValue, sampleCount, iterations);
+  return analyzeVariableLegBarSamples(project.baseProject, project.adjustment, samples, barId);
+}
+
+export function buildVariableLegFeasibleIntervals(
+  samples: VariableLegAdjustmentFeasibilitySample[],
+  activeValue: number,
+) {
+  const intervals: VariableLegFeasibleInterval[] = [];
+  let start: number | null = null;
+  for (let index = 0; index <= samples.length; index += 1) {
+    const sample = samples[index];
+    if (sample?.feasible && start === null) start = sample.value;
+    if ((!sample?.feasible || index === samples.length) && start !== null) {
+      intervals.push({ minimum: start, maximum: samples[index - 1].value });
+      start = null;
+    }
+  }
+  const containing = intervals.filter((interval) => activeValue >= interval.minimum - 1e-6 && activeValue <= interval.maximum + 1e-6);
+  return {
+    intervals,
+    recommendedInterval: containing.sort((first, second) => (second.maximum - second.minimum) - (first.maximum - first.minimum))[0] ?? null,
+  };
+}
+
+export function scanVariableLegAdjustmentFeasibility(
+  project: VariableLegProject,
+  valueSamples = 41,
+  phaseSamples = 36,
+  iterations = 70,
+): VariableLegAdjustmentFeasibility {
+  const count = Math.max(2, valueSamples);
+  const samples: VariableLegAdjustmentFeasibilitySample[] = [];
+  for (let index = 0; index < count; index += 1) {
+    const value = project.adjustment.minimum
+      + (project.adjustment.maximum - project.adjustment.minimum) * index / (count - 1);
+    const failedModeIds: string[] = [];
+    for (const mode of project.modes) {
+      const metric = analyzeVariableLegMode(
+        project.baseProject,
+        project.adjustment,
+        { ...mode, adjustmentValue: value },
+        phaseSamples,
+        iterations,
+      );
+      const closureTolerance = Math.max(2, Math.max(1, ...project.baseProject.bars.map((bar) => bar.length)) * 0.08);
+      if (metric.validRatio < 0.999
+        || metric.branchSwitches > 0
+        || metric.maxConstraintError > variableLegConstraintTolerance(project.baseProject)
+        || metric.closureError > closureTolerance
+        || metric.singularityMargin < 5) failedModeIds.push(mode.id);
+    }
+    samples.push({ value, feasible: failedModeIds.length === 0, failedModeIds });
+  }
+  const activeValue = project.modes.find((mode) => mode.id === project.activeModeId)?.adjustmentValue
+    ?? project.modes[0]?.adjustmentValue
+    ?? 0;
+  const { intervals, recommendedInterval } = buildVariableLegFeasibleIntervals(samples, activeValue);
+  return {
+    minimum: project.adjustment.minimum,
+    maximum: project.adjustment.maximum,
+    samples,
+    intervals,
+    recommendedInterval,
+  };
+}
+
+export function applyVariableLegRecommendedRange(
+  source: VariableLegProject,
+  feasibility: VariableLegAdjustmentFeasibility,
+) {
+  const interval = feasibility.recommendedInterval;
+  if (!interval) return { project: cloneVariableLegProject(source), clampedModeIds: [] as string[] };
+  const project = cloneVariableLegProject(source);
+  project.adjustment.minimum = interval.minimum;
+  project.adjustment.maximum = interval.maximum;
+  const clampedModeIds: string[] = [];
+  project.modes = project.modes.map((mode) => {
+    const adjustmentValue = clamp(mode.adjustmentValue, interval.minimum, interval.maximum);
+    if (Math.abs(adjustmentValue - mode.adjustmentValue) > 1e-8) clampedModeIds.push(mode.id);
+    return { ...mode, adjustmentValue };
+  });
+  project.candidates = [];
+  project.selectedCandidateId = null;
+  return { project, clampedModeIds };
 }
 
 export function variableLegModeCost(metric: VariableLegModeMetrics, mode: VariableLegMode) {
@@ -577,6 +817,91 @@ export function migrateVariableLegProject(value: unknown): VariableLegProject | 
 }
 
 export function projectForFreeDesigner(project: VariableLegProject) {
-  const mode = project.modes.find((item) => item.id === project.activeModeId) ?? project.modes[0];
-  return materializeVariableLegMode(project.baseProject, project.adjustment, mode.adjustmentValue);
+  return cloneProject(project.baseProject);
+}
+
+function sameIds(first: string[], second: string[]) {
+  return first.length === second.length && [...first].sort().every((id, index) => id === [...second].sort()[index]);
+}
+
+export function createVariableLegDesignerTransfer(project: VariableLegProject): VariableLegDesignerTransfer {
+  const variableProject = cloneVariableLegProject(project);
+  variableProject.candidates = [];
+  variableProject.selectedCandidateId = null;
+  return {
+    version: 1,
+    direction: "to-designer",
+    variableProject,
+    editableProject: projectForFreeDesigner(project),
+  };
+}
+
+export function isVariableLegDesignerTransfer(value: unknown): value is VariableLegDesignerTransfer {
+  if (!value || typeof value !== "object") return false;
+  const transfer = value as Partial<VariableLegDesignerTransfer>;
+  return transfer.version === 1
+    && (transfer.direction === "to-designer" || transfer.direction === "to-variable-leg")
+    && isVariableLegProject(transfer.variableProject)
+    && Boolean(transfer.editableProject
+      && Array.isArray(transfer.editableProject.joints)
+      && Array.isArray(transfer.editableProject.bars)
+      && Array.isArray(transfer.editableProject.bodies)
+      && Array.isArray(transfer.editableProject.tracers));
+}
+
+export function validateVariableLegDesignerProject(
+  source: FreeMechanismProject,
+  edited: FreeMechanismProject,
+): VariableLegDesignerValidation {
+  const reasons: string[] = [];
+  if (!sameIds(source.joints.map((item) => item.id), edited.joints.map((item) => item.id))) reasons.push("铰点被删除、增加或改名");
+  if (!sameIds(source.bars.map((item) => item.id), edited.bars.map((item) => item.id))) reasons.push("杆件被删除、增加或改名");
+  if (!sameIds(source.bodies.map((item) => item.id), edited.bodies.map((item) => item.id))) reasons.push("刚体被删除、增加或改名");
+  if (!sameIds(source.tracers.map((item) => item.id), edited.tracers.map((item) => item.id))) reasons.push("轨迹点被删除、增加或改名");
+  if (source.driverId !== edited.driverId || source.driverMode !== edited.driverMode) reasons.push("主动杆或驱动方式已改变");
+  if (source.activeTracerId !== edited.activeTracerId) reasons.push("活动轨迹点已改变");
+  for (const bar of source.bars) {
+    const next = edited.bars.find((item) => item.id === bar.id);
+    if (next && (next.a !== bar.a || next.b !== bar.b)) reasons.push(`杆件 ${bar.id} 的连接关系已改变`);
+  }
+  for (const body of source.bodies) {
+    const next = edited.bodies.find((item) => item.id === body.id);
+    const pairKeys = body.pairs.map((pair) => [pair.a, pair.b].sort().join("–"));
+    const nextPairKeys = next?.pairs.map((pair) => [pair.a, pair.b].sort().join("–")) ?? [];
+    if (next && (!sameIds(body.jointIds, next.jointIds) || !sameIds(pairKeys, nextPairKeys))) reasons.push(`刚体 ${body.id} 的连接关系已改变`);
+  }
+  for (const tracer of source.tracers) {
+    const next = edited.tracers.find((item) => item.id === tracer.id);
+    if (!next || next.kind !== tracer.kind) continue;
+    if (tracer.kind === "joint" && next.kind === "joint" && tracer.jointId !== next.jointId) reasons.push(`轨迹点 ${tracer.id} 的所属铰点已改变`);
+    if (tracer.kind === "bar" && next.kind === "bar" && tracer.barId !== next.barId) reasons.push(`轨迹点 ${tracer.id} 的所属杆件已改变`);
+    if (tracer.kind === "body" && next.kind === "body" && tracer.bodyId !== next.bodyId) reasons.push(`轨迹点 ${tracer.id} 的所属刚体已改变`);
+  }
+  return { valid: reasons.length === 0, reasons: [...new Set(reasons)] };
+}
+
+export function applyVariableLegDesignerReturn(transfer: VariableLegDesignerTransfer) {
+  const source = transfer.variableProject;
+  const validation = validateVariableLegDesignerProject(source.baseProject, transfer.editableProject);
+  if (!validation.valid) return { project: cloneVariableLegProject(source), validation };
+  const project = cloneVariableLegProject(source);
+  const previousBar = source.baseProject.bars.find((bar) => bar.id === source.adjustment.targetId);
+  const nextBar = transfer.editableProject.bars.find((bar) => bar.id === source.adjustment.targetId);
+  const nextJoint = transfer.editableProject.joints.find((joint) => joint.id === source.adjustment.targetId);
+  project.baseProject = cloneProject(transfer.editableProject);
+  if (project.adjustment.kind === "telescopic-bar" && previousBar && nextBar) {
+    const delta = nextBar.length - previousBar.length;
+    project.adjustment = {
+      ...project.adjustment,
+      baseLength: nextBar.length,
+      minimum: project.adjustment.minimum + delta,
+      maximum: project.adjustment.maximum + delta,
+    };
+    project.modes = project.modes.map((mode) => ({ ...mode, adjustmentValue: mode.adjustmentValue + delta }));
+  } else if (project.adjustment.kind === "moving-pivot" && nextJoint) {
+    project.adjustment = { ...project.adjustment, baseX: nextJoint.x, baseY: nextJoint.y };
+  }
+  project.candidates = [];
+  project.selectedCandidateId = null;
+  return { project, validation };
 }

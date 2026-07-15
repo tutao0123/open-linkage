@@ -20,6 +20,8 @@ type VariableLegDeploymentViewProps = {
   phase: number;
   bodyWorldX: number;
   footprints: VariableLegFootprint[];
+  selectedBarId: string | null;
+  onSelectBar: (barId: string) => void;
 };
 
 export function VariableLegDeploymentView({
@@ -30,6 +32,8 @@ export function VariableLegDeploymentView({
   phase,
   bodyWorldX,
   footprints,
+  selectedBarId,
+  onSelectBar,
 }: VariableLegDeploymentViewProps) {
   const visualScale = ({ 2: 0.82, 4: 0.72, 6: 0.63, 8: 0.56 } as const)[deployment.legCount];
   const anchor = useMemo(() => {
@@ -99,7 +103,10 @@ export function VariableLegDeploymentView({
           const a = jointMap.get(bar.a);
           const b = jointMap.get(bar.b);
           if (!a || !b) return null;
-          return <line key={bar.id} x1={a.x} y1={a.y} x2={b.x} y2={b.y} className={`${styles.deployedLink} ${bar.id === sample.project.driverId ? styles.deployedDriver : ""}`} />;
+          return <g key={bar.id} role="button" tabIndex={0} aria-label={`检查${leg.label}杆件 ${bar.id}`} className={styles.selectableBar} onPointerDown={(event) => { event.stopPropagation(); onSelectBar(bar.id); }} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelectBar(bar.id); } }}>
+            <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} className={styles.barHitArea} />
+            <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} className={`${styles.deployedLink} ${bar.id === sample.project.driverId ? styles.deployedDriver : ""} ${bar.id === selectedBarId ? styles.selectedBar : ""}`} />
+          </g>;
         })}
         {sample.project.joints.map((joint) => <g key={joint.id} className={styles.deployedJoint}>
           <circle cx={joint.x} cy={joint.y} r={joint.fixed ? 7 : 6} />

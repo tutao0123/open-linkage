@@ -71,6 +71,11 @@ export type VariableLegModeMetrics = {
   path: Point[];
 };
 
+export type VariableLegCandidateQuality = {
+  level: "usable" | "continuous" | "invalid";
+  issues: string[];
+};
+
 export type VariableLegCandidate = {
   id: string;
   label: string;
@@ -246,6 +251,32 @@ export function measureGaitClearance(path: Point[], stanceStart: number, stanceE
   return measureClearance(path, stanceStart, stanceEnd).clearance;
 }
 
+export function assessVariableLegCandidate(
+  metrics: VariableLegModeMetrics[],
+  modes: VariableLegMode[],
+): VariableLegCandidateQuality {
+  const issues: string[] = [];
+  const continuous = metrics.length > 0 && metrics.every((metric) => (
+    metric.validRatio >= 0.99
+    && metric.branchSwitches === 0
+    && Number.isFinite(metric.closureError)
+  ));
+  if (!continuous) {
+    return { level: "invalid", issues: ["存在不可达相位或装配分支跳变"] };
+  }
+  for (const metric of metrics) {
+    const mode = modes.find((item) => item.id === metric.modeId);
+    if (!mode) continue;
+    const xs = mode.targetPath.map((point) => point.x);
+    const targetStep = xs.length ? Math.max(...xs) - Math.min(...xs) : 0;
+    const targetLift = measureGaitClearance(mode.targetPath, mode.stanceStart, mode.stanceEnd);
+    if (metric.stepLength < Math.max(40, targetStep * 0.55)) issues.push(`${mode.name}步幅不足`);
+    if (metric.liftHeight < Math.max(10, targetLift * 0.45)) issues.push(`${mode.name}抬脚不足`);
+    if (metric.stanceStraightness > Math.max(35, targetStep * 0.16)) issues.push(`${mode.name}支撑段起伏偏大`);
+  }
+  return { level: issues.length ? "continuous" : "usable", issues: [...new Set(issues)] };
+}
+
 function cloneMode(mode: VariableLegMode): VariableLegMode {
   return { ...mode, targetPath: mode.targetPath.map((point) => ({ ...point })) };
 }
@@ -354,7 +385,15 @@ export function createDefaultAdjustment(topology: VariableLegTopology, kind: Var
   if (kind === "moving-pivot") {
     const targetId = VARIABLE_LEG_OPTIONS[topology].movingPivots[0].id;
     const joint = template.joints.find((item) => item.id === targetId)!;
-    return { kind, targetId, baseX: joint.x, baseY: joint.y, railAngle: -20, minimum: -45, maximum: 45 };
+    return {
+      kind,
+      targetId,
+      baseX: joint.x,
+      baseY: joint.y,
+      railAngle: topology === "klann" ? -45 : -20,
+      minimum: -45,
+      maximum: 45,
+    };
   }
   const targetId = VARIABLE_LEG_OPTIONS[topology].telescopicBars[0].id;
   const bar = template.bars.find((item) => item.id === targetId)!;
@@ -664,6 +703,23 @@ function variableLegConstraintTolerance(project: FreeMechanismProject) {
   return Math.max(0.75, longestBar * 0.025);
 }
 
+function variableLegPhaseDirection(project: FreeMechanismProject) {
+  const tracer = project.tracers.find((item) => item.id === project.activeTracerId);
+  // The standard Klann template is conventionally driven clockwise. The
+  // generic mechanism solver uses increasing angles counter-clockwise, which
+  // used to turn the long, nearly-flat return segment into the reported
+  // "stance" and made otherwise valid Klann candidates appear to have no
+  // lift. Keep the direction derived from the topology itself so edited Klann
+  // projects retain the same walking convention without adding file-format
+  // state.
+  return tracer?.kind === "joint"
+    && tracer.jointId === "J6"
+    && project.bodies.some((body) => body.id === "B1")
+    && project.bodies.some((body) => body.id === "B2")
+    ? -1
+    : 1;
+}
+
 export function sampleVariableLeg(
   baseProject: FreeMechanismProject,
   adjustment: VariableLegAdjustment,
@@ -675,8 +731,9 @@ export function sampleVariableLeg(
   let state = materializeVariableLegMode(baseProject, adjustment, value);
   let previousJoints: typeof state.joints | null = null;
   const samples: VariableLegSample[] = [];
+  const phaseDirection = variableLegPhaseDirection(baseProject);
   for (let index = 0; index < sampleCount; index += 1) {
-    const phase = startPhase + index * Math.PI * 2 / sampleCount;
+    const phase = startPhase + phaseDirection * index * Math.PI * 2 / sampleCount;
     const seeded = previousJoints ? { ...state, joints: predictJointPositions(state.joints, previousJoints) } : state;
     const before = state.joints.map((joint) => ({ ...joint, slider: joint.slider ? { ...joint.slider } : undefined }));
     const joints = solveFreeMechanism(seeded, phase, iterations);

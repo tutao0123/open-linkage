@@ -1,6 +1,7 @@
 import {
   VARIABLE_LEG_OPTIONS,
   analyzeVariableLegMode,
+  assessVariableLegCandidate,
   buildVariableLegQuickDesignSeed,
   createDefaultAdjustment,
   getVariableLegTemplate,
@@ -261,8 +262,8 @@ export async function synthesizeVariableLegQuickDesign(
       message: `${option.label}：正在寻找各工况连续锁止值`,
     });
     await yieldToWorker();
-    const seedIsFeasible = seedMetrics.every((metric) => metric.validRatio >= 0.99 && metric.branchSwitches === 0);
-    const refined = seedIsFeasible ? [] : await refineCurrentTarget(
+    const seedIsUsable = assessVariableLegCandidate(seedMetrics, seed.modes).level === "usable";
+    const refined = seedIsUsable ? [] : await refineCurrentTarget(
         seed,
         (progress) => onProgress?.({
           ...progress,

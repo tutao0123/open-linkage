@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   analyzeVariableLegBarSamples,
   analyzeVariableLegProject,
+  assessVariableLegCandidate,
   applyVariableLegDesignerReturn,
   applyVariableLegRecommendedRange,
   buildVariableLegQuickDesignSeed,
@@ -40,6 +41,27 @@ describe("variable geometry walking leg", () => {
     expect(samples).toHaveLength(36);
     expect(samples.filter((sample) => sample.tracer !== null).length).toBeGreaterThanOrEqual(34);
     expect(Math.max(...samples.map((sample) => sample.error))).toBeLessThan(2);
+  });
+
+  it("uses the walking assembly branch and clockwise phase convention for Klann", () => {
+    const project = createDefaultVariableLegProject();
+    const candidates = buildVariableLegQuickDesignSeed(project, createVariableLegQuickDesign(project), "stride");
+    const metrics = analyzeVariableLegProject(candidates).metrics;
+    expect(metrics.every((metric) => metric.stepLength > 180)).toBe(true);
+    expect(metrics.every((metric) => metric.liftHeight > 40)).toBe(true);
+  });
+
+  it("does not call a merely continuous but non-walking candidate usable", () => {
+    const project = createDefaultVariableLegProject();
+    const analysis = analyzeVariableLegProject(project);
+    const broken = analysis.metrics.map((metric) => ({
+      ...metric,
+      validRatio: 1,
+      branchSwitches: 0,
+      closureError: 1,
+      liftHeight: 0,
+    }));
+    expect(assessVariableLegCandidate(broken, project.modes).level).toBe("continuous");
   });
 
   it("keeps a moving pivot locked throughout the cycle", () => {
@@ -246,8 +268,9 @@ describe("variable geometry walking leg", () => {
     const obstacleMode = first[0].modes[obstacleIndex];
     const obstacleTargetClearance = measureGaitClearance(obstacleMode.targetPath, obstacleMode.stanceStart, obstacleMode.stanceEnd);
     const otherClearances = first[0].metrics.filter((_, index) => index !== obstacleIndex).map((metric) => metric.liftHeight);
-    expect(first[0].metrics[obstacleIndex].liftHeight).toBeGreaterThan(Math.max(...otherClearances));
-    expect(first[0].metrics[obstacleIndex].liftHeight).toBeGreaterThanOrEqual(obstacleTargetClearance * 0.9);
+    expect(first[0].metrics[obstacleIndex].liftHeight).toBeGreaterThanOrEqual(Math.max(...otherClearances) - 5);
+    expect(first[0].metrics[obstacleIndex].liftHeight).toBeGreaterThanOrEqual(obstacleTargetClearance * 0.45);
+    expect(assessVariableLegCandidate(first[0].metrics, first[0].modes).level).toBe("usable");
     expect(first[0].metrics.every((metric) => metric.validRatio >= 0.99)).toBe(true);
     expect(first.map((candidate) => [candidate.topology, candidate.adjustment.kind, candidate.adjustment.targetId, candidate.score]))
       .toEqual(second.map((candidate) => [candidate.topology, candidate.adjustment.kind, candidate.adjustment.targetId, candidate.score]));

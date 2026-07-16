@@ -18,6 +18,7 @@ import {
   alignedTargetPath,
   analyzeVariableLegBarSamples,
   analyzeVariableLegProject,
+  assessVariableLegCandidate,
   applyVariableLegDesignerReturn,
   applyVariableLegRecommendedRange,
   cloneVariableLegProject,
@@ -643,8 +644,8 @@ export function VariableGeometryLegLab() {
       workerRef.current = null;
       if (response.type === "quick-design-result") {
         commit({ ...cloneVariableLegProject(projectRef.current), candidates: response.candidates, selectedCandidateId: null });
-        const feasibleCount = response.candidates.filter((candidate) => candidate.metrics.every((metric) => metric.validRatio >= 0.99 && metric.branchSwitches === 0)).length;
-        setMessage(`已生成 ${response.candidates.length} 个基础方案，其中 ${feasibleCount} 个达到整周连续标准；请在右侧预览并选择。`);
+        const usableCount = response.candidates.filter((candidate) => assessVariableLegCandidate(candidate.metrics, candidate.modes).level === "usable").length;
+        setMessage(`已生成 ${response.candidates.length} 个基础方案，其中 ${usableCount} 个同时达到整周连续和步态可用标准；请在右侧预览并选择。`);
       } else if (response.type === "cancelled") setMessage("引导设计已取消，当前机构未改变。");
       else if (response.type === "error") setMessage(response.message);
     };
@@ -1142,10 +1143,11 @@ export function VariableGeometryLegLab() {
           <div className={styles.panelTitle}><div><span>02</span><h2>候选与工程检查</h2></div></div>
           {project.candidates?.length ? <div className={styles.candidateList}>
             {project.candidates.map((candidate, index) => {
-              const feasible = candidate.metrics.every((metric) => metric.validRatio >= 0.99 && metric.branchSwitches === 0);
+              const quality = assessVariableLegCandidate(candidate.metrics, candidate.modes);
+              const usable = quality.level === "usable";
               return <button type="button" key={candidate.id} className={candidate.id === project.selectedCandidateId ? styles.selectedCandidate : ""} onClick={() => applyCandidate(candidate)}>
               <span className={styles.rank}>{String(index + 1).padStart(2, "0")}</span>
-              <span><b>{candidate.label} <i className={feasible ? styles.candidateFeasible : styles.candidateNear}>{feasible ? "整周可行" : "接近可行"}</i></b><small>{topologyName(candidate.topology)} · {adjustmentName(candidate.adjustment.kind)} · {candidate.adjustment.targetId}</small></span>
+              <span><b>{candidate.label} <i className={usable ? styles.candidateFeasible : styles.candidateNear}>{usable ? "步态可用" : quality.level === "continuous" ? "连续·待精修" : "存在不可达"}</i></b><small>{topologyName(candidate.topology)} · {adjustmentName(candidate.adjustment.kind)} · {candidate.adjustment.targetId}{quality.issues.length ? ` · ${quality.issues[0]}` : ""}</small></span>
               <strong>{candidate.score.toFixed(0)}</strong>
               <em>平均 RMSE {candidate.familyRmse.toFixed(1)} mm · 调节行程 {candidate.adjustmentStroke.toFixed(1)} mm</em>
             </button>;

@@ -291,7 +291,7 @@ function chebyshevProject(tracerX: number): FreeMechanismProject {
 export const CHEBYSHEV_PROJECT = chebyshevProject(200);
 export const HOEKENS_PROJECT = chebyshevProject(375);
 
-const KLANN_JOINTS: FreeJoint[] = [
+const KLANN_RAW_JOINTS: FreeJoint[] = [
   { id: "J1", x: 95.16, y: -205.16, fixed: true },
   { id: "J2", x: 2.34, y: 0.76, fixed: true },
   { id: "J3", x: 155.74, y: -45, fixed: true },
@@ -301,6 +301,29 @@ const KLANN_JOINTS: FreeJoint[] = [
   { id: "J7", x: -199.68, y: -75.16, fixed: false },
   { id: "J8", x: -34.84, y: -240, fixed: false },
 ];
+
+function rotateJointAround(joint: FreeJoint, origin: FreeJoint, degrees: number): FreeJoint {
+  const angle = degrees * Math.PI / 180;
+  const cosine = Math.cos(angle);
+  const sine = Math.sin(angle);
+  const x = joint.x - origin.x;
+  const y = joint.y - origin.y;
+  return {
+    ...joint,
+    x: origin.x + x * cosine - y * sine,
+    y: origin.y + x * sine + y * cosine,
+  };
+}
+
+// The former Klann seed used the correct connectivity but an end-effector
+// triangle assembled on the wrong angular branch. It produced a tall loop
+// instead of the characteristic long, nearly level support stroke. Set the
+// leg angle first, then orient the complete mechanism for a horizontal gait.
+const KLANN_LEG_ANGLE_JOINTS = KLANN_RAW_JOINTS.map((joint) => joint.id === "J6"
+  ? rotateJointAround(joint, KLANN_RAW_JOINTS.find((item) => item.id === "J7")!, -50)
+  : joint);
+const KLANN_ORIGIN = KLANN_LEG_ANGLE_JOINTS.find((joint) => joint.id === "J3")!;
+const KLANN_JOINTS: FreeJoint[] = KLANN_LEG_ANGLE_JOINTS.map((joint) => rotateJointAround(joint, KLANN_ORIGIN, 36));
 
 export const KLANN_PROJECT: FreeMechanismProject = {
   version: 3,

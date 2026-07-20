@@ -77,6 +77,53 @@ export type VariableLegCandidateQuality = {
   issues: string[];
 };
 
+export type GuidedDesignScenario = "cruise" | "sprint" | "obstacle";
+export type GuidedDesignRole = "recommended" | "conservative" | "performance";
+
+export type GuidedDesignTargets = {
+  stepLength: number;
+  liftHeight: number;
+  stanceRatio: number;
+  rpm: number;
+  landingSpeedLimit: number;
+};
+
+export type GuidedDesignRequest = {
+  scenario: GuidedDesignScenario;
+  targets: GuidedDesignTargets;
+  baselinePolicy: "auto-safe";
+  mechanismVariation: "limited" | "balanced";
+};
+
+export type GuidedHardGateResult = {
+  passed: boolean;
+  modeId: GuidedDesignScenario;
+  issues: string[];
+  validRatio: number;
+  singularityMargin: number;
+};
+
+export type GuidedScenarioCompatibility = {
+  modeId: string;
+  level: "compatible" | "exploratory" | "unavailable";
+  validRatio: number;
+  singularityMargin: number;
+};
+
+export type GuidedDesignPreflight = {
+  source: "current" | "safe-baseline";
+  currentGate: GuidedHardGateResult;
+  selectedGate: GuidedHardGateResult;
+  zones: Record<keyof GuidedDesignTargets, { recommended: [number, number]; exploratory: [number, number] }>;
+  message: string;
+};
+
+export type GuidedDesignResult = {
+  candidates: VariableLegCandidate[];
+  preflight: GuidedDesignPreflight;
+  suggestions: Array<{ key: keyof GuidedDesignTargets; value: number; label: string }>;
+};
+
 export type VariableLegCandidate = {
   id: string;
   label: string;
@@ -88,6 +135,10 @@ export type VariableLegCandidate = {
   familyRmse: number;
   adjustmentStroke: number;
   metrics: VariableLegModeMetrics[];
+  role?: GuidedDesignRole;
+  guidedScenario?: GuidedDesignScenario;
+  hardGateResult?: GuidedHardGateResult;
+  compatibility?: GuidedScenarioCompatibility[];
 };
 
 export type VariableLegProject = {
@@ -159,18 +210,7 @@ export type VariableLegDesignerValidation = {
   reasons: string[];
 };
 
-export type VariableLegQuickDesignKey = "scale" | "crankRadius" | "stepLength" | "liftHeight" | "stanceRatio";
-
-export type VariableLegQuickDesign = {
-  scale: number;
-  crankRadius: number;
-  stepLength: number;
-  liftHeight: number;
-  stanceRatio: number;
-  locked: Record<VariableLegQuickDesignKey, boolean>;
-};
-
-export type VariableLegQuickDesignPreset = "stable" | "stride" | "clearance";
+export type GuidedDesignSeedRole = GuidedDesignRole;
 
 export type VariableLegBarLengthPreview = {
   barId: string;
@@ -471,41 +511,39 @@ function modeTargetStats(mode: VariableLegMode) {
   };
 }
 
-export function createVariableLegQuickDesign(project: VariableLegProject): VariableLegQuickDesign {
-  const activeMode = project.modes.find((mode) => mode.id === project.activeModeId) ?? project.modes[0];
+export function createGuidedDesignRequest(project: VariableLegProject, scenario: GuidedDesignScenario = "cruise"): GuidedDesignRequest {
+  const activeMode = project.modes.find((mode) => mode.id === scenario) ?? project.modes.find((mode) => mode.id === project.activeModeId) ?? project.modes[0];
   const stats = activeMode ? modeTargetStats(activeMode) : { step: 260, lift: 65 };
-  const template = getVariableLegTemplate(project.topology);
-  const templateLengths = new Map(template.bars.map((bar) => [bar.id, bar.length]));
-  const ratios = project.baseProject.bars
-    .map((bar) => bar.length / Math.max(1e-9, templateLengths.get(bar.id) ?? bar.length))
-    .filter(Number.isFinite);
-  const driver = project.baseProject.bars.find((bar) => bar.id === project.baseProject.driverId);
   return {
-    scale: clamp(median(ratios) || 1, 0.65, 1.5),
-    crankRadius: driver?.length ?? 80,
-    stepLength: Math.max(40, stats.step),
-    liftHeight: Math.max(10, stats.lift),
-    stanceRatio: clamp(activeMode ? activeMode.stanceEnd - activeMode.stanceStart : 0.62, 0.35, 0.82),
-    locked: { scale: false, crankRadius: false, stepLength: true, liftHeight: true, stanceRatio: true },
+    scenario,
+    targets: {
+      stepLength: Math.max(40, stats.step),
+      liftHeight: Math.max(10, stats.lift),
+      stanceRatio: clamp(activeMode ? activeMode.stanceEnd - activeMode.stanceStart : 0.62, 0.35, 0.82),
+      rpm: activeMode?.rpm ?? (scenario === "sprint" ? 24 : scenario === "obstacle" ? 8 : 14),
+      landingSpeedLimit: scenario === "sprint" ? 180 : scenario === "obstacle" ? 110 : 130,
+    },
+    baselinePolicy: "auto-safe",
+    mechanismVariation: "balanced",
   };
 }
 
-export function buildVariableLegQuickDesignSeed(
+export function buildGuidedDesignSeed(
   source: VariableLegProject,
-  design: VariableLegQuickDesign,
-  preset: VariableLegQuickDesignPreset,
+  request: GuidedDesignRequest,
+  role: GuidedDesignSeedRole,
 ) {
-  const presetFactors = {
-    stable: { scale: 1.04, crank: 0.96, step: 0.88, lift: 0.94, stance: 0.05 },
-    stride: { scale: 1, crank: 1.08, step: 1.12, lift: 0.96, stance: -0.04 },
-    clearance: { scale: 1.02, crank: 0.94, step: 0.92, lift: 1.18, stance: 0.03 },
-  } satisfies Record<VariableLegQuickDesignPreset, { scale: number; crank: number; step: number; lift: number; stance: number }>;
-  const factors = presetFactors[preset];
-  const selectedScale = clamp(design.scale * (design.locked.scale ? 1 : factors.scale), 0.65, 1.5);
+  const factors = {
+    recommended: { scale: 1, crank: 1, step: 1, lift: 1, stance: 0 },
+    conservative: { scale: 1.04, crank: 0.96, step: 0.9, lift: 0.94, stance: 0.04 },
+    performance: { scale: 1, crank: 1.07, step: 1.08, lift: 1.08, stance: -0.025 },
+  }[role];
+  const selectedScale = factors.scale;
   const baseProject = scaleVariableLegMechanism(getVariableLegTemplate(source.topology), selectedScale);
   const driver = baseProject.bars.find((bar) => bar.id === baseProject.driverId);
   if (driver) {
-    const nextLength = Math.max(5, design.crankRadius * (design.locked.crankRadius ? 1 : factors.crank));
+    const templateDriver = getVariableLegTemplate(source.topology).bars.find((bar) => bar.id === baseProject.driverId);
+    const nextLength = Math.max(5, (templateDriver?.length ?? driver.length) * factors.crank);
     driver.length = nextLength;
     const endpoints = new Set([driver.a, driver.b]);
     baseProject.dimensions = baseProject.dimensions.map((dimension) => (
@@ -527,11 +565,11 @@ export function buildVariableLegQuickDesignSeed(
     const bar = baseProject.bars.find((item) => item.id === adjustment.targetId)!;
     adjustment = { ...adjustment, baseLength: bar.length, minimum: bar.length * 0.82, maximum: bar.length * 1.18 };
   }
-  const activeMode = source.modes.find((mode) => mode.id === source.activeModeId) ?? source.modes[0];
+  const activeMode = source.modes.find((mode) => mode.id === request.scenario) ?? source.modes[0];
   const activeStats = activeMode ? modeTargetStats(activeMode) : { step: 260, lift: 65, centerX: -210, groundY: 160 };
-  const requestedStep = design.stepLength * (design.locked.stepLength ? 1 : factors.step);
-  const requestedLift = design.liftHeight * (design.locked.liftHeight ? 1 : factors.lift);
-  const requestedStance = clamp(design.stanceRatio + (design.locked.stanceRatio ? 0 : factors.stance), 0.35, 0.82);
+  const requestedStep = request.targets.stepLength * factors.step;
+  const requestedLift = request.targets.liftHeight * factors.lift;
+  const requestedStance = clamp(request.targets.stanceRatio + factors.stance, 0.35, 0.82);
   const stepRatio = requestedStep / Math.max(1, activeStats.step);
   const liftRatio = requestedLift / Math.max(1, activeStats.lift);
   const stanceDelta = requestedStance - (activeMode ? activeMode.stanceEnd - activeMode.stanceStart : requestedStance);
@@ -553,7 +591,8 @@ export function buildVariableLegQuickDesignSeed(
         stats.centerX * selectedScale,
         stats.groundY * selectedScale,
       ),
-      weight: mode.weight * (preset === "stable" ? 1.08 : preset === "clearance" && mode.id === "obstacle" ? 1.2 : 1),
+      rpm: mode.id === request.scenario ? request.targets.rpm : mode.rpm,
+      weight: mode.id === request.scenario ? 2 : 0.35,
     };
   });
   return {
@@ -565,6 +604,60 @@ export function buildVariableLegQuickDesignSeed(
     candidates: [],
     selectedCandidateId: null,
   } satisfies VariableLegProject;
+}
+
+export function assessGuidedHardGate(metrics: VariableLegModeMetrics[], scenario: GuidedDesignScenario): GuidedHardGateResult {
+  const metric = metrics.find((item) => item.modeId === scenario);
+  const issues: string[] = [];
+  if (!metric || metric.validRatio < 0.99) issues.push("完整求解率低于 99%");
+  if (!metric || metric.branchSwitches !== 0) issues.push("存在装配分支跳变");
+  if (!metric || !Number.isFinite(metric.closureError)) issues.push("闭环误差不可用");
+  if (!metric || metric.singularityMargin < 5) issues.push("最小夹角低于 5°");
+  return {
+    passed: issues.length === 0,
+    modeId: scenario,
+    issues,
+    validRatio: metric?.validRatio ?? 0,
+    singularityMargin: metric?.singularityMargin ?? 0,
+  };
+}
+
+export function summarizeGuidedCompatibility(metrics: VariableLegModeMetrics[], scenario: GuidedDesignScenario): GuidedScenarioCompatibility[] {
+  return metrics.filter((metric) => metric.modeId !== scenario).map((metric) => ({
+    modeId: metric.modeId,
+    level: metric.validRatio >= 0.99 && metric.branchSwitches === 0 && metric.singularityMargin >= 5
+      ? "compatible"
+      : metric.validRatio >= 0.9 && metric.branchSwitches <= 1 ? "exploratory" : "unavailable",
+    validRatio: metric.validRatio,
+    singularityMargin: metric.singularityMargin,
+  }));
+}
+
+export function guidedDesignZones(request: GuidedDesignRequest): GuidedDesignPreflight["zones"] {
+  const zones: Record<GuidedDesignScenario, GuidedDesignPreflight["zones"]> = {
+    cruise: {
+      stepLength: { recommended: [180, 300], exploratory: [100, 380] },
+      liftHeight: { recommended: [40, 90], exploratory: [20, 130] },
+      stanceRatio: { recommended: [0.55, 0.7], exploratory: [0.42, 0.78] },
+      rpm: { recommended: [8, 20], exploratory: [4, 30] },
+      landingSpeedLimit: { recommended: [110, 220], exploratory: [70, 320] },
+    },
+    sprint: {
+      stepLength: { recommended: [220, 380], exploratory: [120, 460] },
+      liftHeight: { recommended: [45, 100], exploratory: [20, 140] },
+      stanceRatio: { recommended: [0.42, 0.62], exploratory: [0.35, 0.72] },
+      rpm: { recommended: [12, 28], exploratory: [6, 38] },
+      landingSpeedLimit: { recommended: [130, 260], exploratory: [80, 380] },
+    },
+    obstacle: {
+      stepLength: { recommended: [140, 280], exploratory: [80, 360] },
+      liftHeight: { recommended: [70, 140], exploratory: [40, 180] },
+      stanceRatio: { recommended: [0.55, 0.72], exploratory: [0.42, 0.8] },
+      rpm: { recommended: [5, 14], exploratory: [3, 22] },
+      landingSpeedLimit: { recommended: [80, 180], exploratory: [50, 260] },
+    },
+  };
+  return zones[request.scenario];
 }
 
 export function setVariableLegBaseBarLength(source: VariableLegProject, barId: string, nextLength: number) {

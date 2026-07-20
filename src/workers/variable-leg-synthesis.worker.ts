@@ -2,8 +2,9 @@
 
 import {
   VariableLegSynthesisCancelled,
+  preflightGuidedDesign,
   synthesizeVariableLeg,
-  synthesizeVariableLegQuickDesign,
+  synthesizeVariableLegGuidedDesign,
   type VariableLegSynthesisScope,
 } from "@/lib/variable-leg-synthesis";
 import {
@@ -12,14 +13,15 @@ import {
   scanVariableLegAdjustmentFeasibility,
   validateVariableLegKinematics,
   type VariableLegProject,
-  type VariableLegQuickDesign,
+  type GuidedDesignRequest,
   type VariableLegEditableParameter,
   type VariableLegFeasibleInterval,
 } from "@/lib/variable-leg";
 
 type StartMessage = { type: "start"; requestId: string; project: VariableLegProject; scope?: VariableLegSynthesisScope };
 type FeasibilityMessage = { type: "feasibility"; requestId: string; project: VariableLegProject };
-type QuickDesignMessage = { type: "quick-design"; requestId: string; project: VariableLegProject; design: VariableLegQuickDesign };
+type GuidedDesignMessage = { type: "guided-design"; requestId: string; project: VariableLegProject; request: GuidedDesignRequest };
+type GuidedPreflightMessage = { type: "guided-preflight"; requestId: string; project: VariableLegProject; request: GuidedDesignRequest };
 type BarPreviewMessage = { type: "bar-preview"; requestId: string; project: VariableLegProject; barId: string; requestedLength: number };
 type ParameterPreviewMessage = { type: "parameter-preview"; requestId: string; project: VariableLegProject; parameter: VariableLegEditableParameter; requestedValue: number; bounds?: VariableLegFeasibleInterval[] };
 type ProjectCheckMessage = { type: "project-check"; requestId: string; project: VariableLegProject; baselineProject?: VariableLegProject };
@@ -27,7 +29,7 @@ type CancelMessage = { type: "cancel"; requestId: string };
 
 const cancelled = new Set<string>();
 
-self.addEventListener("message", (event: MessageEvent<StartMessage | FeasibilityMessage | QuickDesignMessage | BarPreviewMessage | ParameterPreviewMessage | ProjectCheckMessage | CancelMessage>) => {
+self.addEventListener("message", (event: MessageEvent<StartMessage | FeasibilityMessage | GuidedDesignMessage | GuidedPreflightMessage | BarPreviewMessage | ParameterPreviewMessage | ProjectCheckMessage | CancelMessage>) => {
   const message = event.data;
   if (message.type === "cancel") {
     cancelled.add(message.requestId);
@@ -72,16 +74,25 @@ self.addEventListener("message", (event: MessageEvent<StartMessage | Feasibility
     }
     return;
   }
-  if (message.type === "quick-design") {
-    const { requestId, project, design } = message;
+  if (message.type === "guided-preflight") {
+    const { requestId, project, request } = message;
+    try {
+      self.postMessage({ type: "guided-preflight-result", requestId, preflight: preflightGuidedDesign(project, request) });
+    } catch (error: unknown) {
+      self.postMessage({ type: "error", requestId, message: error instanceof Error ? error.message : "引导预检失败" });
+    }
+    return;
+  }
+  if (message.type === "guided-design") {
+    const { requestId, project, request } = message;
     cancelled.delete(requestId);
-    void synthesizeVariableLegQuickDesign(
+    void synthesizeVariableLegGuidedDesign(
       project,
-      design,
+      request,
       (progress) => self.postMessage({ type: "progress", requestId, progress }),
       () => cancelled.has(requestId),
-    ).then((candidates) => {
-      self.postMessage({ type: "quick-design-result", requestId, candidates });
+    ).then((result) => {
+      self.postMessage({ type: "guided-design-result", requestId, result });
     }).catch((error: unknown) => {
       if (error instanceof VariableLegSynthesisCancelled) self.postMessage({ type: "cancelled", requestId });
       else self.postMessage({ type: "error", requestId, message: error instanceof Error ? error.message : "引导设计失败" });

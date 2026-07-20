@@ -17,15 +17,17 @@ import {
   VARIABLE_LEG_OPTIONS,
   alignedTargetPath,
   analyzeVariableLegBarSamples,
+  analyzeVariableLegMode,
   analyzeVariableLegProject,
   assessVariableLegCandidate,
+  assessGuidedHardGate,
   applyVariableLegDesignerReturn,
   applyVariableLegRecommendedRange,
   cloneVariableLegProject,
   createDefaultAdjustment,
   createDefaultVariableLegProject,
   createGaitPath,
-  createVariableLegQuickDesign,
+  createGuidedDesignRequest,
   createVariableLegDesignerTransfer,
   getVariableLegTemplate,
   isVariableLegDesignerTransfer,
@@ -42,10 +44,15 @@ import {
   type VariableLegCandidate,
   type VariableLegMode,
   type VariableLegProject,
-  type VariableLegQuickDesign,
-  type VariableLegQuickDesignKey,
+  type GuidedDesignPreflight,
+  type GuidedDesignRequest,
+  type GuidedDesignResult,
+  type GuidedDesignScenario,
+  type GuidedDesignTargets,
   type VariableLegTopology,
 } from "@/lib/variable-leg";
+import { getVariableLegBaselineBounds } from "@/lib/variable-leg-baselines";
+import { getVariableLegDynamicLengthEnvelope } from "@/lib/variable-leg-dynamic-envelopes";
 import {
   analyzeVariableLegGait,
   appendVariableLegFootprints,
@@ -80,7 +87,8 @@ type EditingMode = "guided" | "advanced";
 type WorkerResponse =
   | { type: "progress"; requestId: string; progress: VariableLegSynthesisProgress }
   | { type: "result"; requestId: string; candidates: VariableLegCandidate[] }
-  | { type: "quick-design-result"; requestId: string; candidates: VariableLegCandidate[] }
+  | { type: "guided-design-result"; requestId: string; result: GuidedDesignResult }
+  | { type: "guided-preflight-result"; requestId: string; preflight: GuidedDesignPreflight }
   | { type: "feasibility-result"; requestId: string; feasibility: VariableLegAdjustmentFeasibility }
   | { type: "bar-preview-result"; requestId: string; preview: VariableLegBarLengthPreview }
   | { type: "cancelled"; requestId: string }
@@ -123,6 +131,39 @@ function feasibilityProjectKey(project: VariableLegProject) {
   });
 }
 
+function removeUnsafeLegacyRecommendations(project: VariableLegProject) {
+  const next = cloneVariableLegProject(project);
+  next.candidates = next.candidates?.filter((candidate) => candidate.guidedScenario
+    ? assessGuidedHardGate(candidate.metrics, candidate.guidedScenario).passed
+    : false) ?? [];
+  if (!next.candidates.some((candidate) => candidate.id === next.selectedCandidateId)) next.selectedCandidateId = null;
+  return next;
+}
+
+const GUIDED_SCENES: Array<{ id: GuidedDesignScenario; label: string; summary: string }> = [
+  { id: "cruise", label: "巡航", summary: "步长优先，兼顾支撑稳定" },
+  { id: "sprint", label: "高速", summary: "转速优先，约束落地冲击" },
+  { id: "obstacle", label: "越障", summary: "净离地高度优先" },
+];
+
+const GUIDED_CONTROLS: Record<GuidedDesignScenario, Array<{ key: keyof GuidedDesignTargets; label: string; unit: string; min: number; max: number; step: number }>> = {
+  cruise: [
+    { key: "stepLength", label: "目标步长", unit: "mm", min: 80, max: 480, step: 5 },
+    { key: "stanceRatio", label: "支撑相", unit: "%", min: 35, max: 82, step: 1 },
+    { key: "landingSpeedLimit", label: "落地速度上限", unit: "mm/s", min: 40, max: 320, step: 5 },
+  ],
+  sprint: [
+    { key: "rpm", label: "主轴转速", unit: "rpm", min: 4, max: 60, step: 1 },
+    { key: "stepLength", label: "目标步长", unit: "mm", min: 80, max: 520, step: 5 },
+    { key: "landingSpeedLimit", label: "落地速度上限", unit: "mm/s", min: 60, max: 420, step: 5 },
+  ],
+  obstacle: [
+    { key: "liftHeight", label: "净离地高度", unit: "mm", min: 20, max: 220, step: 5 },
+    { key: "stepLength", label: "目标步长", unit: "mm", min: 60, max: 420, step: 5 },
+    { key: "stanceRatio", label: "支撑相", unit: "%", min: 35, max: 82, step: 1 },
+  ],
+};
+
 export function VariableGeometryLegLab() {
   const initialProject = useMemo(() => createDefaultVariableLegProject(), []);
   const history = useSnapshotHistory(initialProject, cloneVariableLegProject);
@@ -131,7 +172,10 @@ export function VariableGeometryLegLab() {
   const [playing, setPlaying] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>("mechanism");
   const [editingMode, setEditingMode] = useState<EditingMode>("guided");
-  const [quickDesign, setQuickDesign] = useState<VariableLegQuickDesign>(() => createVariableLegQuickDesign(initialProject));
+  const [guidedRequest, setGuidedRequest] = useState<GuidedDesignRequest>(() => createGuidedDesignRequest(initialProject));
+  const [guidedPreflight, setGuidedPreflight] = useState<GuidedDesignPreflight | null>(null);
+  const [guidedSuggestions, setGuidedSuggestions] = useState<GuidedDesignResult["suggestions"]>([]);
+  const [previewCandidateId, setPreviewCandidateId] = useState<string | null>(null);
   const [bodyWorldX, setBodyWorldX] = useState(0);
   const [footprints, setFootprints] = useState<VariableLegFootprint[]>([]);
   const [canvasMode, setCanvasMode] = useState<CanvasMode>("inspect");
@@ -139,7 +183,7 @@ export function VariableGeometryLegLab() {
   const [drawingPoints, setDrawingPoints] = useState<Point[]>([]);
   const [message, setMessage] = useState("三个默认工况已就绪；调节值在每个周期内保持锁定。");
   const [searching, setSearching] = useState(false);
-  const [workerTask, setWorkerTask] = useState<"synthesis" | "quick-design" | "feasibility" | "bar-preview">("synthesis");
+  const [workerTask, setWorkerTask] = useState<"synthesis" | "guided-design" | "feasibility" | "bar-preview">("synthesis");
   const [feasibility, setFeasibility] = useState<VariableLegAdjustmentFeasibility | null>(null);
   const [feasibilitySourceKey, setFeasibilitySourceKey] = useState<string | null>(null);
   const [selectedBarId, setSelectedBarId] = useState<string | null>(null);
@@ -149,6 +193,7 @@ export function VariableGeometryLegLab() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const workerRef = useRef<Worker | null>(null);
   const requestIdRef = useRef<string | null>(null);
+  const preflightRequestIdRef = useRef<string | null>(null);
   const phaseRef = useRef(0);
   const bodyWorldXRef = useRef(0);
   const footprintSequenceRef = useRef(0);
@@ -165,6 +210,30 @@ export function VariableGeometryLegLab() {
   );
   const analysis = useMemo(() => analyzeVariableLegProject(project, 54, 70), [project]);
   const activeMetrics = analysis.metrics.find((metric) => metric.modeId === activeMode.id) ?? analysis.metrics[0];
+  const advancedStaticBounds = useMemo(() => project.adjustment.kind === "telescopic-bar"
+    ? getVariableLegBaselineBounds(project, { kind: "bar-length", targetId: project.adjustment.targetId })
+    : [], [project]);
+  const advancedDynamicEnvelope = useMemo(() => project.adjustment.kind === "telescopic-bar"
+    ? getVariableLegDynamicLengthEnvelope(project, project.adjustment.targetId, phase, activeMode.id)
+    : null, [activeMode.id, phase, project]);
+  const adjustmentImpact = useMemo(() => {
+    const span = Math.max(1e-6, project.adjustment.maximum - project.adjustment.minimum);
+    const nextValue = Math.min(project.adjustment.maximum, activeMode.adjustmentValue + span * 0.03);
+    if (Math.abs(nextValue - activeMode.adjustmentValue) < 1e-6 || !activeMetrics) return [];
+    const metric = analyzeVariableLegMode(project.baseProject, project.adjustment, { ...activeMode, adjustmentValue: nextValue }, 24, 56);
+    const describe = (label: string, delta: number, unit: string, higherIsBetter = true) => ({
+      label,
+      delta,
+      unit,
+      favorable: higherIsBetter ? delta >= 0 : delta <= 0,
+    });
+    return [
+      describe("步长", metric.stepLength - activeMetrics.stepLength, "mm"),
+      describe("抬脚", metric.liftHeight - activeMetrics.liftHeight, "mm"),
+      describe("奇异裕度", metric.singularityMargin - activeMetrics.singularityMargin, "°"),
+      describe("落地速度", metric.landingVerticalSpeed - activeMetrics.landingVerticalSpeed, "mm/s", false),
+    ];
+  }, [activeMetrics, activeMode, project.adjustment, project.baseProject]);
   const gaitMetrics = useMemo(
     () => analyzeVariableLegGait(project.deployment, activeMode, activeMetrics),
     [activeMetrics, activeMode, project.deployment],
@@ -251,9 +320,10 @@ export function VariableGeometryLegLab() {
         const parsed = JSON.parse(saved) as unknown;
         const migrated = migrateVariableLegProject(parsed);
         if (!migrated) throw new Error("invalid");
-        resetHistory(migrated);
+        const restored = removeUnsafeLegacyRecommendations(migrated);
+        resetHistory(restored);
         setMotionPhase(migrated.inputPhase || 0);
-        const missingStandardModes = ["cruise", "sprint", "obstacle"].filter((id) => !migrated.modes.some((mode) => mode.id === id));
+        const missingStandardModes = ["cruise", "sprint", "obstacle"].filter((id) => !restored.modes.some((mode) => mode.id === id));
         setMessage(missingStandardModes.length
           ? "已恢复旧本地项目；检测到标准工况缺失，可点击“补齐标准工况”恢复。"
           : "已恢复上次的可变几何步行腿项目。");
@@ -331,7 +401,8 @@ export function VariableGeometryLegLab() {
   useEffect(() => () => workerRef.current?.terminate(), []);
 
   useEffect(() => {
-    setQuickDesign(createVariableLegQuickDesign(projectRef.current));
+    setGuidedRequest((current) => createGuidedDesignRequest(projectRef.current, current.scenario));
+    setGuidedPreflight(null);
     setBarLengthPreview(null);
   }, [project.topology, projectRef]);
 
@@ -621,17 +692,19 @@ export function VariableGeometryLegLab() {
     worker.postMessage({ type: "start", requestId, project: cloneVariableLegProject(project), scope });
   };
 
-  const runQuickDesign = () => {
+  const runGuidedDesign = () => {
     if (searching || project.modes.some((mode) => mode.targetPath.length < 12)) return;
     workerRef.current?.terminate();
     const worker = new Worker(new URL("../workers/variable-leg-synthesis.worker.ts", import.meta.url), { type: "module" });
     workerRef.current = worker;
-    const requestId = `quick-design-${Date.now()}`;
+    const requestId = `guided-design-${Date.now()}`;
     requestIdRef.current = requestId;
     setSearching(true);
-    setWorkerTask("quick-design");
-    setSearchProgress({ progress: 0, stage: "scan", message: "正在从标准拓扑构造三个可行起点" });
-    setMessage(`正在为${topologyName(project.topology)}生成稳健、大步幅和高抬腿三个基础方案……`);
+    setWorkerTask("guided-design");
+    setGuidedSuggestions([]);
+    setPreviewCandidateId(null);
+    setSearchProgress({ progress: 0, stage: "scan", message: "正在选择当前机构或同拓扑离线种子" });
+    setMessage(`正在为${topologyName(project.topology)}的${GUIDED_SCENES.find((item) => item.id === guidedRequest.scenario)?.label}场景运行 72 相位完整求解……`);
     worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
       const response = event.data;
       if (response.requestId !== requestIdRef.current) return;
@@ -642,10 +715,14 @@ export function VariableGeometryLegLab() {
       setSearching(false);
       worker.terminate();
       workerRef.current = null;
-      if (response.type === "quick-design-result") {
-        commit({ ...cloneVariableLegProject(projectRef.current), candidates: response.candidates, selectedCandidateId: null });
-        const usableCount = response.candidates.filter((candidate) => assessVariableLegCandidate(candidate.metrics, candidate.modes).level === "usable").length;
-        setMessage(`已生成 ${response.candidates.length} 个基础方案，其中 ${usableCount} 个同时达到整周连续和步态可用标准；请在右侧预览并选择。`);
+      if (response.type === "guided-design-result") {
+        const { result } = response;
+        commit({ ...cloneVariableLegProject(projectRef.current), candidates: result.candidates, selectedCandidateId: null });
+        setGuidedPreflight(result.preflight);
+        setGuidedSuggestions(result.suggestions);
+        setMessage(result.candidates.length
+          ? `已找到 ${result.candidates.length} 个通过当前场景完整检查的方案；点击卡片预览，再单独应用。`
+          : "没有方案通过硬门槛；当前项目未改变，请尝试下方的一键放宽建议。");
       } else if (response.type === "cancelled") setMessage("引导设计已取消，当前机构未改变。");
       else if (response.type === "error") setMessage(response.message);
     };
@@ -655,7 +732,24 @@ export function VariableGeometryLegLab() {
       workerRef.current = null;
       setMessage("引导设计 Worker 运行失败，请刷新后重试。");
     };
-    worker.postMessage({ type: "quick-design", requestId, project: cloneVariableLegProject(project), design: quickDesign });
+    worker.postMessage({ type: "guided-design", requestId, project: cloneVariableLegProject(project), request: guidedRequest });
+  };
+
+  const runGuidedPreflight = () => {
+    if (searching) return;
+    const worker = new Worker(new URL("../workers/variable-leg-synthesis.worker.ts", import.meta.url), { type: "module" });
+    const requestId = `guided-preflight-${Date.now()}`;
+    preflightRequestIdRef.current = requestId;
+    worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
+      const response = event.data;
+      if (response.requestId === preflightRequestIdRef.current && response.type === "guided-preflight-result") {
+        setGuidedPreflight(response.preflight);
+        setMessage(response.preflight.message);
+      }
+      worker.terminate();
+    };
+    worker.onerror = () => worker.terminate();
+    worker.postMessage({ type: "guided-preflight", requestId, project: cloneVariableLegProject(projectRef.current), request: guidedRequest });
   };
 
   const runBarLengthPreview = (barId: string, requestedLength: number) => {
@@ -708,13 +802,10 @@ export function VariableGeometryLegLab() {
     setFeasibility(null);
   };
 
-  const updateQuickDesignValue = (key: VariableLegQuickDesignKey, value: number) => {
+  const updateGuidedTarget = (key: keyof GuidedDesignTargets, value: number) => {
     if (!Number.isFinite(value)) return;
-    setQuickDesign((current) => ({ ...current, [key]: value }));
-  };
-
-  const toggleQuickDesignLock = (key: VariableLegQuickDesignKey) => {
-    setQuickDesign((current) => ({ ...current, locked: { ...current.locked, [key]: !current.locked[key] } }));
+    setGuidedRequest((current) => ({ ...current, targets: { ...current.targets, [key]: key === "stanceRatio" ? value / 100 : value } }));
+    setGuidedPreflight(null);
   };
 
   const checkFeasibleRange = () => {
@@ -775,10 +866,11 @@ export function VariableGeometryLegLab() {
       baseProject: candidate.baseProject,
       adjustment: candidate.adjustment,
       modes: candidate.modes,
-      activeModeId: candidate.modes[0].id,
+      activeModeId: candidate.guidedScenario ?? candidate.modes[0].id,
       candidates: current.candidates,
       selectedCandidateId: candidate.id,
-    }), `已载入${candidate.label}：${topologyName(candidate.topology)} / ${adjustmentName(candidate.adjustment.kind)}。`);
+    }), `已应用${candidate.label}：${topologyName(candidate.topology)} / ${adjustmentName(candidate.adjustment.kind)}。`);
+    setPreviewCandidateId(candidate.id);
   };
 
   const exportProject = () => {
@@ -800,10 +892,11 @@ export function VariableGeometryLegLab() {
       const parsed = JSON.parse(await file.text()) as unknown;
       const migrated = migrateVariableLegProject(parsed);
       if (!migrated) throw new Error("invalid");
-      resetHistory(migrated);
+      const restored = removeUnsafeLegacyRecommendations(migrated);
+      resetHistory(restored);
       setMotionPhase(migrated.inputPhase || 0);
       resetGaitTrail();
-      setMessage(`已导入 ${file.name}。`);
+      setMessage(`已导入 ${file.name}；未通过新硬门槛的旧推荐已隐藏，原机构参数未改动。`);
     } catch {
       setMessage("导入失败：文件不是有效的可变几何步行腿项目。");
     }
@@ -876,20 +969,29 @@ export function VariableGeometryLegLab() {
           </div>
 
           {editingMode === "guided" && <section className={styles.quickDesignSection}>
-            <div className={styles.quickDesignHeader}><span><b>先定目标，再找可行机构</b><small>锁定 = 必须保持；未锁定 = 允许方案方向微调</small></span><button type="button" onClick={() => setQuickDesign(createVariableLegQuickDesign(projectRef.current))}>从当前读取</button></div>
+            <div className={styles.quickDesignHeader}><span><b>选择本次必须保证的场景</b><small>另外两个场景只计算兼容性，不会阻止当前方案生成</small></span><button type="button" onClick={() => { setGuidedRequest(createGuidedDesignRequest(projectRef.current, guidedRequest.scenario)); setGuidedPreflight(null); }}>从当前读取</button></div>
             <label>基础拓扑
               <select value={project.topology} onChange={(event) => changeTopology(event.target.value as VariableLegTopology)}>
                 <option value="klann">克兰六杆腿</option><option value="jansen">简森多杆腿</option>
               </select>
             </label>
-            <div className={styles.quickDesignGrid}>
-              <label><span>整体尺度</span><span className={styles.quickInput}><input aria-label="快速设计整体尺度" type="number" min="0.65" max="1.5" step="0.01" value={Number(quickDesign.scale.toFixed(2))} onChange={(event) => updateQuickDesignValue("scale", Number(event.target.value))} /><i>×</i><button type="button" className={quickDesign.locked.scale ? styles.lockedParameter : ""} aria-label="锁定整体尺度" aria-pressed={quickDesign.locked.scale} onClick={() => toggleQuickDesignLock("scale")}>{quickDesign.locked.scale ? "锁" : "活"}</button></span></label>
-              <label><span>曲柄半径</span><span className={styles.quickInput}><input aria-label="快速设计曲柄半径" type="number" min="5" step="1" value={Number(quickDesign.crankRadius.toFixed(1))} onChange={(event) => updateQuickDesignValue("crankRadius", Number(event.target.value))} /><i>mm</i><button type="button" className={quickDesign.locked.crankRadius ? styles.lockedParameter : ""} aria-label="锁定曲柄半径" aria-pressed={quickDesign.locked.crankRadius} onClick={() => toggleQuickDesignLock("crankRadius")}>{quickDesign.locked.crankRadius ? "锁" : "活"}</button></span></label>
-              <label><span>期望步长</span><span className={styles.quickInput}><input aria-label="快速设计期望步长" type="number" min="40" step="5" value={Math.round(quickDesign.stepLength)} onChange={(event) => updateQuickDesignValue("stepLength", Number(event.target.value))} /><i>mm</i><button type="button" className={quickDesign.locked.stepLength ? styles.lockedParameter : ""} aria-label="锁定期望步长" aria-pressed={quickDesign.locked.stepLength} onClick={() => toggleQuickDesignLock("stepLength")}>{quickDesign.locked.stepLength ? "锁" : "活"}</button></span></label>
-              <label><span>期望抬脚</span><span className={styles.quickInput}><input aria-label="快速设计期望抬脚" type="number" min="10" step="5" value={Math.round(quickDesign.liftHeight)} onChange={(event) => updateQuickDesignValue("liftHeight", Number(event.target.value))} /><i>mm</i><button type="button" className={quickDesign.locked.liftHeight ? styles.lockedParameter : ""} aria-label="锁定期望抬脚" aria-pressed={quickDesign.locked.liftHeight} onClick={() => toggleQuickDesignLock("liftHeight")}>{quickDesign.locked.liftHeight ? "锁" : "活"}</button></span></label>
-              <label><span>支撑相比例</span><span className={styles.quickInput}><input aria-label="快速设计支撑相比例" type="number" min="35" max="82" step="1" value={Math.round(quickDesign.stanceRatio * 100)} onChange={(event) => updateQuickDesignValue("stanceRatio", Number(event.target.value) / 100)} /><i>%</i><button type="button" className={quickDesign.locked.stanceRatio ? styles.lockedParameter : ""} aria-label="锁定支撑相比例" aria-pressed={quickDesign.locked.stanceRatio} onClick={() => toggleQuickDesignLock("stanceRatio")}>{quickDesign.locked.stanceRatio ? "锁" : "活"}</button></span></label>
+            <div className={styles.sceneCards} role="radiogroup" aria-label="引导设计场景">
+              {GUIDED_SCENES.map((scene) => <button type="button" role="radio" aria-checked={guidedRequest.scenario === scene.id} key={scene.id} className={guidedRequest.scenario === scene.id ? styles.activeScene : ""} onClick={() => { setGuidedRequest(createGuidedDesignRequest(projectRef.current, scene.id)); setGuidedPreflight(null); setGuidedSuggestions([]); }}><b>{scene.label}</b><small>{scene.summary}</small></button>)}
             </div>
-            <small className={styles.quickDesignHint}>三个方向都从标准{topologyName(project.topology)}重新起步。未锁定参数是软目标，不会把预填值当成几何硬约束。</small>
+            <div className={styles.guidedSliders}>
+              {GUIDED_CONTROLS[guidedRequest.scenario].map((control, index) => {
+                const storedValue = guidedRequest.targets[control.key];
+                const value = control.key === "stanceRatio" ? storedValue * 100 : storedValue;
+                const zone = guidedPreflight?.zones[control.key];
+                return <label key={control.key} className={index === 0 ? styles.primaryGuidedControl : ""}>
+                  <span><b>{control.label}</b><small>{zone ? `推荐 ${Math.round(zone.recommended[0] * (control.key === "stanceRatio" ? 100 : 1))}–${Math.round(zone.recommended[1] * (control.key === "stanceRatio" ? 100 : 1))}` : "拖动后自动预检"}</small></span>
+                  <span className={styles.guidedValue}><input aria-label={`${GUIDED_SCENES.find((item) => item.id === guidedRequest.scenario)?.label}${control.label}精确值`} type="number" min={control.min} max={control.max} step={control.step} value={Number(value.toFixed(control.step < 1 ? 2 : 0))} onChange={(event) => updateGuidedTarget(control.key, Number(event.target.value))} onBlur={runGuidedPreflight} /><i>{control.unit}</i></span>
+                  <input aria-label={`${GUIDED_SCENES.find((item) => item.id === guidedRequest.scenario)?.label}${control.label}滑块`} type="range" min={control.min} max={control.max} step={control.step} value={value} onChange={(event) => updateGuidedTarget(control.key, Number(event.target.value))} onPointerUp={runGuidedPreflight} onKeyUp={runGuidedPreflight} />
+                  <span className={styles.zoneLegend}><i />推荐区 <i />探索区 <i />不可用区</span>
+                </label>;
+              })}
+            </div>
+            <div className={guidedPreflight?.source === "safe-baseline" ? styles.baselineWarning : styles.baselineStatus}><b>{guidedPreflight?.source === "safe-baseline" ? "离线种子回退" : "起始机构"}</b><span>{guidedPreflight?.message ?? "松开滑块后检查当前机构；不合格时自动改用同拓扑、同场景的离线验证种子。"}</span></div>
           </section>}
 
           {editingMode === "advanced" && <section className={styles.configSection}>
@@ -961,6 +1063,13 @@ export function VariableGeometryLegLab() {
               <label>锁止值<input type="number" value={Number(activeMode.adjustmentValue.toFixed(2))} onChange={(event) => updateActiveMode((mode) => ({ ...mode, adjustmentValue: Number(event.target.value) }))} /></label>
             </div>
             <input className={styles.adjustmentSlider} aria-label="当前工况锁止值" type="range" min={project.adjustment.minimum} max={project.adjustment.maximum} step="0.1" value={activeMode.adjustmentValue} onChange={(event) => replace({ ...projectRef.current, modes: projectRef.current.modes.map((mode) => mode.id === activeMode.id ? { ...mode, adjustmentValue: Number(event.target.value) } : mode), candidates: [] })} onPointerUp={() => commit(cloneVariableLegProject(projectRef.current))} />
+            <div className={styles.advancedRangeOverlay} aria-label="离线安全区、当前可行区和动态相位包络">
+              {advancedStaticBounds.map((interval, index) => <i key={`static-${index}`} className={styles.staticSafeRange} style={{ left: `${Math.max(0, Math.min(100, (interval.minimum - project.adjustment.minimum) / Math.max(1e-9, project.adjustment.maximum - project.adjustment.minimum) * 100))}%`, width: `${Math.max(0, Math.min(100, (interval.maximum - interval.minimum) / Math.max(1e-9, project.adjustment.maximum - project.adjustment.minimum) * 100))}%` }} />)}
+              {visibleFeasibility?.intervals.map((interval, index) => <i key={`feasible-${index}`} className={styles.currentSafeRange} style={{ left: `${Math.max(0, Math.min(100, (interval.minimum - project.adjustment.minimum) / Math.max(1e-9, project.adjustment.maximum - project.adjustment.minimum) * 100))}%`, width: `${Math.max(0, Math.min(100, (interval.maximum - interval.minimum) / Math.max(1e-9, project.adjustment.maximum - project.adjustment.minimum) * 100))}%` }} />)}
+              {advancedDynamicEnvelope?.intervals.map((interval, index) => <i key={`dynamic-${index}`} className={styles.dynamicSafeRange} style={{ left: `${Math.max(0, Math.min(100, (interval.minimum - project.adjustment.minimum) / Math.max(1e-9, project.adjustment.maximum - project.adjustment.minimum) * 100))}%`, width: `${Math.max(0, Math.min(100, (interval.maximum - interval.minimum) / Math.max(1e-9, project.adjustment.maximum - project.adjustment.minimum) * 100))}%` }} />)}
+            </div>
+            <div className={styles.advancedLegend}><span><i />离线基线</span><span><i />当前工况可行</span><span><i />动态相位包络</span></div>
+            <div className={styles.impactSummary}><b>继续增大锁止值，预计：</b>{adjustmentImpact.map((impact) => <span key={impact.label} className={impact.favorable ? styles.impactGood : styles.impactBad}>{impact.label} {impact.delta >= 0 ? "+" : ""}{impact.delta.toFixed(1)} {impact.unit}</span>)}</div>
             <small>{project.adjustment.kind === "moving-pivot" ? "单位为沿导轨的位移 mm" : "单位为锁定后的有效杆长 mm"}</small>
           </section>}
 
@@ -1012,10 +1121,10 @@ export function VariableGeometryLegLab() {
 
           <section className={styles.searchBox}>
             {editingMode === "guided"
-              ? <button className={styles.primaryButton} type="button" onClick={runQuickDesign} disabled={searching}>{searching && workerTask === "quick-design" ? `${Math.round(searchProgress.progress * 100)}% · ${searchProgress.stage}` : "生成 3 个基础方案"}</button>
+              ? <button className={styles.primaryButton} type="button" onClick={runGuidedDesign} disabled={searching}>{searching && workerTask === "guided-design" ? `${Math.round(searchProgress.progress * 100)}% · ${searchProgress.stage}` : "生成可用方案"}</button>
               : <button className={styles.primaryButton} type="button" onClick={() => runSynthesis("global")} disabled={searching}>{searching && workerTask === "synthesis" ? `${Math.round(searchProgress.progress * 100)}% · ${searchProgress.stage}` : "自动综合 5 套方案"}</button>}
             <button type="button" onClick={() => runSynthesis("current-target")} disabled={searching}>精修当前杆件</button>
-            {searching && (workerTask === "synthesis" || workerTask === "quick-design") && <button className={styles.cancelButton} type="button" onClick={cancelSynthesis}>取消搜索</button>}
+            {searching && (workerTask === "synthesis" || workerTask === "guided-design") && <button className={styles.cancelButton} type="button" onClick={cancelSynthesis}>取消搜索</button>}
             <div className={styles.progress}><i style={{ width: `${searchProgress.progress * 100}%` }} /></div>
             <small>{searching ? searchProgress.message : message}</small>
           </section>
@@ -1137,17 +1246,23 @@ export function VariableGeometryLegLab() {
         <aside className={`${styles.panel} ${styles.analysisPanel}`}>
           <div className={styles.panelTitle}><div><span>02</span><h2>候选与工程检查</h2></div></div>
           {project.candidates?.length ? <div className={styles.candidateList}>
-            {project.candidates.map((candidate, index) => {
+            {project.candidates.filter((candidate) => editingMode !== "guided" || candidate.hardGateResult?.passed).slice(0, editingMode === "guided" ? 3 : 5).map((candidate, index) => {
               const quality = assessVariableLegCandidate(candidate.metrics, candidate.modes);
-              const usable = quality.level === "usable";
-              return <button type="button" key={candidate.id} className={candidate.id === project.selectedCandidateId ? styles.selectedCandidate : ""} onClick={() => applyCandidate(candidate)}>
+              const hardGate = candidate.hardGateResult ?? (candidate.guidedScenario ? assessGuidedHardGate(candidate.metrics, candidate.guidedScenario) : null);
+              const usable = hardGate ? hardGate.passed : quality.level === "usable";
+              const selectedMetric = candidate.metrics.find((metric) => metric.modeId === candidate.guidedScenario) ?? candidate.metrics[0];
+              return <div key={candidate.id} className={`${styles.candidateCard} ${candidate.id === previewCandidateId ? styles.selectedCandidate : ""}`}>
+              <button type="button" aria-label={`预览${candidate.label}`} onClick={() => setPreviewCandidateId(candidate.id)}>
               <span className={styles.rank}>{String(index + 1).padStart(2, "0")}</span>
-              <span><b>{candidate.label} <i className={usable ? styles.candidateFeasible : styles.candidateNear}>{usable ? "步态可用" : quality.level === "continuous" ? "连续·待精修" : "存在不可达"}</i></b><small>{topologyName(candidate.topology)} · {adjustmentName(candidate.adjustment.kind)} · {candidate.adjustment.targetId}{quality.issues.length ? ` · ${quality.issues[0]}` : ""}</small></span>
+              <span><b>{candidate.label} <i className={usable ? styles.candidateFeasible : styles.candidateNear}>{usable ? "硬门槛通过" : "不可应用"}</i></b><small>{topologyName(candidate.topology)} · {adjustmentName(candidate.adjustment.kind)} · {candidate.adjustment.targetId}</small></span>
               <strong>{candidate.score.toFixed(0)}</strong>
-              <em>平均 RMSE {candidate.familyRmse.toFixed(1)} mm · 调节行程 {candidate.adjustmentStroke.toFixed(1)} mm</em>
-            </button>;
+              <em>达成：步长 {selectedMetric?.stepLength.toFixed(0)} mm · 奇异裕度 {selectedMetric?.singularityMargin.toFixed(1)}° · 行程 {candidate.adjustmentStroke.toFixed(1)} mm</em>
+              {candidate.compatibility?.length ? <em>兼容性：{candidate.compatibility.map((item) => `${project.modes.find((mode) => mode.id === item.modeId)?.name ?? item.modeId} ${item.level === "compatible" ? "可兼容" : item.level === "exploratory" ? "需复核" : "不可直接切换"}`).join(" · ")}</em> : null}
+              </button>
+              {candidate.id === previewCandidateId && <button type="button" className={styles.applyCandidateButton} onClick={() => applyCandidate(candidate)} disabled={!usable}>应用此方案</button>}
+            </div>;
             })}
-          </div> : <div className={styles.emptyState}><b>{editingMode === "guided" ? "等待基础方案" : "等待多轨迹综合"}</b><p>{editingMode === "guided" ? "先填写五个宏观目标并决定哪些必须锁定，再生成稳健、大步幅和高抬腿三个当前拓扑方案。生成前不会改动当前机构。" : "系统会保持当前基础拓扑，比较适合移动的固定铰点或伸缩杆，再精修各工况锁止值并返回五套候选。"}</p></div>}
+          </div> : <div className={styles.emptyState}><b>{editingMode === "guided" && guidedSuggestions.length ? "当前目标互相冲突" : editingMode === "guided" ? "等待场景方案" : "等待多轨迹综合"}</b><p>{editingMode === "guided" ? "只会显示通过所选场景完整检查的方案；预览不会覆盖当前机构。" : "系统会保持当前基础拓扑，比较适合移动的固定铰点或伸缩杆，再精修各工况锁止值并返回五套候选。"}</p>{guidedSuggestions.length > 0 && <div className={styles.relaxSuggestions}>{guidedSuggestions.map((suggestion) => <button type="button" key={suggestion.key} onClick={() => { setGuidedRequest((current) => ({ ...current, targets: { ...current.targets, [suggestion.key]: suggestion.value } })); setGuidedSuggestions([]); setGuidedPreflight(null); }}>{suggestion.label}</button>)}</div>}</div>}
 
           {viewMode === "deployment" && <>
             <div className={styles.analysisSectionTitle}><span>整机步态</span><b>{project.deployment.legCount} 腿 · {project.deployment.preset === "custom" ? "自定义" : "预设"}</b></div>

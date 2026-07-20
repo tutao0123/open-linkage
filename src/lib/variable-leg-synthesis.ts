@@ -1,21 +1,27 @@
 import {
   VARIABLE_LEG_OPTIONS,
   analyzeVariableLegMode,
-  assessVariableLegCandidate,
-  buildVariableLegQuickDesignSeed,
+  assessGuidedHardGate,
+  buildGuidedDesignSeed,
+  cloneVariableLegProject,
   createDefaultAdjustment,
+  guidedDesignZones,
   getVariableLegTemplate,
   scoreVariableLegFamily,
+  summarizeGuidedCompatibility,
   variableLegModeCost,
   type VariableLegAdjustment,
   type VariableLegAdjustmentKind,
   type VariableLegCandidate,
   type VariableLegMode,
   type VariableLegProject,
-  type VariableLegQuickDesign,
-  type VariableLegQuickDesignPreset,
+  type GuidedDesignPreflight,
+  type GuidedDesignRequest,
+  type GuidedDesignResult,
+  type GuidedDesignRole,
   type VariableLegTopology,
 } from "./variable-leg";
+import { createGuidedSafeBaseline } from "./variable-leg-guided-baselines";
 import { cloneProject, type FreeMechanismProject } from "./free-mechanism";
 
 export type VariableLegSynthesisProgress = {
@@ -217,22 +223,67 @@ async function refineCurrentTarget(
   } satisfies VariableLegCandidate];
 }
 
-export async function synthesizeVariableLegQuickDesign(
+function guidedPreflightMetrics(project: VariableLegProject, request: GuidedDesignRequest, sampleCount: number) {
+  const mode = project.modes.find((item) => item.id === request.scenario);
+  if (!mode) return [];
+  return [analyzeVariableLegMode(project.baseProject, project.adjustment, mode, sampleCount, 64)];
+}
+
+export function preflightGuidedDesign(source: VariableLegProject, request: GuidedDesignRequest): GuidedDesignPreflight {
+  const currentGate = assessGuidedHardGate(guidedPreflightMetrics(source, request, 24), request.scenario);
+  const baseline = createGuidedSafeBaseline(source.topology, request.scenario);
+  const selected = currentGate.passed ? source : baseline;
+  const selectedGate = assessGuidedHardGate(guidedPreflightMetrics(selected, request, 36), request.scenario);
+  return {
+    source: currentGate.passed ? "current" : "safe-baseline",
+    currentGate,
+    selectedGate,
+    zones: guidedDesignZones(request),
+    message: currentGate.passed
+      ? "当前机构通过快速健康检查，本次从当前机构继续搜索。"
+      : selectedGate.passed
+        ? "当前机构不可用，本次从同拓扑安全基线生成；不会覆盖当前项目。"
+        : "当前机构未通过快速检查；将从同拓扑离线种子继续搜索，只有最终通过完整硬门槛才会显示。",
+  };
+}
+
+function guidedSuggestions(request: GuidedDesignRequest) {
+  if (request.scenario === "sprint") return [
+    { key: "rpm" as const, value: Math.max(6, Math.round(request.targets.rpm * 0.82)), label: "降低主轴转速 18%" },
+    { key: "landingSpeedLimit" as const, value: Math.round(request.targets.landingSpeedLimit * 1.2), label: "放宽落地速度上限 20%" },
+  ];
+  if (request.scenario === "obstacle") return [
+    { key: "liftHeight" as const, value: Math.max(20, Math.round(request.targets.liftHeight * 0.85)), label: "降低净离地高度 15%" },
+    { key: "stepLength" as const, value: Math.max(50, Math.round(request.targets.stepLength * 0.88)), label: "缩短步长 12%" },
+  ];
+  return [
+    { key: "stepLength" as const, value: Math.max(50, Math.round(request.targets.stepLength * 0.88)), label: "缩短步长 12%" },
+    { key: "landingSpeedLimit" as const, value: Math.round(request.targets.landingSpeedLimit * 1.15), label: "放宽落地速度上限 15%" },
+  ];
+}
+
+export async function synthesizeVariableLegGuidedDesign(
   source: VariableLegProject,
-  design: VariableLegQuickDesign,
+  request: GuidedDesignRequest,
   onProgress?: (progress: VariableLegSynthesisProgress) => void,
   shouldCancel: () => boolean = () => false,
-) {
-  const presets: Array<{ preset: VariableLegQuickDesignPreset; label: string }> = [
-    { preset: "stable", label: "稳健基础" },
-    { preset: "stride", label: "大步幅基础" },
-    { preset: "clearance", label: "高抬腿基础" },
+): Promise<GuidedDesignResult> {
+  const preflight = preflightGuidedDesign(source, request);
+  const baseline = preflight.source === "current" ? cloneVariableLegProject(source) : (() => {
+    const project = createGuidedSafeBaseline(source.topology, request.scenario);
+    project.deployment = source.deployment;
+    return project;
+  })();
+  const roles: Array<{ role: GuidedDesignRole; label: string }> = [
+    { role: "recommended", label: "推荐方案" },
+    { role: "conservative", label: "保守备选" },
+    { role: "performance", label: "性能备选" },
   ];
   const candidates: VariableLegCandidate[] = [];
-  for (let index = 0; index < presets.length; index += 1) {
+  for (let index = 0; index < roles.length; index += 1) {
     if (shouldCancel()) throw new VariableLegSynthesisCancelled();
-    const option = presets[index];
-    const seed = buildVariableLegQuickDesignSeed(source, design, option.preset);
+    const option = roles[index];
+    const seed = buildGuidedDesignSeed(baseline, request, option.role);
     const seedMetrics: ReturnType<typeof analyzeVariableLegMode>[] = [];
     seed.modes = seed.modes.map((mode) => {
       let bestMode = { ...mode };
@@ -257,24 +308,24 @@ export async function synthesizeVariableLegQuickDesign(
       return bestMode;
     });
     onProgress?.({
-      progress: (index + 0.08) / presets.length,
+      progress: (index + 0.08) / roles.length,
       stage: "scan",
       message: `${option.label}：正在寻找各工况连续锁止值`,
     });
     await yieldToWorker();
-    const seedIsUsable = assessVariableLegCandidate(seedMetrics, seed.modes).level === "usable";
+    const seedIsUsable = assessGuidedHardGate(seedMetrics, request.scenario).passed;
     const refined = seedIsUsable ? [] : await refineCurrentTarget(
         seed,
         (progress) => onProgress?.({
           ...progress,
-          progress: (index + progress.progress) / presets.length,
+          progress: (index + progress.progress) / roles.length,
           message: `${option.label}：${progress.message}`,
         }),
         shouldCancel,
       );
     const family = scoreVariableLegFamily(seedMetrics, seed.modes, seed.adjustment);
     const candidate = refined[0] ?? {
-      id: `quick-design-${option.preset}`,
+      id: `guided-design-${option.role}`,
       label: option.label,
       topology: seed.topology,
       baseProject: seed.baseProject,
@@ -285,15 +336,24 @@ export async function synthesizeVariableLegQuickDesign(
       adjustmentStroke: family.stroke,
       metrics: seedMetrics,
     } satisfies VariableLegCandidate;
-    if (candidate) candidates.push({
+    if (candidate) {
+      const finalMetrics = candidate.modes.map((mode) => analyzeVariableLegMode(candidate.baseProject, candidate.adjustment, mode, 72, 90));
+      const hardGateResult = assessGuidedHardGate(finalMetrics, request.scenario);
+      if (hardGateResult.passed) candidates.push({
       ...candidate,
-      id: `quick-design-${option.preset}`,
+      id: `guided-design-${option.role}`,
       label: option.label,
       topology: source.topology,
-    });
+      role: option.role,
+      guidedScenario: request.scenario,
+      hardGateResult,
+      compatibility: summarizeGuidedCompatibility(finalMetrics, request.scenario),
+      metrics: finalMetrics,
+      });
+    }
   }
-  onProgress?.({ progress: 1, stage: "finalize", message: "三个基础方案已完成" });
-  return candidates;
+  onProgress?.({ progress: 1, stage: "finalize", message: candidates.length ? `已找到 ${candidates.length} 个通过硬门槛的方案` : "没有方案通过所选场景硬门槛" });
+  return { candidates, preflight, suggestions: candidates.length ? [] : guidedSuggestions(request) };
 }
 
 export async function synthesizeVariableLeg(

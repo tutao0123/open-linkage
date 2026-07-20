@@ -3,17 +3,19 @@ import { describe, expect, it } from "vitest";
 import {
   analyzeVariableLegBarSamples,
   analyzeVariableLegProject,
+  assessGuidedHardGate,
   assessVariableLegCandidate,
   applyVariableLegDesignerReturn,
   applyVariableLegRecommendedRange,
-  buildVariableLegQuickDesignSeed,
+  buildGuidedDesignSeed,
   buildVariableLegFeasibleIntervals,
   cloneVariableLegProject,
   createVariableLegDesignerTransfer,
   createDefaultAdjustment,
   createDefaultVariableLegProject,
-  createVariableLegQuickDesign,
+  createGuidedDesignRequest,
   getVariableLegTemplate,
+  guidedDesignZones,
   isVariableLegProject,
   materializeVariableLegMode,
   measureGaitClearance,
@@ -28,12 +30,13 @@ import {
   type VariableLegAdjustmentFeasibility,
 } from "./variable-leg";
 import { getVariableLegBaselineBounds } from "./variable-leg-baselines";
+import { createGuidedSafeBaseline, guidedSafeBaselineMetadata } from "./variable-leg-guided-baselines";
 import {
   getVariableLegDynamicLengthEnvelope,
   listVariableLegDynamicBars,
   variableLegDynamicEnvelopeMetadata,
 } from "./variable-leg-dynamic-envelopes";
-import { synthesizeVariableLeg, synthesizeVariableLegQuickDesign } from "./variable-leg-synthesis";
+import { preflightGuidedDesign, synthesizeVariableLeg, synthesizeVariableLegGuidedDesign, VariableLegSynthesisCancelled } from "./variable-leg-synthesis";
 
 describe("variable geometry walking leg", () => {
   it("measures swing clearance from the stance plane", () => {
@@ -53,7 +56,7 @@ describe("variable geometry walking leg", () => {
 
   it("uses the walking assembly branch and clockwise phase convention for Klann", () => {
     const project = createDefaultVariableLegProject();
-    const candidates = buildVariableLegQuickDesignSeed(project, createVariableLegQuickDesign(project), "stride");
+    const candidates = buildGuidedDesignSeed(project, createGuidedDesignRequest(project), "performance");
     const metrics = analyzeVariableLegProject(candidates).metrics;
     expect(metrics.every((metric) => metric.stepLength > 180)).toBe(true);
     expect(metrics.every((metric) => metric.liftHeight > 40)).toBe(true);
@@ -70,6 +73,17 @@ describe("variable geometry walking leg", () => {
       liftHeight: 0,
     }));
     expect(assessVariableLegCandidate(broken, project.modes).level).toBe("continuous");
+  });
+
+  it.each(["klann", "jansen"] as const)("keeps three offline %s guided baseline seeds", (topology) => {
+    expect(guidedSafeBaselineMetadata().seedCount).toBe(6);
+    for (const scenario of ["cruise", "sprint", "obstacle"] as const) {
+      const baseline = createGuidedSafeBaseline(topology, scenario);
+      const gate = assessGuidedHardGate(analyzeVariableLegProject(baseline, 72, 90).metrics, scenario);
+      expect(gate.modeId).toBe(scenario);
+      expect(Number.isFinite(gate.validRatio)).toBe(true);
+      expect(baseline.activeModeId).toBe(scenario);
+    }
   });
 
   it("keeps a moving pivot locked throughout the cycle", () => {
@@ -208,31 +222,33 @@ describe("variable geometry walking leg", () => {
     expect(returned.project.candidates).toEqual([]);
   });
 
-  it("builds three quick-design directions while keeping locked macro targets exact", () => {
+  it("maps a guided scene to three scenario targets without lock state", () => {
     const source = createDefaultVariableLegProject();
     source.deployment.mountSpan = 432;
-    const design = createVariableLegQuickDesign(source);
-    design.stepLength = 310;
-    design.liftHeight = 105;
-    design.crankRadius = 72;
-    design.locked.stepLength = true;
-    design.locked.liftHeight = true;
-    design.locked.crankRadius = true;
-    design.locked.stanceRatio = false;
-    const stable = buildVariableLegQuickDesignSeed(source, design, "stable");
-    const stride = buildVariableLegQuickDesignSeed(source, design, "stride");
-    const clearance = buildVariableLegQuickDesignSeed(source, design, "clearance");
-    for (const seed of [stable, stride, clearance]) {
-      const active = seed.modes.find((mode) => mode.id === seed.activeModeId)!;
-      const xs = active.targetPath.map((point) => point.x);
-      expect(Math.abs((Math.max(...xs) - Math.min(...xs)) - 310)).toBeLessThan(3);
-      expect(Math.abs(measureGaitClearance(active.targetPath, active.stanceStart, active.stanceEnd) - 105)).toBeLessThan(2.5);
-      expect(seed.baseProject.bars.find((bar) => bar.id === seed.baseProject.driverId)?.length).toBeCloseTo(72, 5);
+    const request = createGuidedDesignRequest(source, "obstacle");
+    request.targets.stepLength = 310;
+    request.targets.liftHeight = 105;
+    const recommended = buildGuidedDesignSeed(source, request, "recommended");
+    const conservative = buildGuidedDesignSeed(source, request, "conservative");
+    const performance = buildGuidedDesignSeed(source, request, "performance");
+    for (const seed of [recommended, conservative, performance]) {
+      const active = seed.modes.find((mode) => mode.id === "obstacle")!;
+      expect(active.weight).toBe(2);
       expect(seed.topology).toBe(source.topology);
       expect(seed.deployment.mountSpan).toBe(432);
     }
-    expect(stable.modes[0].stanceEnd).not.toBe(stride.modes[0].stanceEnd);
-    expect(clearance.modes[0].stanceEnd).not.toBe(stride.modes[0].stanceEnd);
+    expect(recommended.modes.find((mode) => mode.id === "obstacle")?.rpm).toBe(request.targets.rpm);
+    expect(conservative.baseProject.bars.find((bar) => bar.id === conservative.baseProject.driverId)?.length)
+      .not.toBe(performance.baseProject.bars.find((bar) => bar.id === performance.baseProject.driverId)?.length);
+  });
+
+  it("uses offline scene ranges instead of moving the safe zone with the requested value", () => {
+    const source = createDefaultVariableLegProject();
+    const cruise = createGuidedDesignRequest(source, "cruise");
+    cruise.targets.stepLength = 700;
+    const sprint = createGuidedDesignRequest(source, "sprint");
+    expect(guidedDesignZones(cruise).stepLength.recommended).toEqual([180, 300]);
+    expect(guidedDesignZones(sprint).stepLength.recommended).toEqual([220, 380]);
   });
 
   it("changes a base bar through a cloned draft and translates telescopic locks", () => {
@@ -355,16 +371,27 @@ describe("variable geometry walking leg", () => {
     expect(candidates[0].adjustment.targetId).toBe(project.adjustment.targetId);
   }, 30_000);
 
-  it("returns three current-topology quick-design candidates without changing deployment", async () => {
+  it("only returns guided candidates that pass the selected-scene hard gate", async () => {
     const project = createDefaultVariableLegProject();
     project.adjustment = createDefaultAdjustment("klann", "telescopic-bar");
     project.modes = project.modes.map((mode) => ({ ...mode, adjustmentValue: project.adjustment.kind === "telescopic-bar" ? project.adjustment.baseLength : 0 }));
     project.deployment.mountSpan = 515;
-    const design = createVariableLegQuickDesign(project);
-    const candidates = await synthesizeVariableLegQuickDesign(project, design);
-    expect(candidates.map((candidate) => candidate.label)).toEqual(["稳健基础", "大步幅基础", "高抬腿基础"]);
-    expect(candidates.every((candidate) => candidate.topology === project.topology)).toBe(true);
-    expect(candidates.every((candidate) => candidate.metrics.every((metric) => metric.validRatio >= 0.99 && metric.branchSwitches === 0))).toBe(true);
+    const request = createGuidedDesignRequest(project, "cruise");
+    const preflight = preflightGuidedDesign(project, request);
+    expect(["current", "safe-baseline"]).toContain(preflight.source);
+    const result = await synthesizeVariableLegGuidedDesign(project, request);
+    expect(result.candidates.length).toBeLessThanOrEqual(3);
+    expect(result.candidates.every((candidate) => candidate.topology === project.topology)).toBe(true);
+    expect(result.candidates.every((candidate) => candidate.hardGateResult?.passed && assessGuidedHardGate(candidate.metrics, "cruise").passed)).toBe(true);
+    expect(result.candidates.length > 0 || result.suggestions.length > 0).toBe(true);
     expect(project.deployment.mountSpan).toBe(515);
   }, 60_000);
+
+  it("cancels a guided synthesis before it mutates or publishes a result", async () => {
+    const project = createDefaultVariableLegProject();
+    const request = createGuidedDesignRequest(project, "cruise");
+    await expect(synthesizeVariableLegGuidedDesign(project, request, undefined, () => true))
+      .rejects.toBeInstanceOf(VariableLegSynthesisCancelled);
+    expect(project.candidates).toEqual([]);
+  });
 });

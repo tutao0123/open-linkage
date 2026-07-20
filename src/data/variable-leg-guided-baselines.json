@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "phaseCount": 72,
+  "hardGate": { "validRatio": 0.99, "branchSwitches": 0, "singularityMarginDegrees": 5 },
+  "seeds": {
+    "klann:cruise": { "topology": "klann", "scenario": "cruise", "adjustmentKind": "moving-pivot", "adjustmentTarget": "J1", "adjustmentValue": 0 },
+    "klann:sprint": { "topology": "klann", "scenario": "sprint", "adjustmentKind": "moving-pivot", "adjustmentTarget": "J1", "adjustmentValue": 18 },
+    "klann:obstacle": { "topology": "klann", "scenario": "obstacle", "adjustmentKind": "moving-pivot", "adjustmentTarget": "J1", "adjustmentValue": -18 },
+    "jansen:cruise": { "topology": "jansen", "scenario": "cruise", "adjustmentKind": "moving-pivot", "adjustmentTarget": "J3", "adjustmentValue": 0 },
+    "jansen:sprint": { "topology": "jansen", "scenario": "sprint", "adjustmentKind": "moving-pivot", "adjustmentTarget": "J3", "adjustmentValue": 16 },
+    "jansen:obstacle": { "topology": "jansen", "scenario": "obstacle", "adjustmentKind": "moving-pivot", "adjustmentTarget": "J3", "adjustmentValue": -16 }
+  }
+}

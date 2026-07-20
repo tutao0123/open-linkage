@@ -1066,14 +1066,10 @@ export function VariableGeometryLegLab() {
               {viewMode === "mechanism" ? <>
                 <defs><pattern id="variable-leg-grid" width="25" height="25" patternUnits="userSpaceOnUse"><path d="M25 0H0V25" className={styles.grid} /></pattern></defs>
                 <rect x={viewport.view.x} y={viewport.view.y} width={viewport.view.width} height={viewport.view.height} fill="url(#variable-leg-grid)" />
-                {analysis.metrics.map((metric) => {
-                const mode = project.modes.find((item) => item.id === metric.modeId)!;
-                const aligned = metric.path.length ? alignedTargetPath(mode.targetPath, metric.path) : mode.targetPath;
-                return <g key={mode.id} opacity={mode.id === activeMode.id ? 1 : 0.5}>
-                  <path d={pathData(aligned)} fill="none" stroke={mode.color} strokeWidth={mode.id === activeMode.id ? 4 : 2} strokeDasharray="8 6" className={styles.targetPath} />
-                  <path d={pathData(metric.path)} fill="none" stroke={mode.color} strokeWidth={mode.id === activeMode.id ? 3 : 1.5} className={styles.actualPath} />
-                </g>;
-                })}
+                <g>
+                  <path d={pathData(activeMetrics.path.length ? alignedTargetPath(activeMode.targetPath, activeMetrics.path) : activeMode.targetPath)} fill="none" stroke={activeMode.color} strokeWidth="4" strokeDasharray="8 6" className={styles.targetPath} />
+                  <path d={pathData(activeMetrics.path)} fill="none" stroke={activeMode.color} strokeWidth="3" className={styles.actualPath} />
+                </g>
                 {previewPath.length > 2 && <path d={pathData(previewPath)} className={styles.previewPath} />}
                 {drawingPoints.length > 1 && <path d={pathData(drawingPoints, false)} className={styles.draftPath} />}
 
@@ -1125,7 +1121,7 @@ export function VariableGeometryLegLab() {
           </div>
           <div className={styles.legend}>
             {viewMode === "mechanism" ? <>
-              {project.modes.map((mode) => <span key={mode.id}><i style={{ background: mode.color }} />{mode.name}</span>)}
+              <span><i style={{ background: activeMode.color }} />当前工况 · {activeMode.name}</span>
               <span><i className={styles.legendTarget} />虚线目标 / 实线实际</span>
             </> : <>
               <span><i className={styles.legendStance} />支撑相</span><span><i className={styles.legendSwing} />摆动相</span><span>足迹 {footprints.length}/80</span>

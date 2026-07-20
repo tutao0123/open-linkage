@@ -175,10 +175,6 @@ export function SixBarLegLab() {
     [candidates, selectedCandidateId],
   );
   const targetPathData = useMemo(() => pathData(targetPoints), [targetPoints]);
-  const candidatePathData = useMemo(
-    () => pathData(selectedCandidate?.generatedPath ?? []),
-    [selectedCandidate],
-  );
   const maximumLength = Math.max(
     parameters.groundPivot,
     parameters.crank,
@@ -485,7 +481,6 @@ export function SixBarLegLab() {
               <path d={`M0,0 L${parameters.groundPivot},0 L${parameters.rearPivotX},${-parameters.rearPivotY} Z`} className={styles.ground} />
               {analysis.trailPath && <path d={analysis.trailPath} className={styles.trail} />}
               {targetPathData && <path d={targetPathData} className={styles.targetPath} />}
-              {candidatePathData && <path d={candidatePathData} className={styles.candidatePath} />}
               {position ? (
                 <>
                   <line x1="0" y1="0" x2={position.crankJoint.x} y2={-position.crankJoint.y} className={`${styles.link} ${styles.crank}`} />
@@ -514,9 +509,8 @@ export function SixBarLegLab() {
             {fitting && <div className={styles.optimizingOverlay}><strong>{Math.round(fitProgress * 100)}%</strong><span>搜索可制造的六杆方案</span></div>}
           </div>
           <div className={styles.legend}>
-            <span><i className={styles.legendTarget} />目标足迹</span>
-            <span><i className={styles.legendCurrent} />当前机构</span>
-            <span><i className={styles.legendCandidate} />候选拟合</span>
+            <span><i className={styles.legendTarget} />目标轨迹</span>
+            <span><i className={styles.legendCurrent} />实际轨迹</span>
           </div>
           <div className={styles.transport}>
             <button type="button" onClick={() => setPlaying((current) => !current)} aria-label={playing ? "暂停六杆腿动画" : "播放六杆腿动画"}>{playing ? "Ⅱ" : "▶"}</button>

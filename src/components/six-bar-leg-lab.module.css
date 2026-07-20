@@ -261,8 +261,10 @@
 
 .stage {
   min-width: 0;
+  height: calc(100dvh - 66px);
   display: grid;
-  grid-template-rows: 54px minmax(500px, 1fr) 34px 76px;
+  grid-template-rows: 54px minmax(0, 1fr) 34px 76px;
+  overflow: hidden;
   background: #dfe0d8;
 }
 
@@ -283,7 +285,7 @@
 .invalid { background: #efc7b4; }
 
 .canvas {
-  min-height: 500px;
+  min-height: 0;
   padding: 18px;
   display: flex;
   position: relative;
@@ -447,7 +449,7 @@
   .layout { display: block; }
   .panel,
   .analysis { border: 0; border-bottom: 1px solid #c5c6be; }
-  .stage { grid-template-rows: 54px minmax(430px, 1fr) 34px auto; }
+  .stage { height: auto; grid-template-rows: 54px minmax(430px, 1fr) 34px auto; }
   .canvas { min-height: 430px; padding: 5px; }
   .candidateList,
   .metrics { display: block; }

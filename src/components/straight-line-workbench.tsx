@@ -20,6 +20,7 @@ import {
 import { SvgViewportControls } from "./svg-viewport-controls";
 import { useSvgViewport } from "./use-svg-viewport";
 import styles from "./straight-line-workbench.module.css";
+import viewportStyles from "./workbench-viewport.module.css";
 
 type Point = { x: number; y: number };
 
@@ -273,13 +274,13 @@ export function StraightLineWorkbench() {
           <small className={styles.editHint}>会以当前经典机构作为起点，之后可自由添加杆件、刚体、移动副和驱动。</small>
         </aside>
 
-        <section className={styles.stage}>
+        <section className={`${styles.stage} ${viewportStyles.straightStage}`}>
           <div className={styles.stageHeader}>
             <div><span>{activeTemplate.english}</span><b>{activeTemplate.name}</b></div>
             <div className={styles.legend}><span><i className={styles.fullLegend} />完整轨迹</span><span><i className={styles.segmentLegend} />最佳直线段</span></div>
             <strong className={cycle.valid ? styles.pass : styles.warn}>{cycle.valid ? "CYCLE SOLVED" : "CHECK ASSEMBLY"}</strong>
           </div>
-          <div className={styles.canvas}>
+          <div className={`${styles.canvas} ${viewportStyles.canvas}`}>
             <SvgViewportControls zoom={viewport.zoom} onZoomIn={viewport.zoomIn} onZoomOut={viewport.zoomOut} onReset={viewport.resetView} />
             <svg ref={svgRef} viewBox={viewport.viewBox} onPointerDown={viewport.startPan} onPointerMove={viewport.movePan} onPointerUp={viewport.endPan} onPointerCancel={viewport.endPan} aria-label={`${activeTemplate.name}运动与轨迹`}>
               <defs><pattern id="straight-grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" className={styles.gridLine} /></pattern></defs>
@@ -288,7 +289,6 @@ export function StraightLineWorkbench() {
               <line x1="0" y1={viewport.view.y} x2="0" y2={viewport.view.y + viewport.view.height} className={styles.axis} />
               {trajectoryPath && <path d={trajectoryPath} className={styles.trajectory} />}
               {segmentPath && <path d={segmentPath} className={styles.straightPath} />}
-              {segment && <line x1={renderCoordinate(segment.start.x)} y1={renderCoordinate(segment.start.y)} x2={renderCoordinate(segment.end.x)} y2={renderCoordinate(segment.end.y)} className={styles.fitLine} />}
               {fixedJoints.length > 1 && <line x1={fixedJoints[0].x} y1={fixedJoints[0].y} x2={fixedJoints[1].x} y2={fixedJoints[1].y} className={styles.groundLink} />}
               {project.bodies.map((body) => {
                 const points = body.jointIds.map((id) => project.joints.find((joint) => joint.id === id)).filter((joint): joint is FreeJoint => Boolean(joint));

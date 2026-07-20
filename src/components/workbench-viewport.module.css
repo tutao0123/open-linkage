@@ -1,0 +1,54 @@
+.fourBarStage,
+.straightStage,
+.designerStage {
+  height: calc(100dvh - 66px);
+  overflow: hidden;
+}
+
+.fourBarStage {
+  grid-template-rows: 54px minmax(0, 1fr) 76px;
+}
+
+.straightStage {
+  grid-template-rows: 62px minmax(0, 1fr) 78px;
+}
+
+.designerStage {
+  grid-template-rows: 54px minmax(0, 1fr) 34px 76px;
+}
+
+.canvas {
+  min-height: 0;
+}
+
+.targetLine {
+  border-top: 4px solid #287fa8;
+}
+
+.actualLine {
+  border-top: 3px dashed #5c8118;
+}
+
+@media (max-width: 760px) {
+  .fourBarStage,
+  .straightStage,
+  .designerStage {
+    height: auto;
+  }
+
+  .fourBarStage {
+    grid-template-rows: auto minmax(430px, 1fr) auto;
+  }
+
+  .straightStage {
+    grid-template-rows: auto minmax(430px, 1fr) auto;
+  }
+
+  .designerStage {
+    grid-template-rows: 54px minmax(430px, 1fr) auto auto;
+  }
+
+  .canvas {
+    min-height: 430px;
+  }
+}

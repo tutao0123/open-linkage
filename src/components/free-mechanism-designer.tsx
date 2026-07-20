@@ -55,6 +55,7 @@ import { SvgViewportControls } from "./svg-viewport-controls";
 import { useMechanismHistory } from "./use-mechanism-history";
 import { useSvgViewport } from "./use-svg-viewport";
 import styles from "./free-mechanism-designer.module.css";
+import viewportStyles from "./workbench-viewport.module.css";
 
 type Tool = "select" | "fixed" | "moving" | "slider" | "bar" | "body" | "tracer" | "dimension";
 type Selection = { kind: "joint" | "bar" | "body" | "tracer" | "dimension" | "load"; id: string } | null;
@@ -835,7 +836,7 @@ export function FreeMechanismDesigner({ initialTemplateId, loadTransfer = false 
       color: TRAIL_COLORS[index % TRAIL_COLORS.length],
       path: points.length > 1 ? `M ${points.map((point) => `${point.x} ${point.y}`).join(" L ")}` : "",
     };
-  });
+  }).filter((trace) => trace.id === project.activeTracerId);
   const trailSampleCount = Object.values(trails).reduce((total, points) => total + points.length, 0);
 
   const saveAndReturnToVariableLeg = () => {
@@ -894,12 +895,12 @@ export function FreeMechanismDesigner({ initialTemplateId, loadTransfer = false 
           </div>
         </aside>
 
-        <section className={styles.stage}>
+        <section className={`${styles.stage} ${viewportStyles.designerStage}`}>
           <div className={styles.stageHeader}>
             <span>FREE TOPOLOGY / XY PLANE</span><span>{project.joints.length} J / {project.bars.length} L / {project.bodies.length} B / {hydraulicActuators.length} A / {(project.loads ?? []).length} F</span>
             <b className={constraintError < 0.25 ? styles.ready : styles.warning}>{constraintError < 0.25 ? "CONSTRAINTS SOLVED" : "NEEDS SOLVE"}</b>
           </div>
-          <div className={styles.canvas}>
+          <div className={`${styles.canvas} ${viewportStyles.canvas}`}>
             <div className={styles.canvasActions} role="group" aria-label="自由机构画布操作">
               <button type="button" className={tool === "select" ? styles.canvasActive : ""} onClick={() => changeTool("select")}>编辑</button>
               <button

@@ -15,6 +15,7 @@ import { SvgViewportControls } from "./svg-viewport-controls";
 import { useSvgViewport } from "./use-svg-viewport";
 import styles from "./four-bar-lab.module.css";
 import editorStyles from "./four-bar-editor.module.css";
+import viewportStyles from "./workbench-viewport.module.css";
 
 const DEFAULT_PARAMETERS: FourBarParameters = {
   ground: 300,
@@ -416,19 +417,19 @@ export function FourBarLab() {
           </div>
         </aside>
 
-        <main className={styles.canvasColumn}>
+        <main className={`${styles.canvasColumn} ${viewportStyles.fourBarStage}`}>
           <div className={styles.canvasToolbar}>
             <div>
               <span className={styles.statusChip}>{position ? "闭环已求解" : "当前位置无解"}</span>
               <span>输入角 θ₂ = {inputAngle.toFixed(1)}°</span>
             </div>
             <div className={styles.legend}>
-              <span><i className={styles.targetLine} />轨迹</span>
-              <span><i className={styles.linkLine} />杆件</span>
+              <span><i className={viewportStyles.targetLine} />目标轨迹</span>
+              <span><i className={viewportStyles.actualLine} />实际轨迹</span>
             </div>
           </div>
 
-          <div className={`${styles.canvas} ${editorStyles.canvasSurface}`}>
+          <div className={`${styles.canvas} ${editorStyles.canvasSurface} ${viewportStyles.canvas}`}>
             <div className={editorStyles.canvasActions}>
               <div className={editorStyles.modeSwitch}>
                 <button className={editorMode === "mechanism" ? editorStyles.selected : ""} type="button" onClick={() => setEditorMode("mechanism")}>编辑机构</button>

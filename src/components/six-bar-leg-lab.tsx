@@ -194,7 +194,7 @@ export function SixBarLegLab() {
     width: maximumLength * 3.4,
     height: maximumLength * 2.9,
   }), [maximumLength]);
-  const viewport = useSvgViewport(baseView);
+  const viewport = useSvgViewport(baseView, svgRef);
   const landingSpeed = selectedCandidate
     ? selectedCandidate.landingVelocityPerRadian * speed * Math.PI * 2 / 60
     : null;
@@ -467,7 +467,6 @@ export function SixBarLegLab() {
               viewBox={viewport.viewBox}
               role="img"
               aria-label="Watt 类六杆机械腿运动学与目标足迹画布"
-              onWheel={viewport.handleWheel}
               onPointerDown={(event) => {
                 if (!viewport.startPan(event)) startDrawing(event);
               }}

@@ -131,9 +131,9 @@ export function FreeMechanismDesigner({ initialTemplateId, loadTransfer = false 
     ? `${initialTemplate.name}模板已载入，可直接播放或继续修改拓扑。`
     : "四杆模板已就绪。可直接播放，或继续添加移动副、杆件和尺寸约束。");
   const [variableLegTransfer, setVariableLegTransfer] = useState<VariableLegDesignerTransfer | null>(null);
-  const viewportBase = useMemo(() => ({ x: -420, y: -300, width: 840, height: 600 }), []);
-  const viewport = useSvgViewport(viewportBase);
   const svgRef = useRef<SVGSVGElement>(null);
+  const viewportBase = useMemo(() => ({ x: -420, y: -300, width: 840, height: 600 }), []);
+  const viewport = useSvgViewport(viewportBase, svgRef);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragRef = useRef<{ id: string; pointerId: number } | null>(null);
   const phaseRef = useRef(driverPhase(project));
@@ -935,7 +935,6 @@ export function FreeMechanismDesigner({ initialTemplateId, loadTransfer = false 
               className={`${tool !== "select" ? styles.creationCursor : ""} ${viewport.isPanning ? styles.panning : ""}`}
               viewBox={viewport.viewBox}
               onClick={handleCanvasClick}
-              onWheel={viewport.handleWheel}
               onPointerDown={(event) => viewport.startPan(event)}
               onPointerMove={(event) => viewport.movePan(event)}
               onPointerUp={(event) => viewport.endPan(event)}

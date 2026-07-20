@@ -139,7 +139,7 @@ export function FourBarLab() {
     width: parameters.ground + horizontalPadding * 2,
     height: verticalExtent * 2,
   }), [horizontalPadding, parameters.ground, verticalExtent]);
-  const viewport = useSvgViewport(baseView);
+  const viewport = useSvgViewport(baseView, svgRef);
 
   const updateLength = (key: keyof FourBarParameters, value: number) => {
     setParameters((current) => ({ ...current, [key]: Math.max(1, value || 1) }));
@@ -451,7 +451,6 @@ export function FourBarLab() {
               viewBox={viewport.viewBox}
               role="img"
               aria-label="四杆机构运动学画布"
-              onWheel={viewport.handleWheel}
               onPointerDown={(event) => {
                 if (!viewport.startPan(event)) startDrawing(event);
               }}

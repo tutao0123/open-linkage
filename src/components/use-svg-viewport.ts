@@ -1,11 +1,12 @@
 "use client";
 
 import {
+  useEffect,
   useMemo,
   useRef,
   useState,
+  type RefObject,
   type PointerEvent as ReactPointerEvent,
-  type WheelEvent as ReactWheelEvent,
 } from "react";
 
 export type SvgViewRect = {
@@ -47,10 +48,12 @@ function resolveView(base: SvgViewRect, state: ViewportState): SvgViewRect {
   };
 }
 
-export function useSvgViewport(base: SvgViewRect) {
+export function useSvgViewport(base: SvgViewRect, targetRef?: RefObject<SVGSVGElement | null>) {
   const [state, setState] = useState<ViewportState>({ zoom: 1, panX: 0, panY: 0 });
   const [isPanning, setIsPanning] = useState(false);
   const panStartRef = useRef<PanStart | null>(null);
+  const internalSvgRef = useRef<SVGSVGElement>(null);
+  const svgRef = targetRef ?? internalSvgRef;
   const view = useMemo(() => resolveView(base, state), [base, state]);
 
   const zoomBy = (factor: number) => {
@@ -63,29 +66,37 @@ export function useSvgViewport(base: SvgViewRect) {
     panStartRef.current = null;
   };
 
-  const handleWheel = (event: ReactWheelEvent<SVGSVGElement>) => {
-    event.preventDefault();
-    const bounds = event.currentTarget.getBoundingClientRect();
-    if (!bounds.width || !bounds.height) return;
+  useEffect(() => {
+    const svg = svgRef.current;
+    if (!svg) return;
 
-    const ratioX = Math.min(1, Math.max(0, (event.clientX - bounds.left) / bounds.width));
-    const ratioY = Math.min(1, Math.max(0, (event.clientY - bounds.top) / bounds.height));
-    setState((current) => {
-      const currentView = resolveView(base, current);
-      const nextZoom = clampZoom(current.zoom * (event.deltaY < 0 ? 1.16 : 1 / 1.16));
-      const nextWidth = base.width / nextZoom;
-      const nextHeight = base.height / nextZoom;
-      const focusX = currentView.x + ratioX * currentView.width;
-      const focusY = currentView.y + ratioY * currentView.height;
-      const nextX = focusX - ratioX * nextWidth;
-      const nextY = focusY - ratioY * nextHeight;
-      return {
-        zoom: nextZoom,
-        panX: nextX - base.x - (base.width - nextWidth) / 2,
-        panY: nextY - base.y - (base.height - nextHeight) / 2,
-      };
-    });
-  };
+    const handleWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      const bounds = svg.getBoundingClientRect();
+      if (!bounds.width || !bounds.height) return;
+
+      const ratioX = Math.min(1, Math.max(0, (event.clientX - bounds.left) / bounds.width));
+      const ratioY = Math.min(1, Math.max(0, (event.clientY - bounds.top) / bounds.height));
+      setState((current) => {
+        const currentView = resolveView(base, current);
+        const nextZoom = clampZoom(current.zoom * (event.deltaY < 0 ? 1.16 : 1 / 1.16));
+        const nextWidth = base.width / nextZoom;
+        const nextHeight = base.height / nextZoom;
+        const focusX = currentView.x + ratioX * currentView.width;
+        const focusY = currentView.y + ratioY * currentView.height;
+        const nextX = focusX - ratioX * nextWidth;
+        const nextY = focusY - ratioY * nextHeight;
+        return {
+          zoom: nextZoom,
+          panX: nextX - base.x - (base.width - nextWidth) / 2,
+          panY: nextY - base.y - (base.height - nextHeight) / 2,
+        };
+      });
+    };
+
+    svg.addEventListener("wheel", handleWheel, { passive: false });
+    return () => svg.removeEventListener("wheel", handleWheel);
+  }, [base, svgRef]);
 
   const startPan = (event: ReactPointerEvent<SVGSVGElement>) => {
     if (event.button !== 1 && !event.altKey) return false;
@@ -137,7 +148,6 @@ export function useSvgViewport(base: SvgViewRect) {
     zoomIn: () => zoomBy(1.25),
     zoomOut: () => zoomBy(1 / 1.25),
     resetView,
-    handleWheel,
     startPan,
     movePan,
     endPan,

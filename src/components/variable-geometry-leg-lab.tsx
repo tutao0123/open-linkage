@@ -154,7 +154,7 @@ export function VariableGeometryLegLab() {
   const footprintSequenceRef = useRef(0);
   const pointDragRef = useRef<{ pointerId: number; index: number } | null>(null);
   const viewportBase = useMemo(() => ({ x: -560, y: -360, width: 1120, height: 760 }), []);
-  const viewport = useSvgViewport(viewportBase);
+  const viewport = useSvgViewport(viewportBase, svgRef);
 
   const activeMode = project.modes.find((mode) => mode.id === project.activeModeId) ?? project.modes[0];
   const missingStandardModeCount = ["cruise", "sprint", "obstacle"].filter((id) => !project.modes.some((mode) => mode.id === id)).length;
@@ -1058,7 +1058,6 @@ export function VariableGeometryLegLab() {
               role="img"
               aria-label={viewMode === "mechanism" ? "可变几何克兰或简森步行腿、导轨、锁止位置与多工况足端轨迹" : `${project.deployment.legCount} 条可变几何步行腿整机步态与落足记录`}
               className={viewport.isPanning ? styles.panning : viewMode === "mechanism" && canvasMode === "draw" ? styles.drawing : undefined}
-              onWheel={viewport.handleWheel}
               onPointerDown={startCanvasPointer}
               onPointerMove={moveCanvasPointer}
               onPointerUp={endCanvasPointer}

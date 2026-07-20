@@ -173,6 +173,7 @@ function renderCoordinate(value: number) {
 }
 
 export function StraightLineWorkbench() {
+  const svgRef = useRef<SVGSVGElement>(null);
   const [templateId, setTemplateId] = useState(TEMPLATES[0].id);
   const activeTemplate = TEMPLATES.find((template) => template.id === templateId) ?? TEMPLATES[0];
   const [project, setProject] = useState(() => cloneProject(activeTemplate.project));
@@ -182,7 +183,7 @@ export function StraightLineWorkbench() {
   const projectRef = useRef(project);
   const phaseRef = useRef(phase);
   const previousRef = useRef<FreeJoint[] | null>(null);
-  const viewport = useSvgViewport(useMemo(() => ({ x: -430, y: -330, width: 860, height: 660 }), []));
+  const viewport = useSvgViewport(useMemo(() => ({ x: -430, y: -330, width: 860, height: 660 }), []), svgRef);
 
   const trajectory = useMemo(() => sampleTrajectory(activeTemplate.project), [activeTemplate]);
   const segment = useMemo(() => straightSegment(trajectory), [trajectory]);
@@ -280,7 +281,7 @@ export function StraightLineWorkbench() {
           </div>
           <div className={styles.canvas}>
             <SvgViewportControls zoom={viewport.zoom} onZoomIn={viewport.zoomIn} onZoomOut={viewport.zoomOut} onReset={viewport.resetView} />
-            <svg viewBox={viewport.viewBox} onWheel={viewport.handleWheel} onPointerDown={viewport.startPan} onPointerMove={viewport.movePan} onPointerUp={viewport.endPan} onPointerCancel={viewport.endPan} aria-label={`${activeTemplate.name}运动与轨迹`}>
+            <svg ref={svgRef} viewBox={viewport.viewBox} onPointerDown={viewport.startPan} onPointerMove={viewport.movePan} onPointerUp={viewport.endPan} onPointerCancel={viewport.endPan} aria-label={`${activeTemplate.name}运动与轨迹`}>
               <defs><pattern id="straight-grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" className={styles.gridLine} /></pattern></defs>
               <rect x={viewport.view.x} y={viewport.view.y} width={viewport.view.width} height={viewport.view.height} fill="url(#straight-grid)" />
               <line x1={viewport.view.x} y1="0" x2={viewport.view.x + viewport.view.width} y2="0" className={styles.axis} />

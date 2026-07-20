@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint .",
     "test": "vitest run",
-    "baselines": "python scripts/generate_variable_leg_baselines.py"
+    "baselines": "python scripts/generate_variable_leg_baselines.py",
+    "dynamic-baselines": "python scripts/generate_variable_leg_dynamic_envelopes.py"
   },
   "dependencies": {
     "next": "16.2.10",

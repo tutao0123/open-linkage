@@ -28,6 +28,11 @@ import {
   type VariableLegAdjustmentFeasibility,
 } from "./variable-leg";
 import { getVariableLegBaselineBounds } from "./variable-leg-baselines";
+import {
+  getVariableLegDynamicLengthEnvelope,
+  listVariableLegDynamicBars,
+  variableLegDynamicEnvelopeMetadata,
+} from "./variable-leg-dynamic-envelopes";
 import { synthesizeVariableLeg, synthesizeVariableLegQuickDesign } from "./variable-leg-synthesis";
 
 describe("variable geometry walking leg", () => {
@@ -284,6 +289,24 @@ describe("variable geometry walking leg", () => {
     expect(preview.nearestFeasibleValue).not.toBeNull();
     expect(preview.previewProject?.baseProject.bars.find((item) => item.id === bar.id)?.length).toBeCloseTo(preview.nearestFeasibleValue!);
     expect(source.baseProject.bars.find((item) => item.id === bar.id)?.length).toBe(bar.length);
+  });
+
+  it.each(["klann", "jansen"] as const)("loads phase-dependent dynamic envelopes for %s", (topology) => {
+    const project = createDefaultVariableLegProject();
+    project.topology = topology;
+    project.baseProject = getVariableLegTemplate(topology);
+    project.adjustment = createDefaultAdjustment(topology, "moving-pivot");
+    const candidates = listVariableLegDynamicBars(project);
+    expect(candidates.length).toBe(topology === "klann" ? 2 : 4);
+    for (const candidate of candidates) {
+      expect(candidate.phaseCoverage).toBeGreaterThan(0.5);
+      const envelope = getVariableLegDynamicLengthEnvelope(project, candidate.barId, Math.PI / 3);
+      expect(envelope).not.toBeNull();
+      expect(envelope!.sampledPhase).toBeGreaterThanOrEqual(0);
+      expect(envelope!.sampledPhase).toBeLessThan(1);
+      expect(envelope!.transition.overlappingTransitionRatio).toBeGreaterThan(0.5);
+    }
+    expect(variableLegDynamicEnvelopeMetadata().phaseSamples).toBe(72);
   });
 
   it("rejects a designer return when required topology was deleted", () => {

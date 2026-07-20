@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "test": "vitest run"
+    "test": "vitest run",
+    "baselines": "python scripts/generate_variable_leg_baselines.py"
   },
   "dependencies": {
     "next": "16.2.10",

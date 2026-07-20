@@ -47,10 +47,15 @@ import {
   type CycleAnalysis,
 } from "@/lib/free-mechanism";
 import {
+  applyVariableLegDesignerReturn,
+  cloneVariableLegProject,
   isVariableLegDesignerTransfer,
   validateVariableLegDesignerProject,
+  type VariableLegEditableParameter,
   type VariableLegDesignerTransfer,
+  type VariableLegParameterPreview,
 } from "@/lib/variable-leg";
+import { getVariableLegBaselineBounds } from "@/lib/variable-leg-baselines";
 import { SvgViewportControls } from "./svg-viewport-controls";
 import { useMechanismHistory } from "./use-mechanism-history";
 import { useSvgViewport } from "./use-svg-viewport";
@@ -61,6 +66,10 @@ type Tool = "select" | "fixed" | "moving" | "slider" | "bar" | "body" | "tracer"
 type Selection = { kind: "joint" | "bar" | "body" | "tracer" | "dimension" | "load"; id: string } | null;
 type TrailPoint = { x: number; y: number };
 type TracerTrails = Record<string, TrailPoint[]>;
+type SafetyWorkerResponse =
+  | { type: "parameter-preview-result"; requestId: string; preview: VariableLegParameterPreview }
+  | { type: "project-check-result"; requestId: string; validation: { valid: boolean; failedModeIds: string[] } }
+  | { type: "error"; requestId: string; message: string };
 
 const TRAIL_COLORS = ["#287fa8", "#d4663b", "#7b68b4", "#2f8f61", "#b38726", "#c34f83"];
 
@@ -91,6 +100,17 @@ function nextId(prefix: string, ids: string[]) {
 
 function round(value: number) {
   return Math.round(value * 10) / 10;
+}
+
+function formatIntervals(intervals: Array<{ minimum: number; maximum: number }>) {
+  if (!intervals.length) return "尚未找到连续可行区间";
+  return intervals.map((interval) => `${interval.minimum.toFixed(1)}–${interval.maximum.toFixed(1)} mm`).join("、");
+}
+
+function sameEditableParameter(first: VariableLegEditableParameter, second: VariableLegEditableParameter) {
+  return first.kind === second.kind
+    && first.targetId === second.targetId
+    && (first.kind === "bar-length" || second.kind === "bar-length" || first.axis === second.axis);
 }
 
 function driverPhase(project: FreeMechanismProject) {
@@ -132,6 +152,9 @@ export function FreeMechanismDesigner({ initialTemplateId, loadTransfer = false 
     ? `${initialTemplate.name}模板已载入，可直接播放或继续修改拓扑。`
     : "四杆模板已就绪。可直接播放，或继续添加移动副、杆件和尺寸约束。");
   const [variableLegTransfer, setVariableLegTransfer] = useState<VariableLegDesignerTransfer | null>(null);
+  const [safetyPreview, setSafetyPreview] = useState<VariableLegParameterPreview | null>(null);
+  const [safetyChecking, setSafetyChecking] = useState(false);
+  const [safetyInputRevision, setSafetyInputRevision] = useState(0);
   const svgRef = useRef<SVGSVGElement>(null);
   const viewportBase = useMemo(() => ({ x: -420, y: -300, width: 840, height: 600 }), []);
   const viewport = useSvgViewport(viewportBase, svgRef);
@@ -139,6 +162,8 @@ export function FreeMechanismDesigner({ initialTemplateId, loadTransfer = false 
   const dragRef = useRef<{ id: string; pointerId: number } | null>(null);
   const phaseRef = useRef(driverPhase(project));
   const previousMotionJointsRef = useRef<FreeJoint[] | null>(null);
+  const safetyWorkerRef = useRef<Worker | null>(null);
+  const safetyRequestIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!loadTransfer) return;
@@ -168,6 +193,8 @@ export function FreeMechanismDesigner({ initialTemplateId, loadTransfer = false 
     return () => window.clearTimeout(timer);
   }, [loadTransfer, replace]);
 
+  useEffect(() => () => safetyWorkerRef.current?.terminate(), []);
+
   const syncPhase = useCallback((nextProject: FreeMechanismProject) => {
     const nextPhase = driverPhase(nextProject);
     phaseRef.current = nextPhase;
@@ -192,6 +219,37 @@ export function FreeMechanismDesigner({ initialTemplateId, loadTransfer = false 
   const selectedActuator = selectedBar ? (project.hydraulicActuators ?? []).find((actuator) => actuator.barId === selectedBar.id) ?? null : null;
   const dof = estimateDof(project.joints, project.bars, project.dimensions, project.bodies);
   const constraintError = maximumConstraintError(project, phase);
+  const currentVariableLegProject = useMemo(() => {
+    if (!variableLegTransfer) return null;
+    const result = applyVariableLegDesignerReturn({ ...variableLegTransfer, editableProject: project });
+    return result.validation.valid ? result.project : null;
+  }, [project, variableLegTransfer]);
+  const selectedBarBaseline = useMemo(() => (
+    currentVariableLegProject && selectedBar
+      ? getVariableLegBaselineBounds(currentVariableLegProject, { kind: "bar-length", targetId: selectedBar.id })
+      : []
+  ), [currentVariableLegProject, selectedBar]);
+  const selectedJointBaselines = useMemo(() => {
+    if (!currentVariableLegProject || !selectedJoint?.fixed) return { x: [], y: [] };
+    return {
+      x: getVariableLegBaselineBounds(currentVariableLegProject, { kind: "fixed-joint-coordinate", targetId: selectedJoint.id, axis: "x" }),
+      y: getVariableLegBaselineBounds(currentVariableLegProject, { kind: "fixed-joint-coordinate", targetId: selectedJoint.id, axis: "y" }),
+    };
+  }, [currentVariableLegProject, selectedJoint]);
+  const selectedBarParameter: VariableLegEditableParameter | null = selectedBar
+    ? { kind: "bar-length", targetId: selectedBar.id }
+    : null;
+  const selectedJointXParameter: VariableLegEditableParameter | null = selectedJoint?.fixed
+    ? { kind: "fixed-joint-coordinate", targetId: selectedJoint.id, axis: "x" }
+    : null;
+  const selectedJointYParameter: VariableLegEditableParameter | null = selectedJoint?.fixed
+    ? { kind: "fixed-joint-coordinate", targetId: selectedJoint.id, axis: "y" }
+    : null;
+  const selectedSafetyPreview = safetyPreview && (
+    (selectedBarParameter && sameEditableParameter(safetyPreview.parameter, selectedBarParameter))
+    || (selectedJointXParameter && sameEditableParameter(safetyPreview.parameter, selectedJointXParameter))
+    || (selectedJointYParameter && sameEditableParameter(safetyPreview.parameter, selectedJointYParameter))
+  ) ? safetyPreview : null;
 
   const stopMotion = useCallback(() => {
     setPlaying(false);
@@ -480,6 +538,10 @@ export function FreeMechanismDesigner({ initialTemplateId, loadTransfer = false 
   const startJointDrag = (event: ReactPointerEvent<SVGGElement>, joint: FreeJoint) => {
     event.stopPropagation();
     if (playing || tool !== "select") return;
+    if (variableLegTransfer && joint.fixed) {
+      setMessage("步行腿安全编辑中：固定铰点请在右侧输入坐标，系统会先计算可行范围再允许应用。");
+      return;
+    }
     checkpoint();
     dragRef.current = { id: joint.id, pointerId: event.pointerId };
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -568,6 +630,64 @@ export function FreeMechanismDesigner({ initialTemplateId, loadTransfer = false 
       ...current,
       bars: current.bars.map((bar) => bar.id === selectedBar.id ? { ...bar, ...updates } : bar),
     }));
+  };
+
+  const runSafetyPreview = (parameter: VariableLegEditableParameter, requestedValue: number) => {
+    if (!currentVariableLegProject || !Number.isFinite(requestedValue)) return;
+    const bounds = getVariableLegBaselineBounds(currentVariableLegProject, parameter);
+    safetyWorkerRef.current?.terminate();
+    const worker = new Worker(new URL("../workers/variable-leg-synthesis.worker.ts", import.meta.url), { type: "module" });
+    safetyWorkerRef.current = worker;
+    const requestId = `safe-parameter-${Date.now()}`;
+    safetyRequestIdRef.current = requestId;
+    setSafetyChecking(true);
+    setSafetyPreview(null);
+    setMessage("正在后台结合离线基线与当前工况基线收缩可行范围…");
+    worker.onmessage = (event: MessageEvent<SafetyWorkerResponse>) => {
+      const response = event.data;
+      if (response.requestId !== safetyRequestIdRef.current) return;
+      setSafetyChecking(false);
+      worker.terminate();
+      safetyWorkerRef.current = null;
+      if (response.type === "parameter-preview-result") {
+        setSafetyPreview(response.preview);
+        setMessage(response.preview.requestedValid
+          ? "输入值未降低当前工况基线；确认后才会写入机构。"
+          : response.preview.nearestFeasibleValue !== null
+            ? `输入值不可行，已找到最近可行值 ${response.preview.nearestFeasibleValue.toFixed(2)}。`
+            : "当前离线范围内没有找到不降低工况基线的值；机构保持不变。");
+      } else if (response.type === "error") setMessage(response.message);
+    };
+    worker.onerror = () => {
+      setSafetyChecking(false);
+      worker.terminate();
+      safetyWorkerRef.current = null;
+      setMessage("后台可行范围检查失败，机构保持不变。");
+    };
+    worker.postMessage({ type: "parameter-preview", requestId, project: cloneVariableLegProject(currentVariableLegProject), parameter, requestedValue, bounds });
+  };
+
+  const applySafetyPreview = () => {
+    const previewProject = safetyPreview?.previewProject;
+    if (!previewProject) return;
+    const nextProject = cloneProject(previewProject.baseProject);
+    stopMotion();
+    commit(nextProject);
+    syncPhase(nextProject);
+    setVariableLegTransfer((current) => current ? {
+      ...current,
+      variableProject: cloneVariableLegProject(previewProject),
+      editableProject: cloneProject(nextProject),
+    } : current);
+    setSafetyPreview(null);
+    setSafetyInputRevision((current) => current + 1);
+    setMessage("已应用经过整周检查的参数，并保存为新的可行基线。");
+  };
+
+  const cancelSafetyPreview = () => {
+    setSafetyPreview(null);
+    setSafetyInputRevision((current) => current + 1);
+    setMessage("已取消参数草稿，机构保持不变。");
   };
 
   const updateHydraulicActuator = (actuatorId: string, updates: Partial<HydraulicActuator>) => {
@@ -840,14 +960,40 @@ export function FreeMechanismDesigner({ initialTemplateId, loadTransfer = false 
   const trailSampleCount = Object.values(trails).reduce((total, points) => total + points.length, 0);
 
   const saveAndReturnToVariableLeg = () => {
-    if (!variableLegTransfer || !variableLegReturnValidation?.valid) return;
-    const returned: VariableLegDesignerTransfer = {
-      ...variableLegTransfer,
-      direction: "to-variable-leg",
-      editableProject: cloneProject(project),
+    if (!variableLegTransfer || !variableLegReturnValidation?.valid || !currentVariableLegProject || safetyChecking) return;
+    safetyWorkerRef.current?.terminate();
+    const worker = new Worker(new URL("../workers/variable-leg-synthesis.worker.ts", import.meta.url), { type: "module" });
+    safetyWorkerRef.current = worker;
+    const requestId = `safe-return-${Date.now()}`;
+    safetyRequestIdRef.current = requestId;
+    setSafetyChecking(true);
+    setMessage("正在后台执行全部工况的最终整周检查…");
+    worker.onmessage = (event: MessageEvent<SafetyWorkerResponse>) => {
+      const response = event.data;
+      if (response.requestId !== safetyRequestIdRef.current) return;
+      setSafetyChecking(false);
+      worker.terminate();
+      safetyWorkerRef.current = null;
+      if (response.type === "project-check-result" && response.validation.valid) {
+        const returned: VariableLegDesignerTransfer = {
+          ...variableLegTransfer,
+          variableProject: cloneVariableLegProject(currentVariableLegProject),
+          direction: "to-variable-leg",
+          editableProject: cloneProject(project),
+        };
+        window.sessionStorage.setItem("open-linkage:designer-transfer", JSON.stringify(returned));
+        window.location.href = "/variable-leg?transfer=designer";
+      } else if (response.type === "project-check-result") {
+        setMessage(`无法返回：${response.validation.failedModeIds.join("、")}工况未通过整周检查；请应用推荐可行值或撤销本次修改。`);
+      } else if (response.type === "error") setMessage(response.message);
     };
-    window.sessionStorage.setItem("open-linkage:designer-transfer", JSON.stringify(returned));
-    window.location.href = "/variable-leg?transfer=designer";
+    worker.onerror = () => {
+      setSafetyChecking(false);
+      worker.terminate();
+      safetyWorkerRef.current = null;
+      setMessage("最终整周检查失败，当前草稿仍保留在自由设计器中。");
+    };
+    worker.postMessage({ type: "project-check", requestId, project: cloneVariableLegProject(currentVariableLegProject), baselineProject: cloneVariableLegProject(variableLegTransfer.variableProject) });
   };
 
   return (
@@ -858,8 +1004,8 @@ export function FreeMechanismDesigner({ initialTemplateId, loadTransfer = false 
       </header>
 
       {variableLegTransfer && <div className={styles.variableLegBanner}>
-        <span><b>正在编辑步行腿基础机构</b><small>工况锁止值尚未应用；允许修改杆长、铰点位置和现有尺寸约束。</small></span>
-        <button type="button" onClick={saveAndReturnToVariableLeg} disabled={!variableLegReturnValidation?.valid}>保存并返回步行腿</button>
+        <span><b>步行腿安全编辑</b><small>杆长和固定铰点坐标先进入草稿；后台收缩可行范围，不降低当前工况基线才会写入。</small></span>
+        <button type="button" onClick={saveAndReturnToVariableLeg} disabled={!variableLegReturnValidation?.valid || safetyChecking}>{safetyChecking ? "检查中…" : "检查并返回步行腿"}</button>
         {!variableLegReturnValidation?.valid && <em>{variableLegReturnValidation?.reasons.join("；")}</em>}
       </div>}
 
@@ -1097,8 +1243,22 @@ export function FreeMechanismDesigner({ initialTemplateId, loadTransfer = false 
           {selectedJoint && (
             <section className={styles.selectionCard}>
               <div className={styles.selectionTitle}><span>{selectedJoint.slider?.referenceBarId ? "RELATIVE PRISMATIC" : selectedJoint.slider ? "PRISMATIC" : "JOINT"}</span><b>{selectedJoint.id}</b></div>
-              <label>X 坐标 <input type="number" value={round(selectedJoint.x)} onChange={(event) => updateSelectedJoint({ x: Number(event.target.value) })} /></label>
-              <label>Y 坐标 <input type="number" value={round(selectedJoint.y)} onChange={(event) => updateSelectedJoint({ y: Number(event.target.value) })} /></label>
+              <label>X 坐标 {variableLegTransfer && selectedJoint.fixed
+                ? <input type="number" key={`${selectedJoint.id}-safe-x-${selectedJoint.x}-${safetyInputRevision}`} defaultValue={round(selectedJoint.x)} onBlur={(event) => runSafetyPreview({ kind: "fixed-joint-coordinate", targetId: selectedJoint.id, axis: "x" }, Number(event.currentTarget.value))} />
+                : <input type="number" value={round(selectedJoint.x)} onChange={(event) => updateSelectedJoint({ x: Number(event.target.value) })} />}</label>
+              {variableLegTransfer && selectedJoint.fixed && <small className={styles.safeRange}>X 离线基线：{formatIntervals(selectedJointBaselines.x)}</small>}
+              <label>Y 坐标 {variableLegTransfer && selectedJoint.fixed
+                ? <input type="number" key={`${selectedJoint.id}-safe-y-${selectedJoint.y}-${safetyInputRevision}`} defaultValue={round(selectedJoint.y)} onBlur={(event) => runSafetyPreview({ kind: "fixed-joint-coordinate", targetId: selectedJoint.id, axis: "y" }, Number(event.currentTarget.value))} />
+                : <input type="number" value={round(selectedJoint.y)} onChange={(event) => updateSelectedJoint({ y: Number(event.target.value) })} />}</label>
+              {variableLegTransfer && selectedJoint.fixed && <small className={styles.safeRange}>Y 离线基线：{formatIntervals(selectedJointBaselines.y)}</small>}
+              {selectedSafetyPreview?.parameter.kind === "fixed-joint-coordinate" && <div className={selectedSafetyPreview.requestedValid ? styles.safePreviewGood : styles.safePreviewWarn}>
+                <b>{selectedSafetyPreview.requestedValid ? "草稿未降低当前工况基线" : "草稿未写入"}</b>
+                <p>条件可行区间：{formatIntervals(selectedSafetyPreview.intervals)}</p>
+                {selectedSafetyPreview.metrics.some((metric) => metric.branchSwitches > 0) && <p>提示：没有不可达相位，但检测到装配分支变化，建议继续精修。</p>}
+                {selectedSafetyPreview.metrics.some((metric) => metric.singularityMargin < 5) && <p>提示：整周连续，但部分姿态距离奇异位置不足 5°。</p>}
+                {!selectedSafetyPreview.requestedValid && selectedSafetyPreview.nearestFeasibleValue !== null && <p>最近可行值：{selectedSafetyPreview.nearestFeasibleValue.toFixed(2)} mm</p>}
+                <div><button type="button" onClick={applySafetyPreview} disabled={!selectedSafetyPreview.previewProject}>{selectedSafetyPreview.requestedValid ? "应用草稿" : "应用最近可行值"}</button><button type="button" onClick={cancelSafetyPreview}>取消</button></div>
+              </div>}
               {selectedJoint.slider && <>
                 <label>导轨参考 <select value={selectedJoint.slider.referenceBarId ?? ""} onChange={(event) => {
                   const referenceBarId = event.target.value || undefined;
@@ -1190,7 +1350,18 @@ export function FreeMechanismDesigner({ initialTemplateId, loadTransfer = false 
                 const type = event.target.value as "rigid" | "telescopic";
                 updateSelectedBar(type === "telescopic" ? { type, minLength: selectedBar.length * 0.7, maxLength: selectedBar.length * 1.3 } : { type, minLength: undefined, maxLength: undefined });
               }}><option value="rigid">刚性定长杆</option><option value="telescopic">伸缩活动杆</option></select></label>
-              <label>中心距 <input type="number" min="1" value={round(selectedBar.length)} onChange={(event) => updateSelectedBar({ length: Number(event.target.value) })} /></label>
+              <label>中心距 {variableLegTransfer
+                ? <input type="number" min="1" key={`${selectedBar.id}-safe-length-${selectedBar.length}-${safetyInputRevision}`} defaultValue={round(selectedBar.length)} onBlur={(event) => runSafetyPreview({ kind: "bar-length", targetId: selectedBar.id }, Number(event.currentTarget.value))} />
+                : <input type="number" min="1" value={round(selectedBar.length)} onChange={(event) => updateSelectedBar({ length: Number(event.target.value) })} />}</label>
+              {variableLegTransfer && <small className={styles.safeRange}>离线基线：{formatIntervals(selectedBarBaseline)}</small>}
+              {selectedSafetyPreview?.parameter.kind === "bar-length" && <div className={selectedSafetyPreview.requestedValid ? styles.safePreviewGood : styles.safePreviewWarn}>
+                <b>{selectedSafetyPreview.requestedValid ? "草稿未降低当前工况基线" : "草稿未写入"}</b>
+                <p>条件可行区间：{formatIntervals(selectedSafetyPreview.intervals)}</p>
+                {selectedSafetyPreview.metrics.some((metric) => metric.branchSwitches > 0) && <p>提示：没有不可达相位，但检测到装配分支变化，建议继续精修。</p>}
+                {selectedSafetyPreview.metrics.some((metric) => metric.singularityMargin < 5) && <p>提示：整周连续，但部分姿态距离奇异位置不足 5°。</p>}
+                {!selectedSafetyPreview.requestedValid && selectedSafetyPreview.nearestFeasibleValue !== null && <p>最近可行值：{selectedSafetyPreview.nearestFeasibleValue.toFixed(2)} mm</p>}
+                <div><button type="button" onClick={applySafetyPreview} disabled={!selectedSafetyPreview.previewProject}>{selectedSafetyPreview.requestedValid ? "应用草稿" : "应用最近可行值"}</button><button type="button" onClick={cancelSafetyPreview}>取消</button></div>
+              </div>}
               <button type="button" onClick={() => { changeTool("tracer"); setMessage(`请在 ${selectedBar.id} 上单击放置轨迹点；点可以位于杆件中心线或其附近。`); }}>在此杆件放置轨迹点</button>
               {selectedBar.type === "telescopic" && <>
                 <label>最短长度 <input type="number" min="1" value={round(selectedBar.minLength ?? selectedBar.length * 0.7)} onChange={(event) => updateSelectedBar({ minLength: Number(event.target.value) })} /></label>

@@ -1,0 +1,523 @@
+{
+  "version": 1,
+  "generatedAt": "2026-07-20T07:44:04.942140+00:00",
+  "solver": {
+    "valueSamples": 81,
+    "phaseSamples": 36,
+    "iterations": 70,
+    "purpose": "broad-structural-envelope",
+    "acceptance": "not-worse-than-template"
+  },
+  "topologies": {
+    "jansen": {
+      "referenceLength": 135.75,
+      "parameters": {
+        "bar:L1": {
+          "kind": "bar-length",
+          "targetId": "L1",
+          "axis": null,
+          "baseline": 45,
+          "intervals": [
+            {
+              "minimum": 0.62,
+              "maximum": 1.18525
+            }
+          ],
+          "feasibleSamples": 61,
+          "totalSamples": 81,
+          "baselineQuality": {
+            "validRatio": 1,
+            "branchSwitches": 0,
+            "singularityMargin": 0.06050149041533359
+          }
+        },
+        "bar:L10": {
+          "kind": "bar-length",
+          "targetId": "L10",
+          "axis": null,
+          "baseline": 147,
+          "intervals": [
+            {
+              "minimum": 0.72925,
+              "maximum": 1.38
+            }
+          ],
+          "feasibleSamples": 70,
+          "totalSamples": 81,
+          "baselineQuality": {
+            "validRatio": 1,
+            "branchSwitches": 0,
+            "singularityMargin": 0.06050149041533359
+          }
+        },
+        "bar:L11": {
+          "kind": "bar-length",
+          "targetId": "L11",
+          "axis": null,
+          "baseline": 197.1,
+          "intervals": [
+            {
+              "minimum": 0.62,
+              "maximum": 1.18525
+            },
+            {
+              "minimum": 1.26125,
+              "maximum": 1.33725
+            }
+          ],
+          "feasibleSamples": 71,
+          "totalSamples": 81,
+          "baselineQuality": {
+            "validRatio": 1,
+            "branchSwitches": 0,
+            "singularityMargin": 0.06050149041533359
+          }
+        },
+        "bar:L2": {
+          "kind": "bar-length",
+          "targetId": "L2",
+          "axis": null,
+          "baseline": 150,
+          "intervals": [
+            {
+              "minimum": 0.85275,
+              "maximum": 1.1377499999999998
+            }
+          ],
+          "feasibleSamples": 32,
+          "totalSamples": 81,
+          "baselineQuality": {
+            "validRatio": 1,
+            "branchSwitches": 0,
+            "singularityMargin": 0.06050149041533359
+          }
+        },
+        "bar:L3": {
+          "kind": "bar-length",
+          "targetId": "L3",
+          "axis": null,
+          "baseline": 124.5,
+          "intervals": [
+            {
+              "minimum": 0.8812499999999999,
+              "maximum": 1.1377499999999998
+            },
+            {
+              "minimum": 1.3562499999999997,
+              "maximum": 1.38
+            }
+          ],
+          "feasibleSamples": 33,
+          "totalSamples": 81,
+          "baselineQuality": {
+            "validRatio": 1,
+            "branchSwitches": 0,
+            "singularityMargin": 0.06050149041533359
+          }
+        },
+        "bar:L4": {
+          "kind": "bar-length",
+          "targetId": "L4",
+          "axis": null,
+          "baseline": 120.3,
+          "intervals": [
+            {
+              "minimum": 0.85275,
+              "maximum": 1.0617499999999997
+            },
+            {
+              "minimum": 1.1567500000000002,
+              "maximum": 1.1757499999999999
+            }
+          ],
+          "feasibleSamples": 28,
+          "totalSamples": 81,
+          "baselineQuality": {
+            "validRatio": 1,
+            "branchSwitches": 0,
+            "singularityMargin": 0.06050149041533359
+          }
+        },
+        "bar:L5": {
+          "kind": "bar-length",
+          "targetId": "L5",
+          "axis": null,
+          "baseline": 167.4,
+          "intervals": [
+            {
+              "minimum": 0.62,
+              "maximum": 0.7102499999999999
+            },
+            {
+              "minimum": 0.90025,
+              "maximum": 1.19475
+            }
+          ],
+          "feasibleSamples": 44,
+          "totalSamples": 81,
+          "baselineQuality": {
+            "validRatio": 1,
+            "branchSwitches": 0,
+            "singularityMargin": 0.06050149041533359
+          }
+        },
+        "bar:L6": {
+          "kind": "bar-length",
+          "targetId": "L6",
+          "axis": null,
+          "baseline": 185.7,
+          "intervals": [
+            {
+              "minimum": 0.62,
+              "maximum": 1.02375
+            }
+          ],
+          "feasibleSamples": 44,
+          "totalSamples": 81,
+          "baselineQuality": {
+            "validRatio": 1,
+            "branchSwitches": 0,
+            "singularityMargin": 0.06050149041533359
+          }
+        },
+        "bar:L7": {
+          "kind": "bar-length",
+          "targetId": "L7",
+          "axis": null,
+          "baseline": 117.9,
+          "intervals": [
+            {
+              "minimum": 0.97625,
+              "maximum": 1.0807499999999999
+            },
+            {
+              "minimum": 1.1472499999999999,
+              "maximum": 1.1947499999999998
+            }
+          ],
+          "feasibleSamples": 20,
+          "totalSamples": 81,
+          "baselineQuality": {
+            "validRatio": 1,
+            "branchSwitches": 0,
+            "singularityMargin": 0.06050149041533359
+          }
+        },
+        "bar:L8": {
+          "kind": "bar-length",
+          "targetId": "L8",
+          "axis": null,
+          "baseline": 110.1,
+          "intervals": [
+            {
+              "minimum": 0.89075,
+              "maximum": 1.22325
+            }
+          ],
+          "feasibleSamples": 37,
+          "totalSamples": 81,
+          "baselineQuality": {
+            "validRatio": 1,
+            "branchSwitches": 0,
+            "singularityMargin": 0.06050149041533359
+          }
+        },
+        "bar:L9": {
+          "kind": "bar-length",
+          "targetId": "L9",
+          "axis": null,
+          "baseline": 118.2,
+          "intervals": [
+            {
+              "minimum": 0.7672499999999999,
+              "maximum": 0.7957500000000001
+            },
+            {
+              "minimum": 0.9192499999999999,
+              "maximum": 1.2422499999999999
+            }
+          ],
+          "feasibleSamples": 41,
+          "totalSamples": 81,
+          "baselineQuality": {
+            "validRatio": 1,
+            "branchSwitches": 0,
+            "singularityMargin": 0.06050149041533359
+          }
+        },
+        "joint:J1:x": {
+          "kind": "fixed-joint-coordinate",
+          "targetId": "J1",
+          "axis": "x",
+          "baseline": 0,
+          "intervals": [
+            {
+              "minimum": -0.03674999999999996,
+              "maximum": 0.42
+            }
+          ],
+          "feasibleSamples": 45,
+          "totalSamples": 81,
+          "baselineQuality": {
+            "validRatio": 1,
+            "branchSwitches": 0,
+            "singularityMargin": 0.06050149041533359
+          }
+        },
+        "joint:J1:y": {
+          "kind": "fixed-joint-coordinate",
+          "targetId": "J1",
+          "axis": "y",
+          "baseline": 0,
+          "intervals": [
+            {
+              "minimum": -0.42,
+              "maximum": 0.42
+            }
+          ],
+          "feasibleSamples": 81,
+          "totalSamples": 81,
+          "baselineQuality": {
+            "validRatio": 1,
+            "branchSwitches": 0,
+            "singularityMargin": 0.06050149041533359
+          }
+        },
+        "joint:J3:x": {
+          "kind": "fixed-joint-coordinate",
+          "targetId": "J3",
+          "axis": "x",
+          "baseline": -114,
+          "intervals": [
+            {
+              "minimum": -0.4199999999999999,
+              "maximum": 0.03675000000000007
+            }
+          ],
+          "feasibleSamples": 45,
+          "totalSamples": 81,
+          "baselineQuality": {
+            "validRatio": 1,
+            "branchSwitches": 0,
+            "singularityMargin": 0.06050149041533359
+          }
+        },
+        "joint:J3:y": {
+          "kind": "fixed-joint-coordinate",
+          "targetId": "J3",
+          "axis": "y",
+          "baseline": 23.4,
+          "intervals": [
+            {
+              "minimum": -0.29925,
+              "maximum": 0.21525000000000005
+            },
+            {
+              "minimum": 0.34125,
+              "maximum": 0.41999999999999993
+            }
+          ],
+          "feasibleSamples": 60,
+          "totalSamples": 81,
+          "baselineQuality": {
+            "validRatio": 1,
+            "branchSwitches": 0,
+            "singularityMargin": 0.06050149041533359
+          }
+        }
+      }
+    },
+    "klann": {
+      "referenceLength": 108.97,
+      "parameters": {
+        "bar:L1": {
+          "kind": "bar-length",
+          "targetId": "L1",
+          "axis": null,
+          "baseline": 69.68,
+          "intervals": [
+            {
+              "minimum": 0.70075,
+              "maximum": 1.02375
+            }
+          ],
+          "feasibleSamples": 36,
+          "totalSamples": 81,
+          "baselineQuality": {
+            "validRatio": 0.9444444444444444,
+            "branchSwitches": 2,
+            "singularityMargin": 0.3297857961949422
+          }
+        },
+        "bar:L2": {
+          "kind": "bar-length",
+          "targetId": "L2",
+          "axis": null,
+          "baseline": 83.36,
+          "intervals": [
+            {
+              "minimum": 0.8622500000000001,
+              "maximum": 1.0522499999999997
+            }
+          ],
+          "feasibleSamples": 22,
+          "totalSamples": 81,
+          "baselineQuality": {
+            "validRatio": 0.9444444444444444,
+            "branchSwitches": 2,
+            "singularityMargin": 0.3297857961949422
+          }
+        },
+        "bar:L3": {
+          "kind": "bar-length",
+          "targetId": "L3",
+          "axis": null,
+          "baseline": 134.58,
+          "intervals": [
+            {
+              "minimum": 0.62,
+              "maximum": 0.72925
+            },
+            {
+              "minimum": 0.9477500000000001,
+              "maximum": 1.38
+            }
+          ],
+          "feasibleSamples": 60,
+          "totalSamples": 81,
+          "baselineQuality": {
+            "validRatio": 0.9444444444444444,
+            "branchSwitches": 2,
+            "singularityMargin": 0.3297857961949422
+          }
+        },
+        "joint:J1:x": {
+          "kind": "fixed-joint-coordinate",
+          "targetId": "J1",
+          "axis": "x",
+          "baseline": 200.86943648792817,
+          "intervals": [
+            {
+              "minimum": -0.4200000000000001,
+              "maximum": -0.21525000000000002
+            },
+            {
+              "minimum": -0.06825000000000012,
+              "maximum": 0.4200000000000001
+            }
+          ],
+          "feasibleSamples": 69,
+          "totalSamples": 81,
+          "baselineQuality": {
+            "validRatio": 0.9444444444444444,
+            "branchSwitches": 2,
+            "singularityMargin": 0.3297857961949422
+          }
+        },
+        "joint:J1:y": {
+          "kind": "fixed-joint-coordinate",
+          "targetId": "J1",
+          "axis": "y",
+          "baseline": -210.18019240296962,
+          "intervals": [
+            {
+              "minimum": -0.20475000000000007,
+              "maximum": 0.4200000000000001
+            }
+          ],
+          "feasibleSamples": 61,
+          "totalSamples": 81,
+          "baselineQuality": {
+            "validRatio": 0.9444444444444444,
+            "branchSwitches": 2,
+            "singularityMargin": 0.3297857961949422
+          }
+        },
+        "joint:J2:x": {
+          "kind": "fixed-joint-coordinate",
+          "targetId": "J2",
+          "axis": "x",
+          "baseline": 4.739739917979502,
+          "intervals": [
+            {
+              "minimum": -0.09974999999999999,
+              "maximum": 0.03674999999999998
+            },
+            {
+              "minimum": 0.17324999999999993,
+              "maximum": 0.2572499999999999
+            }
+          ],
+          "feasibleSamples": 25,
+          "totalSamples": 81,
+          "baselineQuality": {
+            "validRatio": 0.9444444444444444,
+            "branchSwitches": 2,
+            "singularityMargin": 0.3297857961949422
+          }
+        },
+        "joint:J2:y": {
+          "kind": "fixed-joint-coordinate",
+          "targetId": "J2",
+          "axis": "y",
+          "baseline": -98.14564003906779,
+          "intervals": [
+            {
+              "minimum": -0.21524999999999989,
+              "maximum": 0.4200000000000001
+            }
+          ],
+          "feasibleSamples": 62,
+          "totalSamples": 81,
+          "baselineQuality": {
+            "validRatio": 0.9444444444444444,
+            "branchSwitches": 2,
+            "singularityMargin": 0.3297857961949422
+          }
+        },
+        "joint:J3:x": {
+          "kind": "fixed-joint-coordinate",
+          "targetId": "J3",
+          "axis": "x",
+          "baseline": 155.74,
+          "intervals": [
+            {
+              "minimum": -0.1469999999999999,
+              "maximum": -0.1469999999999999
+            },
+            {
+              "minimum": -0.04724999999999998,
+              "maximum": 0.09974999999999992
+            }
+          ],
+          "feasibleSamples": 17,
+          "totalSamples": 81,
+          "baselineQuality": {
+            "validRatio": 0.9444444444444444,
+            "branchSwitches": 2,
+            "singularityMargin": 0.3297857961949422
+          }
+        },
+        "joint:J3:y": {
+          "kind": "fixed-joint-coordinate",
+          "targetId": "J3",
+          "axis": "y",
+          "baseline": -45,
+          "intervals": [
+            {
+              "minimum": -0.42,
+              "maximum": 0.08924999999999998
+            }
+          ],
+          "feasibleSamples": 50,
+          "totalSamples": 81,
+          "baselineQuality": {
+            "validRatio": 0.9444444444444444,
+            "branchSwitches": 2,
+            "singularityMargin": 0.3297857961949422
+          }
+        }
+      }
+    }
+  }
+}

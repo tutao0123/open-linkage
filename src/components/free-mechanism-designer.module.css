@@ -137,6 +137,14 @@
 .selectionCard small { color:#747974; line-height:1.5; }
 .selectionCard .checkboxLabel { justify-content:flex-start; gap:8px; }
 .selectionCard .checkboxLabel input { width:auto; accent-color:#111515; }
+.selectionCard .safeRange { padding:6px 8px; border-left:3px solid #8dbb36; background:#eef2e5; color:#596650; font:9px "Cascadia Mono",Consolas,monospace; }
+.safePreviewGood,.safePreviewWarn { padding:10px; border:1px solid; display:grid; gap:7px; }
+.safePreviewGood { border-color:#a9c675; background:#e5efd0; }
+.safePreviewWarn { border-color:#d5a48d; background:#f2ddd2; }
+.safePreviewGood b,.safePreviewWarn b { font-size:10px; }
+.safePreviewGood p,.safePreviewWarn p { margin:0; color:#59615b; font-size:9px; line-height:1.45; }
+.safePreviewGood>div,.safePreviewWarn>div { display:flex; gap:7px; }
+.safePreviewGood>div button,.safePreviewWarn>div button { flex:1; }
 .bodyStats { display:grid; grid-template-columns:1fr 1fr; gap:7px; }
 .bodyStats span { padding:9px; display:flex; flex-direction:column; gap:3px; border:1px solid #c7c9c1; color:#6a706b; font-size:9px; }
 .bodyStats b { color:#202522; font:16px "Cascadia Mono",Consolas,monospace; }

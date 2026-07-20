@@ -8,20 +8,26 @@ import {
 } from "@/lib/variable-leg-synthesis";
 import {
   previewVariableLegBarLength,
+  previewVariableLegEditableParameter,
   scanVariableLegAdjustmentFeasibility,
+  validateVariableLegKinematics,
   type VariableLegProject,
   type VariableLegQuickDesign,
+  type VariableLegEditableParameter,
+  type VariableLegFeasibleInterval,
 } from "@/lib/variable-leg";
 
 type StartMessage = { type: "start"; requestId: string; project: VariableLegProject; scope?: VariableLegSynthesisScope };
 type FeasibilityMessage = { type: "feasibility"; requestId: string; project: VariableLegProject };
 type QuickDesignMessage = { type: "quick-design"; requestId: string; project: VariableLegProject; design: VariableLegQuickDesign };
 type BarPreviewMessage = { type: "bar-preview"; requestId: string; project: VariableLegProject; barId: string; requestedLength: number };
+type ParameterPreviewMessage = { type: "parameter-preview"; requestId: string; project: VariableLegProject; parameter: VariableLegEditableParameter; requestedValue: number; bounds?: VariableLegFeasibleInterval[] };
+type ProjectCheckMessage = { type: "project-check"; requestId: string; project: VariableLegProject; baselineProject?: VariableLegProject };
 type CancelMessage = { type: "cancel"; requestId: string };
 
 const cancelled = new Set<string>();
 
-self.addEventListener("message", (event: MessageEvent<StartMessage | FeasibilityMessage | QuickDesignMessage | BarPreviewMessage | CancelMessage>) => {
+self.addEventListener("message", (event: MessageEvent<StartMessage | FeasibilityMessage | QuickDesignMessage | BarPreviewMessage | ParameterPreviewMessage | ProjectCheckMessage | CancelMessage>) => {
   const message = event.data;
   if (message.type === "cancel") {
     cancelled.add(message.requestId);
@@ -44,6 +50,25 @@ self.addEventListener("message", (event: MessageEvent<StartMessage | Feasibility
       self.postMessage({ type: "bar-preview-result", requestId, preview });
     } catch (error: unknown) {
       self.postMessage({ type: "error", requestId, message: error instanceof Error ? error.message : "杆长草稿检查失败" });
+    }
+    return;
+  }
+  if (message.type === "parameter-preview") {
+    const { requestId, project, parameter, requestedValue, bounds } = message;
+    try {
+      const preview = previewVariableLegEditableParameter(project, parameter, requestedValue, bounds);
+      self.postMessage({ type: "parameter-preview-result", requestId, preview });
+    } catch (error: unknown) {
+      self.postMessage({ type: "error", requestId, message: error instanceof Error ? error.message : "参数可行范围检查失败" });
+    }
+    return;
+  }
+  if (message.type === "project-check") {
+    const { requestId, project, baselineProject } = message;
+    try {
+      self.postMessage({ type: "project-check-result", requestId, validation: validateVariableLegKinematics(project, 54, 80, baselineProject) });
+    } catch (error: unknown) {
+      self.postMessage({ type: "error", requestId, message: error instanceof Error ? error.message : "整周可行性检查失败" });
     }
     return;
   }

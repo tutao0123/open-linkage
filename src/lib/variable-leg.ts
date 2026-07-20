@@ -3,6 +3,7 @@ import {
   JANSEN_PROJECT,
   KLANN_PROJECT,
   cloneProject,
+  createRigidBody,
   maximumConstraintError,
   predictJointPositions,
   resolveTracerPoint,
@@ -178,6 +179,22 @@ export type VariableLegBarLengthPreview = {
   nearestFeasibleLength: number | null;
   previewProject: VariableLegProject | null;
   metrics: VariableLegModeMetrics[];
+};
+
+export type VariableLegEditableParameter =
+  | { kind: "bar-length"; targetId: string }
+  | { kind: "fixed-joint-coordinate"; targetId: string; axis: "x" | "y" };
+
+export type VariableLegParameterPreview = {
+  parameter: VariableLegEditableParameter;
+  requestedValue: number;
+  requestedValid: boolean;
+  nearestFeasibleValue: number | null;
+  previewProject: VariableLegProject | null;
+  metrics: VariableLegModeMetrics[];
+  intervals: VariableLegFeasibleInterval[];
+  scannedMinimum: number;
+  scannedMaximum: number;
 };
 
 export const VARIABLE_LEG_MODE_COLORS = ["#287fa8", "#d4663b", "#7b68b4", "#2f8f61", "#b38726", "#c34f83"] as const;
@@ -577,8 +594,113 @@ export function setVariableLegBaseBarLength(source: VariableLegProject, barId: s
   return project;
 }
 
-function variableLegMetricsAreFeasible(metrics: VariableLegModeMetrics[]) {
-  return metrics.every((metric) => metric.validRatio >= 0.999 && metric.branchSwitches === 0 && Number.isFinite(metric.closureError));
+function variableLegMetricsAreFeasible(metrics: VariableLegModeMetrics[], baselineMetrics?: VariableLegModeMetrics[]) {
+  return metrics.every((metric) => {
+    const baseline = baselineMetrics?.find((item) => item.modeId === metric.modeId);
+    const requiredValidRatio = Math.min(0.999, baseline?.validRatio ?? 0.999);
+    return metric.validRatio + 1e-9 >= requiredValidRatio && Number.isFinite(metric.closureError);
+  });
+}
+
+export function validateVariableLegKinematics(
+  project: VariableLegProject,
+  phaseSamples = 48,
+  iterations = 70,
+  baselineProject?: VariableLegProject,
+) {
+  const metrics = project.modes.map((mode) => analyzeVariableLegMode(project.baseProject, project.adjustment, mode, phaseSamples, iterations));
+  const baselineMetrics = baselineProject?.modes.map((mode) => analyzeVariableLegMode(
+    baselineProject.baseProject,
+    baselineProject.adjustment,
+    mode,
+    phaseSamples,
+    iterations,
+  ));
+  const failedModeIds = metrics.filter((metric) => !variableLegMetricsAreFeasible([metric], baselineMetrics)).map((metric) => metric.modeId);
+  return { valid: failedModeIds.length === 0, failedModeIds, metrics };
+}
+
+export function setVariableLegEditableParameter(
+  source: VariableLegProject,
+  parameter: VariableLegEditableParameter,
+  value: number,
+) {
+  if (parameter.kind === "bar-length") return setVariableLegBaseBarLength(source, parameter.targetId, value);
+  const project = cloneVariableLegProject(source);
+  if (!Number.isFinite(value)) return project;
+  const joint = project.baseProject.joints.find((item) => item.id === parameter.targetId);
+  if (!joint || !joint.fixed) return project;
+  joint[parameter.axis] = value;
+  project.baseProject.bodies = project.baseProject.bodies.map((body) => body.jointIds.includes(joint.id)
+    ? createRigidBody(body.id, body.jointIds, project.baseProject.joints)
+    : body);
+  if (project.adjustment.kind === "moving-pivot" && project.adjustment.targetId === joint.id) {
+    project.adjustment = {
+      ...project.adjustment,
+      baseX: parameter.axis === "x" ? value : project.adjustment.baseX,
+      baseY: parameter.axis === "y" ? value : project.adjustment.baseY,
+    };
+  }
+  project.candidates = [];
+  project.selectedCandidateId = null;
+  return project;
+}
+
+export function previewVariableLegEditableParameter(
+  source: VariableLegProject,
+  parameter: VariableLegEditableParameter,
+  requestedValue: number,
+  bounds?: VariableLegFeasibleInterval[],
+  sampleCount = 25,
+  phaseSamples = 48,
+  iterations = 70,
+): VariableLegParameterPreview {
+  const currentValue = parameter.kind === "bar-length"
+    ? source.baseProject.bars.find((bar) => bar.id === parameter.targetId)?.length
+    : source.baseProject.joints.find((joint) => joint.id === parameter.targetId)?.[parameter.axis];
+  const characteristicLength = Math.max(1, ...source.baseProject.bars.map((bar) => bar.length));
+  const fallback = currentValue === undefined ? [] : parameter.kind === "bar-length"
+    ? [{ minimum: Math.max(1, currentValue * 0.72), maximum: currentValue * 1.28 }]
+    : [{ minimum: currentValue - characteristicLength * 0.22, maximum: currentValue + characteristicLength * 0.22 }];
+  const scanBounds = bounds?.length ? bounds : fallback;
+  const scannedMinimum = Math.min(...scanBounds.map((interval) => interval.minimum), requestedValue);
+  const scannedMaximum = Math.max(...scanBounds.map((interval) => interval.maximum), requestedValue);
+
+  const baselineMetrics = source.modes.map((mode) => analyzeVariableLegMode(source.baseProject, source.adjustment, mode, phaseSamples, iterations));
+  const evaluate = (value: number) => {
+    const project = setVariableLegEditableParameter(source, parameter, value);
+    const metrics = project.modes.map((mode) => analyzeVariableLegMode(project.baseProject, project.adjustment, mode, phaseSamples, iterations));
+    return { value, project, metrics, feasible: variableLegMetricsAreFeasible(metrics, baselineMetrics) };
+  };
+  const requested = evaluate(requestedValue);
+  const values = scanBounds.flatMap((interval) => Array.from({ length: Math.max(3, sampleCount) }, (_, index) => (
+    interval.minimum + (interval.maximum - interval.minimum) * index / (Math.max(3, sampleCount) - 1)
+  )));
+  if (currentValue !== undefined) values.push(currentValue);
+  values.push(requestedValue);
+  const results = [...new Set(values.map((value) => Number(value.toFixed(6))))]
+    .sort((first, second) => first - second)
+    .map((value) => Math.abs(value - requestedValue) < 1e-8 ? requested : evaluate(value));
+  const feasibleResults = results.filter((result) => result.feasible);
+  const nearest = feasibleResults.reduce<typeof requested | null>((best, result) => (
+    !best || Math.abs(result.value - requestedValue) < Math.abs(best.value - requestedValue) ? result : best
+  ), null);
+  const intervalSamples = results.map((result) => ({ value: result.value, feasible: result.feasible, failedModeIds: result.metrics.filter((metric) => (
+    metric.validRatio < 0.999
+  )).map((metric) => metric.modeId) }));
+  const activeValue = currentValue ?? requestedValue;
+  const { intervals } = buildVariableLegFeasibleIntervals(intervalSamples, activeValue);
+  return {
+    parameter,
+    requestedValue,
+    requestedValid: requested.feasible,
+    nearestFeasibleValue: requested.feasible ? requestedValue : nearest?.value ?? null,
+    previewProject: requested.feasible ? requested.project : nearest?.project ?? null,
+    metrics: requested.metrics,
+    intervals,
+    scannedMinimum,
+    scannedMaximum,
+  };
 }
 
 export function previewVariableLegBarLength(

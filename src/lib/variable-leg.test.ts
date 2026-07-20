@@ -19,12 +19,15 @@ import {
   measureGaitClearance,
   migrateVariableLegProject,
   restoreVariableLegStandardModes,
+  previewVariableLegEditableParameter,
   scanVariableLegAdjustmentFeasibility,
   setVariableLegBaseBarLength,
+  setVariableLegEditableParameter,
   sampleVariableLeg,
   validateVariableLegDesignerProject,
   type VariableLegAdjustmentFeasibility,
 } from "./variable-leg";
+import { getVariableLegBaselineBounds } from "./variable-leg-baselines";
 import { synthesizeVariableLeg, synthesizeVariableLegQuickDesign } from "./variable-leg-synthesis";
 
 describe("variable geometry walking leg", () => {
@@ -237,6 +240,50 @@ describe("variable geometry walking leg", () => {
     expect(next.adjustment.kind === "telescopic-bar" && next.adjustment.baseLength).toBeCloseTo(target.length + 12);
     expect(next.adjustment.minimum).toBeCloseTo(target.length + 2);
     expect(next.modes.every((mode) => mode.adjustmentValue === target.length + 12)).toBe(true);
+  });
+
+  it.each(["klann", "jansen"] as const)("loads offline parameter baselines for %s", (topology) => {
+    const project = createDefaultVariableLegProject();
+    project.topology = topology;
+    project.baseProject = getVariableLegTemplate(topology);
+    const bar = project.baseProject.bars[0];
+    const fixed = project.baseProject.joints.find((joint) => joint.fixed)!;
+    expect(getVariableLegBaselineBounds(project, { kind: "bar-length", targetId: bar.id }).length).toBeGreaterThan(0);
+    expect(getVariableLegBaselineBounds(project, { kind: "fixed-joint-coordinate", targetId: fixed.id, axis: "x" }).length).toBeGreaterThan(0);
+  });
+
+  it("updates a fixed pivot through a cloned safe-edit draft", () => {
+    const source = createDefaultVariableLegProject();
+    const joint = source.baseProject.joints.find((item) => item.id === source.adjustment.targetId)!;
+    const next = setVariableLegEditableParameter(source, { kind: "fixed-joint-coordinate", targetId: joint.id, axis: "x" }, joint.x + 8);
+    expect(source.baseProject.joints.find((item) => item.id === joint.id)?.x).toBe(joint.x);
+    expect(next.baseProject.joints.find((item) => item.id === joint.id)?.x).toBeCloseTo(joint.x + 8);
+    expect(next.adjustment.kind === "moving-pivot" && next.adjustment.baseX).toBeCloseTo(joint.x + 8);
+  });
+
+  it("previews a Jansen bar edit without mutating the source", () => {
+    const source = createDefaultVariableLegProject();
+    source.topology = "jansen";
+    source.baseProject = getVariableLegTemplate("jansen");
+    source.adjustment = createDefaultAdjustment("jansen", "telescopic-bar");
+    source.modes = source.modes.slice(0, 1).map((mode) => ({ ...mode, adjustmentValue: source.adjustment.kind === "telescopic-bar" ? source.adjustment.baseLength : 0 }));
+    const bar = source.baseProject.bars.find((item) => item.id === "L2")!;
+    const bounds = getVariableLegBaselineBounds(source, { kind: "bar-length", targetId: bar.id });
+    const preview = previewVariableLegEditableParameter(source, { kind: "bar-length", targetId: bar.id }, bar.length, bounds, 3, 36, 70);
+    expect(preview.requestedValid).toBe(true);
+    expect(preview.previewProject).not.toBeNull();
+    expect(source.baseProject.bars.find((item) => item.id === bar.id)?.length).toBe(bar.length);
+  });
+
+  it("keeps an invalid Klann draft out of the project and suggests a feasible value", () => {
+    const source = createDefaultVariableLegProject();
+    const bar = source.baseProject.bars.find((item) => item.id === "L2")!;
+    const bounds = getVariableLegBaselineBounds(source, { kind: "bar-length", targetId: bar.id });
+    const preview = previewVariableLegEditableParameter(source, { kind: "bar-length", targetId: bar.id }, 200, bounds);
+    expect(preview.requestedValid).toBe(false);
+    expect(preview.nearestFeasibleValue).not.toBeNull();
+    expect(preview.previewProject?.baseProject.bars.find((item) => item.id === bar.id)?.length).toBeCloseTo(preview.nearestFeasibleValue!);
+    expect(source.baseProject.bars.find((item) => item.id === bar.id)?.length).toBe(bar.length);
   });
 
   it("rejects a designer return when required topology was deleted", () => {

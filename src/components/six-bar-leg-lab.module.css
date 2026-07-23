@@ -309,9 +309,9 @@
 .primary { stroke: #c8ff3d; }
 .legLink { stroke: #93c629; }
 .footExtension { stroke: #5a781c; }
-.trail { fill: rgb(70 127 75 / 5%); stroke: #558b5a; stroke-width: 2.5; stroke-dasharray: 7 5; }
-.targetPath { fill: rgb(39 127 168 / 6%); stroke: #237da8; stroke-width: 4; pointer-events: none; }
-.candidatePath { fill: none; stroke: #a346a6; stroke-width: 3; stroke-dasharray: 10 5; pointer-events: none; }
+.trail { fill: none; stroke: #558b5a; stroke-width: 2; stroke-dasharray: 7 6; opacity: .38; }
+.targetPath { fill: none; stroke: #237da8; stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
+.candidatePath { fill: none; stroke: #a346a6; stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
 .joint { fill: #f1f1eb; stroke: #151918; stroke-width: 4; }
 .pin { fill: #c8ff3d; stroke: #151918; stroke-width: 1; }
 .foot { fill: #287fa8; stroke: #10232b; stroke-width: 4; }

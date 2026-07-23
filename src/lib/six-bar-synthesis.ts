@@ -1,5 +1,5 @@
 import type { Point } from "./four-bar";
-import { resampleClosedPath } from "./path-synthesis";
+import { resampleOpenPath } from "./path-synthesis";
 import {
   getSixBarTransmissionAngles,
   solveSixBarLeg,
@@ -14,14 +14,16 @@ export type SixBarCandidate = {
   parameters: SixBarParameters;
   phase: number;
   direction: 1 | -1;
+  workAngleSpan: number;
   score: number;
   rmse: number;
   maxError: number;
+  /** Fraction of valid assemblies across an independent 360-degree crank sample. */
   validRatio: number;
   minTransmissionAngle: number;
   meanTransmissionAngle: number;
-  landingVelocityPerRadian: number;
   envelopeWidth: number;
+  /** Open fitted work segment. The mechanism's full-cycle path is computed separately. */
   generatedPath: Point[];
 };
 
@@ -56,8 +58,18 @@ function clamp(value: number, minimum: number, maximum: number) {
   return Math.min(maximum, Math.max(minimum, value));
 }
 
-function toVector(parameters: SixBarParameters, phase: number, direction: 1 | -1) {
-  return [...PARAMETER_KEYS.map((key) => parameters[key]), phase, direction === 1 ? 1 : 0];
+function toVector(
+  parameters: SixBarParameters,
+  phase: number,
+  direction: 1 | -1,
+  workAngleSpan: number,
+) {
+  return [
+    ...PARAMETER_KEYS.map((key) => parameters[key]),
+    phase,
+    direction === 1 ? 1 : 0,
+    workAngleSpan,
+  ];
 }
 
 function fromVector(vector: number[]) {
@@ -68,6 +80,7 @@ function fromVector(vector: number[]) {
     parameters,
     phase: ((vector[10] % 360) + 360) % 360,
     direction: (vector[11] >= 0.5 ? 1 : -1) as 1 | -1,
+    workAngleSpan: vector[12],
   };
 }
 
@@ -93,103 +106,102 @@ function getBounds(target: Point[], initial: SixBarParameters): Bounds {
     [-scale * 1.25, scale * 1.25],
     [0, 360],
     [0, 1],
+    [60, 300],
   ];
 }
 
-function findLandingIndex(target: Point[]) {
-  const minimumY = Math.min(...target.map((point) => point.y));
-  const maximumY = Math.max(...target.map((point) => point.y));
-  const threshold = minimumY + (maximumY - minimumY) * 0.22;
-  let bestIndex = 0;
-  let bestDescent = Number.POSITIVE_INFINITY;
-  for (let index = 0; index < target.length; index += 1) {
-    const previous = target[(index - 1 + target.length) % target.length];
-    const descent = target[index].y - previous.y;
-    if (target[index].y <= threshold && descent < bestDescent) {
-      bestDescent = descent;
-      bestIndex = index;
-    }
-  }
-  return bestIndex;
+export function sampleSixBarWorkPath(
+  parameters: SixBarParameters,
+  phase: number,
+  direction: 1 | -1,
+  workAngleSpan: number,
+  sampleCount: number,
+) {
+  return Array.from({ length: sampleCount }, (_, index): Point => {
+    const progress = sampleCount <= 1 ? 0 : index / (sampleCount - 1);
+    return solveSixBarLeg(parameters, phase + direction * progress * workAngleSpan)?.footPoint
+      ?? { x: Number.NaN, y: Number.NaN };
+  });
 }
 
 function evaluate(
   vector: number[],
   target: Point[],
   pathScale: number,
-  landingIndex: number,
   priority: SynthesisPriority,
 ): Evaluation {
-  const { parameters, phase, direction } = fromVector(vector);
+  const { parameters, phase, direction, workAngleSpan } = fromVector(vector);
   const generatedPath: Point[] = [];
   let squaredError = 0;
   let maxError = 0;
-  let valid = 0;
-  let minimumTransmission = 90;
-  let transmissionSum = 0;
-  let transmissionCount = 0;
 
+  generatedPath.push(...sampleSixBarWorkPath(
+    parameters,
+    phase,
+    direction,
+    workAngleSpan,
+    target.length,
+  ));
   for (let index = 0; index < target.length; index += 1) {
-    const angle = phase + direction * (index / target.length) * 360;
-    const position = solveSixBarLeg(parameters, angle);
-    if (!position) {
-      generatedPath.push({ x: Number.NaN, y: Number.NaN });
+    const generatedPoint = generatedPath[index];
+    if (!Number.isFinite(generatedPoint.x) || !Number.isFinite(generatedPoint.y)) {
       squaredError += pathScale ** 2 * 25;
       maxError = Math.max(maxError, pathScale * 5);
       continue;
     }
-    valid += 1;
-    generatedPath.push(position.footPoint);
     const error = Math.hypot(
-      position.footPoint.x - target[index].x,
-      position.footPoint.y - target[index].y,
+      generatedPoint.x - target[index].x,
+      generatedPoint.y - target[index].y,
     );
     squaredError += error ** 2;
     maxError = Math.max(maxError, error);
+  }
+
+  const rmse = Math.sqrt(squaredError / target.length);
+  const fullCyclePoints: Point[] = [];
+  let fullCycleValid = 0;
+  let minimumTransmission = 90;
+  let transmissionSum = 0;
+  let transmissionCount = 0;
+  const fullCycleSamples = 120;
+  for (let index = 0; index < fullCycleSamples; index += 1) {
+    const position = solveSixBarLeg(parameters, phase + (index / fullCycleSamples) * 360);
+    if (!position) continue;
+    fullCycleValid += 1;
+    fullCyclePoints.push(position.footPoint);
     const angles = getSixBarTransmissionAngles(parameters, position);
     minimumTransmission = Math.min(minimumTransmission, angles.first, angles.second);
     transmissionSum += angles.first + angles.second;
     transmissionCount += 2;
   }
-
-  const validRatio = valid / target.length;
-  const rmse = Math.sqrt(squaredError / target.length);
+  const validRatio = fullCycleValid / fullCycleSamples;
   const meanTransmissionAngle = transmissionCount ? transmissionSum / transmissionCount : 0;
-  const previousLanding = generatedPath[(landingIndex - 1 + generatedPath.length) % generatedPath.length];
-  const landing = generatedPath[landingIndex];
-  const angleStep = (Math.PI * 2) / target.length;
-  const landingVelocityPerRadian = landing && previousLanding && Number.isFinite(landing.y) && Number.isFinite(previousLanding.y)
-    ? Math.abs(landing.y - previousLanding.y) / angleStep
-    : pathScale * 8;
-  const finitePoints = generatedPath.filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y));
-  const envelopeWidth = finitePoints.length
-    ? Math.max(...finitePoints.map((point) => point.x)) - Math.min(...finitePoints.map((point) => point.x))
+  const envelopeWidth = fullCyclePoints.length
+    ? Math.max(...fullCyclePoints.map((point) => point.x)) - Math.min(...fullCyclePoints.map((point) => point.x))
     : pathScale * 5;
   const normalizedError = rmse / pathScale;
   const continuityPenalty = 1 - validRatio;
   const transmissionPenalty = Math.max(0, (38 - minimumTransmission) / 38);
-  const landingPenalty = Math.min(2, landingVelocityPerRadian / pathScale);
   const weights = priority === "accuracy"
-    ? { error: 0.82, continuity: 0.1, transmission: 0.06, landing: 0.02 }
+    ? { error: 0.84, continuity: 0.1, transmission: 0.06 }
     : priority === "transmission"
-      ? { error: 0.4, continuity: 0.2, transmission: 0.34, landing: 0.06 }
-      : { error: 0.6, continuity: 0.18, transmission: 0.17, landing: 0.05 };
+      ? { error: 0.43, continuity: 0.21, transmission: 0.36 }
+      : { error: 0.63, continuity: 0.19, transmission: 0.18 };
   const cost = weights.error * normalizedError
     + weights.continuity * continuityPenalty * 4
-    + weights.transmission * transmissionPenalty
-    + weights.landing * landingPenalty;
+    + weights.transmission * transmissionPenalty;
   const score = clamp(100 * (1 - cost), 0, 100);
 
   return {
     phase,
     direction,
+    workAngleSpan,
     score,
     rmse,
     maxError,
     validRatio,
-    minTransmissionAngle: valid ? minimumTransmission : 0,
+    minTransmissionAngle: fullCycleValid ? minimumTransmission : 0,
     meanTransmissionAngle,
-    landingVelocityPerRadian,
     envelopeWidth,
     generatedPath,
     cost,
@@ -231,12 +243,11 @@ export async function synthesizeSixBarLeg(
   onProgress?: (progress: number) => void,
   candidateCount = 5,
 ): Promise<SixBarCandidate[]> {
-  const target = resampleClosedPath(rawTarget, 56);
+  const target = resampleOpenPath(rawTarget, 56);
   if (target.length < 12) throw new Error("目标轨迹过短");
   const xs = target.map((point) => point.x);
   const ys = target.map((point) => point.y);
   const pathScale = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys), 60);
-  const landingIndex = findLandingIndex(target);
   const bounds = getBounds(target, initial);
   const random = createRandom(20260713 + priority.length * 97);
   const populationSize = 64;
@@ -245,13 +256,20 @@ export async function synthesizeSixBarLeg(
 
   for (const direction of [1, -1] as const) {
     for (let phase = 0; phase < 360; phase += 45) {
-      initialSeeds.push(toVector(initial, phase, direction));
+      for (const workAngleSpan of [120, 180, 240]) {
+        initialSeeds.push(toVector(initial, phase, direction, workAngleSpan));
+      }
     }
   }
   const population = Array.from({ length: populationSize }, (_, index) => {
     if (index < initialSeeds.length) return initialSeeds[index].map((value, valueIndex) => clamp(value, bounds[valueIndex][0], bounds[valueIndex][1]));
     if (index < initialSeeds.length + 12) {
-      const base = toVector(initial, random() * 360, random() > 0.5 ? 1 : -1);
+      const base = toVector(
+        initial,
+        random() * 360,
+        random() > 0.5 ? 1 : -1,
+        60 + random() * 240,
+      );
       return base.map((value, valueIndex) => {
         const [minimum, maximum] = bounds[valueIndex];
         return clamp(value + (random() * 2 - 1) * (maximum - minimum) * 0.22, minimum, maximum);
@@ -259,7 +277,7 @@ export async function synthesizeSixBarLeg(
     }
     return bounds.map(([minimum, maximum]) => minimum + random() * (maximum - minimum));
   });
-  const evaluations = population.map((vector) => evaluate(vector, target, pathScale, landingIndex, priority));
+  const evaluations = population.map((vector) => evaluate(vector, target, pathScale, priority));
   const archive: Array<{ vector: number[]; evaluation: Evaluation }> = population.map((vector, index) => ({
     vector: [...vector],
     evaluation: evaluations[index],
@@ -279,7 +297,7 @@ export async function synthesizeSixBarLeg(
           + 0.72 * (population[choices[1]][valueIndex] - population[choices[2]][valueIndex]);
         return clamp(mutation, bounds[valueIndex][0], bounds[valueIndex][1]);
       });
-      const trialEvaluation = evaluate(trial, target, pathScale, landingIndex, priority);
+      const trialEvaluation = evaluate(trial, target, pathScale, priority);
       if (trialEvaluation.cost <= evaluations[index].cost) {
         population[index] = trial;
         evaluations[index] = trialEvaluation;
@@ -318,13 +336,13 @@ export async function synthesizeSixBarLeg(
       parameters: decoded.parameters,
       phase: evaluation.phase,
       direction: evaluation.direction,
+      workAngleSpan: evaluation.workAngleSpan,
       score: evaluation.score,
       rmse: evaluation.rmse,
       maxError: evaluation.maxError,
       validRatio: evaluation.validRatio,
       minTransmissionAngle: evaluation.minTransmissionAngle,
       meanTransmissionAngle: evaluation.meanTransmissionAngle,
-      landingVelocityPerRadian: evaluation.landingVelocityPerRadian,
       envelopeWidth: evaluation.envelopeWidth,
       generatedPath: evaluation.generatedPath,
     };

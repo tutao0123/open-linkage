@@ -43,6 +43,33 @@ export function resampleClosedPath(points: Point[], sampleCount = 48): Point[] {
   return samples;
 }
 
+export function resampleOpenPath(points: Point[], sampleCount = 48): Point[] {
+  if (points.length < 2) return points;
+  const cleaned = points.filter((point, index) => index === 0 || distance(point, points[index - 1]) > 0.5);
+  if (cleaned.length < 2) return cleaned;
+  const cumulative = [0];
+  for (let index = 1; index < cleaned.length; index += 1) {
+    cumulative.push(cumulative[index - 1] + distance(cleaned[index - 1], cleaned[index]));
+  }
+  const totalLength = cumulative[cumulative.length - 1];
+  if (totalLength < 1) return [cleaned[0]];
+
+  const samples: Point[] = [];
+  let segment = 1;
+  for (let sample = 0; sample < sampleCount; sample += 1) {
+    const targetLength = sampleCount === 1 ? 0 : (sample / (sampleCount - 1)) * totalLength;
+    while (segment < cumulative.length - 1 && cumulative[segment] < targetLength) segment += 1;
+    const startLength = cumulative[segment - 1];
+    const segmentLength = cumulative[segment] - startLength || 1;
+    const ratio = (targetLength - startLength) / segmentLength;
+    samples.push({
+      x: cleaned[segment - 1].x + (cleaned[segment].x - cleaned[segment - 1].x) * ratio,
+      y: cleaned[segment - 1].y + (cleaned[segment].y - cleaned[segment - 1].y) * ratio,
+    });
+  }
+  return samples;
+}
+
 function createRandom(seed = 20260713) {
   let state = seed >>> 0;
   return () => {

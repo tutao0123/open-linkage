@@ -15,6 +15,12 @@ import {
   type SynthesisPriority,
 } from "@/lib/six-bar-synthesis";
 import { analyzeSixBarLeg, solveSixBarLeg, type SixBarParameters } from "@/lib/six-bar";
+import {
+  LEGACY_SIX_BAR_STORAGE_KEY,
+  SIX_BAR_STORAGE_KEY,
+  parseSixBarProject,
+  type SixBarProject,
+} from "@/lib/six-bar-project";
 import { SvgViewportControls } from "./svg-viewport-controls";
 import { useSvgViewport } from "./use-svg-viewport";
 import editorStyles from "./four-bar-editor.module.css";
@@ -33,20 +39,7 @@ const DEFAULT_PARAMETERS: SixBarParameters = {
   footOffset: -28,
 };
 
-const STORAGE_KEY = "open-linkage:six-bar-project:v2";
-
 type EditorMode = "inspect" | "trajectory";
-
-type SixBarProject = {
-  version: 2;
-  mechanismType: "six-bar-leg";
-  parameters: SixBarParameters;
-  inputAngle: number;
-  speed: number;
-  targetPath: Point[];
-  priority: SynthesisPriority;
-  candidates?: SixBarCandidate[];
-};
 
 const LENGTH_FIELDS: Array<{
   key: keyof SixBarParameters;
@@ -72,27 +65,13 @@ const PRIORITY_OPTIONS: Array<{ value: SynthesisPriority; label: string }> = [
   { value: "transmission", label: "传动性能" },
 ];
 
-function pathData(points: Point[], close = true) {
+function pathData(points: Point[], close = false) {
   if (!points.length) return "";
-  const commands = points
-    .filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y))
+  const finitePoints = points.filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y));
+  const commands = finitePoints
     .map((point, index) => `${index === 0 ? "M" : "L"}${point.x.toFixed(2)},${(-point.y).toFixed(2)}`)
     .join(" ");
   return `${commands}${close && commands ? " Z" : ""}`;
-}
-
-function isValidProject(project: SixBarProject) {
-  return project.version === 2
-    && project.mechanismType === "six-bar-leg"
-    && Object.values(project.parameters).every(Number.isFinite)
-    && [
-      project.parameters.groundPivot,
-      project.parameters.crank,
-      project.parameters.firstCoupler,
-      project.parameters.firstRocker,
-      project.parameters.secondCoupler,
-      project.parameters.secondRocker,
-    ].every((value) => value > 0);
 }
 
 export function SixBarLegLab() {
@@ -113,20 +92,24 @@ export function SixBarLegLab() {
   const [message, setMessage] = useState("浏览器自动保存已开启");
 
   useEffect(() => {
-    const saved = window.localStorage.getItem(STORAGE_KEY);
+    const saved = window.localStorage.getItem(SIX_BAR_STORAGE_KEY)
+      ?? window.localStorage.getItem(LEGACY_SIX_BAR_STORAGE_KEY);
     if (!saved) return;
     const timer = window.setTimeout(() => {
       try {
-        const project = JSON.parse(saved) as SixBarProject;
-        if (!isValidProject(project)) return;
+        const parsed = parseSixBarProject(JSON.parse(saved));
+        if (!parsed) return;
+        const { project, migrated } = parsed;
         setParameters(project.parameters);
         setInputAngle(project.inputAngle);
         setSpeed(project.speed);
-        setTargetPoints(Array.isArray(project.targetPath) ? project.targetPath : []);
-        setPriority(project.priority ?? "balanced");
-        setCandidates(Array.isArray(project.candidates) ? project.candidates : []);
+        setTargetPoints(project.targetPath);
+        setPriority(project.priority);
+        setCandidates(project.candidates);
         setSelectedCandidateId(project.candidates?.[0]?.id ?? null);
-        setMessage("已恢复上次六杆腿项目");
+        setMessage(migrated
+          ? "已迁移旧项目参数；闭合目标与旧候选已清除"
+          : "已恢复上次六杆腿项目");
       } catch {
         setMessage("自动保存数据损坏，已使用默认项目");
       }
@@ -136,7 +119,7 @@ export function SixBarLegLab() {
 
   useEffect(() => {
     const project: SixBarProject = {
-      version: 2,
+      version: 3,
       mechanismType: "six-bar-leg",
       parameters,
       inputAngle,
@@ -146,7 +129,7 @@ export function SixBarLegLab() {
       candidates,
     };
     const timer = window.setTimeout(() => {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(project));
+      window.localStorage.setItem(SIX_BAR_STORAGE_KEY, JSON.stringify(project));
     }, 300);
     return () => window.clearTimeout(timer);
   }, [parameters, inputAngle, speed, targetPoints, priority, candidates]);
@@ -174,7 +157,11 @@ export function SixBarLegLab() {
     () => candidates.find((candidate) => candidate.id === selectedCandidateId) ?? null,
     [candidates, selectedCandidateId],
   );
-  const targetPathData = useMemo(() => pathData(targetPoints), [targetPoints]);
+  const targetPathData = useMemo(() => pathData(targetPoints, false), [targetPoints]);
+  const fittedWorkPathData = useMemo(
+    () => pathData(selectedCandidate?.generatedPath ?? [], false),
+    [selectedCandidate],
+  );
   const maximumLength = Math.max(
     parameters.groundPivot,
     parameters.crank,
@@ -191,13 +178,10 @@ export function SixBarLegLab() {
     height: maximumLength * 2.9,
   }), [maximumLength]);
   const viewport = useSvgViewport(baseView, svgRef);
-  const landingSpeed = selectedCandidate
-    ? selectedCandidate.landingVelocityPerRadian * speed * Math.PI * 2 / 60
-    : null;
   const warnings = [
     analysis.validRatio < 1 ? "存在无法装配的主曲柄角度" : null,
     analysis.minTransmissionAngle < 30 ? "最小传动角低于 30°，高速承载风险较高" : null,
-    targetPoints.length < 12 ? "请绘制或生成一条闭合足端轨迹" : null,
+    targetPoints.length < 12 ? "请绘制一条开放的足端工作轨迹" : null,
     selectedCandidate && selectedCandidate.maxError > selectedCandidate.rmse * 2.8
       ? "候选方案存在局部误差峰值"
       : null,
@@ -249,39 +233,7 @@ export function SixBarLegLab() {
     if (!drawing) return;
     setDrawing(false);
     if (svgRef.current?.hasPointerCapture(event.pointerId)) svgRef.current.releasePointerCapture(event.pointerId);
-    setMessage("目标足迹已记录，可以开始生成候选方案");
-  };
-
-  const createGaitPreset = () => {
-    const footPoints = analysis.samples.map((sample) => sample.position.footPoint);
-    const centerX = footPoints.length
-      ? (Math.min(...footPoints.map((point) => point.x)) + Math.max(...footPoints.map((point) => point.x))) / 2
-      : parameters.groundPivot / 2;
-    const groundY = footPoints.length ? Math.min(...footPoints.map((point) => point.y)) : -180;
-    const stepLength = Math.max(220, analysis.stepLength * 1.5);
-    const liftHeight = Math.max(80, Math.min(160, analysis.liftHeight * 0.85));
-    const stanceRatio = 0.62;
-    const points = Array.from({ length: 72 }, (_, index) => {
-      const progress = index / 72;
-      if (progress < stanceRatio) {
-        const stance = progress / stanceRatio;
-        return {
-          x: centerX + stepLength / 2 - stepLength * stance,
-          y: groundY + Math.sin(stance * Math.PI) * 2,
-        };
-      }
-      const swing = (progress - stanceRatio) / (1 - stanceRatio);
-      return {
-        x: centerX - stepLength / 2 + stepLength * swing,
-        y: groundY + liftHeight * Math.sin(swing * Math.PI) ** 1.15,
-      };
-    });
-    setPlaying(false);
-    setEditorMode("trajectory");
-    setTargetPoints(points);
-    setCandidates([]);
-    setSelectedCandidateId(null);
-    setMessage("已生成 62% 支撑相的推荐马蹄轨迹");
+    setMessage("开放工作轨迹已记录，可以开始生成候选方案");
   };
 
   const runSynthesis = async () => {
@@ -341,7 +293,7 @@ export function SixBarLegLab() {
   };
 
   const getProject = (): SixBarProject => ({
-    version: 2,
+    version: 3,
     mechanismType: "six-bar-leg",
     parameters,
     inputAngle,
@@ -363,17 +315,20 @@ export function SixBarLegLab() {
 
   const importProject = async (file: File) => {
     try {
-      const project = JSON.parse(await file.text()) as SixBarProject;
-      if (!isValidProject(project)) throw new Error("invalid project");
+      const parsed = parseSixBarProject(JSON.parse(await file.text()));
+      if (!parsed) throw new Error("invalid project");
+      const { project, migrated } = parsed;
       setPlaying(false);
       setParameters(project.parameters);
       setInputAngle(project.inputAngle);
       setSpeed(project.speed);
-      setTargetPoints(Array.isArray(project.targetPath) ? project.targetPath : []);
-      setPriority(project.priority ?? "balanced");
-      setCandidates(Array.isArray(project.candidates) ? project.candidates : []);
+      setTargetPoints(project.targetPath);
+      setPriority(project.priority);
+      setCandidates(project.candidates);
       setSelectedCandidateId(project.candidates?.[0]?.id ?? null);
-      setMessage(`已载入 ${file.name}`);
+      setMessage(migrated
+        ? `已载入 ${file.name} 的机构参数；闭合目标与旧候选已清除`
+        : `已载入 ${file.name}`);
     } catch {
       setMessage("无法载入：不是有效的六杆腿项目文件");
     }
@@ -445,7 +400,6 @@ export function SixBarLegLab() {
                 <button className={editorMode === "inspect" ? editorStyles.selected : ""} type="button" onClick={() => setEditorMode("inspect")}>编辑机构</button>
                 <button className={editorMode === "trajectory" ? editorStyles.selected : ""} type="button" onClick={() => setEditorMode("trajectory")}>绘制轨迹</button>
               </div>
-              <button type="button" onClick={createGaitPreset}>推荐马蹄轨迹</button>
               <button type="button" onClick={() => { setTargetPoints([]); setCandidates([]); setSelectedCandidateId(null); }} disabled={!targetPoints.length}>清除轨迹</button>
               <button className={editorStyles.fitButton} type="button" onClick={() => void runSynthesis()} disabled={targetPoints.length < 12 || fitting}>
                 {fitting ? `搜索 ${Math.round(fitProgress * 100)}%` : "生成 5 套方案"}
@@ -481,6 +435,7 @@ export function SixBarLegLab() {
               <path d={`M0,0 L${parameters.groundPivot},0 L${parameters.rearPivotX},${-parameters.rearPivotY} Z`} className={styles.ground} />
               {analysis.trailPath && <path d={analysis.trailPath} className={styles.trail} />}
               {targetPathData && <path d={targetPathData} className={styles.targetPath} />}
+              {fittedWorkPathData && <path d={fittedWorkPathData} className={styles.candidatePath} />}
               {position ? (
                 <>
                   <line x1="0" y1="0" x2={position.crankJoint.x} y2={-position.crankJoint.y} className={`${styles.link} ${styles.crank}`} />
@@ -509,8 +464,9 @@ export function SixBarLegLab() {
             {fitting && <div className={styles.optimizingOverlay}><strong>{Math.round(fitProgress * 100)}%</strong><span>搜索可制造的六杆方案</span></div>}
           </div>
           <div className={styles.legend}>
-            <span><i className={styles.legendTarget} />目标轨迹</span>
-            <span><i className={styles.legendCurrent} />实际轨迹</span>
+            <span><i className={styles.legendTarget} />目标工作段</span>
+            <span><i className={styles.legendCandidate} />拟合工作段</span>
+            <span><i className={styles.legendCurrent} />完整回程</span>
           </div>
           <div className={styles.transport}>
             <button type="button" onClick={() => setPlaying((current) => !current)} aria-label={playing ? "暂停六杆腿动画" : "播放六杆腿动画"}>{playing ? "Ⅱ" : "▶"}</button>
@@ -533,12 +489,12 @@ export function SixBarLegLab() {
                   <span className={styles.rank}>{String(index + 1).padStart(2, "0")}</span>
                   <span className={styles.candidateMain}><b>{candidate.label}</b><small>RMSE {candidate.rmse.toFixed(1)} mm · 最大 {candidate.maxError.toFixed(1)} mm</small></span>
                   <span className={styles.candidateScore}>{candidate.score.toFixed(0)}<small>分</small></span>
-                  <span className={styles.candidateDetails}><i>最小传动角 {candidate.minTransmissionAngle.toFixed(1)}°</i><i>连续率 {(candidate.validRatio * 100).toFixed(0)}%</i></span>
+                  <span className={styles.candidateDetails}><i>最小传动角 {candidate.minTransmissionAngle.toFixed(1)}°</i><i>整周装配 {(candidate.validRatio * 100).toFixed(0)}%</i></span>
                 </button>
               ))}
             </div>
           ) : (
-            <div className={styles.emptyCandidates}><b>等待目标轨迹</b><p>绘制轨迹后，系统会返回五套尺寸不同的候选，并按轨迹、连续装配和传动性能综合排名。</p></div>
+            <div className={styles.emptyCandidates}><b>等待开放工作轨迹</b><p>绘制一段目标工作线后，系统会自动搜索工作转角并返回五套候选，同时检查整周装配和传动性能。</p></div>
           )}
 
           <div className={styles.metrics}>
@@ -547,7 +503,7 @@ export function SixBarLegLab() {
             <div><span>理论步长</span><strong>{analysis.stepLength.toFixed(1)}<small>mm</small></strong></div>
             <div><span>轨迹总高度</span><strong>{analysis.liftHeight.toFixed(1)}<small>mm</small></strong></div>
             <div><span>机构性能分</span><strong>{analysis.performanceScore.toFixed(0)}<small>/100</small></strong></div>
-            <div><span>估算落地垂速</span><strong>{landingSpeed === null ? "—" : landingSpeed.toFixed(1)}<small>{landingSpeed === null ? "" : "mm/s"}</small></strong></div>
+            <div><span>工作段转角</span><strong>{selectedCandidate ? selectedCandidate.workAngleSpan.toFixed(1) : "—"}<small>{selectedCandidate ? "°" : ""}</small></strong></div>
           </div>
 
           <div className={warnings.length ? styles.healthWarn : styles.healthGood}>

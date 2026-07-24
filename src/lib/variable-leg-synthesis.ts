@@ -5,15 +5,24 @@ import {
   buildGuidedDesignSeed,
   cloneVariableLegProject,
   createDefaultAdjustment,
+  evaluateVariableLegConstraints,
   guidedDesignZones,
   getVariableLegTemplate,
   scoreVariableLegFamily,
   summarizeGuidedCompatibility,
   variableLegModeCost,
+  type ConstraintEvaluation,
+  type VariableLegAdjustmentFeasibility,
   type VariableLegAdjustment,
   type VariableLegAdjustmentKind,
+  type VariableLegBarLengthPreview,
   type VariableLegCandidate,
+  type VariableLegConstraintMetric,
+  type VariableLegEditableParameter,
+  type VariableLegFeasibleInterval,
   type VariableLegMode,
+  type VariableLegModeMetrics,
+  type VariableLegParameterPreview,
   type VariableLegProject,
   type GuidedDesignPreflight,
   type GuidedDesignRequest,
@@ -22,7 +31,7 @@ import {
   type VariableLegTopology,
 } from "./variable-leg";
 import { createGuidedSafeBaseline } from "./variable-leg-guided-baselines";
-import { cloneProject, type FreeMechanismProject } from "./free-mechanism";
+import { cloneProject, createRigidBody, type FreeMechanismProject } from "./free-mechanism";
 
 export type VariableLegSynthesisProgress = {
   progress: number;
@@ -31,6 +40,120 @@ export type VariableLegSynthesisProgress = {
 };
 
 export type VariableLegSynthesisScope = "global" | "current-target";
+
+export type VariableLegRefinementParameterId =
+  | `bar-length:${string}`
+  | `joint-x:${string}`
+  | `joint-y:${string}`
+  | "adjustment:rail-angle"
+  | `mode-adjustment:${string}`;
+
+export type RefinementRequest = {
+  allowedParameterIds: VariableLegRefinementParameterId[];
+  selectedBarId?: string;
+  modeIds: string[];
+  iterations?: number;
+  parentRunId?: string;
+};
+
+export type VariableLegGenerationRequest = {
+  /**
+   * Generation starts from a clone of the current mechanism unless the caller
+   * explicitly opts into a template seed.
+   */
+  seedSource?: "current" | "template";
+};
+
+export type VariableLegGuidedSynthesisOptions = {
+  /**
+   * Offline baselines are never selected implicitly. The UI must expose and
+   * explicitly send this choice.
+   */
+  allowOfflineBaselineFallback?: boolean;
+};
+
+export type VariableLegWorkerCorrelation = {
+  requestId: string;
+  runId?: string;
+  sourceRevisionId?: string;
+};
+
+type VariableLegWorkerRequestBase = VariableLegWorkerCorrelation & {
+  project: VariableLegProject;
+};
+
+export type VariableLegWorkerRequest =
+  | (VariableLegWorkerRequestBase & {
+    type: "start";
+    scope?: VariableLegSynthesisScope;
+    refinementRequest?: RefinementRequest;
+    generationRequest?: VariableLegGenerationRequest;
+  })
+  | (VariableLegWorkerRequestBase & { type: "feasibility" })
+  | (VariableLegWorkerRequestBase & {
+    type: "guided-design";
+    request: GuidedDesignRequest;
+    allowOfflineBaselineFallback?: boolean;
+  })
+  | (VariableLegWorkerRequestBase & {
+    type: "guided-preflight";
+    request: GuidedDesignRequest;
+    allowOfflineBaselineFallback?: boolean;
+  })
+  | (VariableLegWorkerRequestBase & {
+    type: "bar-preview";
+    barId: string;
+    requestedLength: number;
+  })
+  | (VariableLegWorkerRequestBase & {
+    type: "parameter-preview";
+    parameter: VariableLegEditableParameter;
+    requestedValue: number;
+    bounds?: VariableLegFeasibleInterval[];
+  })
+  | (VariableLegWorkerRequestBase & {
+    type: "project-check";
+    baselineProject?: VariableLegProject;
+  })
+  | (VariableLegWorkerCorrelation & { type: "cancel" });
+
+type VariableLegWorkerResponseBase = {
+  requestId: string;
+  runId: string;
+  sourceRevisionId: string;
+};
+
+export type VariableLegWorkerResponse =
+  | (VariableLegWorkerResponseBase & { type: "progress"; progress: VariableLegSynthesisProgress })
+  | (VariableLegWorkerResponseBase & { type: "result"; candidates: VariableLegCandidate[] })
+  | (VariableLegWorkerResponseBase & { type: "guided-design-result"; result: GuidedDesignResult })
+  | (VariableLegWorkerResponseBase & { type: "guided-preflight-result"; preflight: GuidedDesignPreflight })
+  | (VariableLegWorkerResponseBase & { type: "feasibility-result"; feasibility: VariableLegAdjustmentFeasibility })
+  | (VariableLegWorkerResponseBase & { type: "bar-preview-result"; preview: VariableLegBarLengthPreview })
+  | (VariableLegWorkerResponseBase & { type: "parameter-preview-result"; preview: VariableLegParameterPreview })
+  | (VariableLegWorkerResponseBase & {
+    type: "project-check-result";
+    validation: { valid: boolean; failedModeIds: string[]; metrics: VariableLegModeMetrics[] };
+  })
+  | (VariableLegWorkerResponseBase & { type: "cancelled" })
+  | (VariableLegWorkerResponseBase & { type: "error"; message: string });
+
+export function variableLegBarLengthParameterId(barId: string): VariableLegRefinementParameterId {
+  return `bar-length:${barId}`;
+}
+
+export function variableLegJointParameterId(
+  jointId: string,
+  axis: "x" | "y",
+): VariableLegRefinementParameterId {
+  return `joint-${axis}:${jointId}`;
+}
+
+export function variableLegModeAdjustmentParameterId(modeId: string): VariableLegRefinementParameterId {
+  return `mode-adjustment:${modeId}`;
+}
+
+export const VARIABLE_LEG_RAIL_ANGLE_PARAMETER_ID = "adjustment:rail-angle" as const;
 
 export class VariableLegSynthesisCancelled extends Error {
   constructor() {
@@ -46,7 +169,181 @@ type SearchSeed = {
   modes: VariableLegMode[];
   score: number;
   cost: number;
+  evaluation?: ConstraintEvaluation;
 };
+
+type ResolvedRefinementParameter =
+  | { kind: "bar-length"; targetId: string }
+  | { kind: "joint-coordinate"; targetId: string; axis: "x" | "y" }
+  | { kind: "rail-angle" }
+  | { kind: "mode-adjustment"; modeId: string };
+
+type EvaluatedSeed = {
+  metrics: VariableLegModeMetrics[];
+  evaluation: ConstraintEvaluation;
+  score: number;
+  cost: number;
+  continuity: number;
+};
+
+function metricHardViolation(evaluation: ConstraintEvaluation["conditions"][number]["metrics"][VariableLegConstraintMetric]) {
+  if (evaluation.level !== "hard" || evaluation.passed) return 0;
+  if (evaluation.actual === null) return 10;
+  const tolerance = evaluation.rule === "range" ? Math.max(0, evaluation.tolerance) : 0;
+  const violation = evaluation.rule === "range"
+    ? Math.max(0, Math.abs(evaluation.difference ?? 0) - tolerance)
+    : evaluation.rule === "minimum"
+      ? Math.max(0, -1 * (evaluation.difference ?? 0))
+      : Math.max(0, evaluation.difference ?? 0);
+  return violation / Math.max(0.01, Math.abs(evaluation.target));
+}
+
+function safetyHardViolation(
+  evaluation: ConstraintEvaluation["conditions"][number]["safety"][number],
+) {
+  if (evaluation.passed) return 0;
+  if (evaluation.actual === null) return 10;
+  if (evaluation.rule === "minimum" && evaluation.threshold !== null) {
+    return Math.max(0, evaluation.threshold - evaluation.actual) / Math.max(0.01, Math.abs(evaluation.threshold));
+  }
+  if (evaluation.rule === "maximum" && evaluation.threshold !== null) {
+    return Math.max(0, evaluation.actual - evaluation.threshold) / Math.max(0.01, Math.abs(evaluation.threshold) || 1);
+  }
+  return 10;
+}
+
+function constraintHardViolation(evaluation: ConstraintEvaluation | undefined) {
+  if (!evaluation) return Number.POSITIVE_INFINITY;
+  return evaluation.conditions
+    .filter((condition) => condition.enabled)
+    .reduce((sum, condition) => sum
+      + Object.values(condition.metrics).reduce((metricSum, metric) => metricSum + metricHardViolation(metric), 0)
+      + condition.safety.reduce((safetySum, safety) => safetySum + safetyHardViolation(safety), 0), 0);
+}
+
+function evaluateSearchSeed(
+  source: VariableLegProject,
+  seed: Pick<SearchSeed, "baseProject" | "adjustment" | "modes">,
+  phaseSamples: number,
+  iterations: number,
+): EvaluatedSeed {
+  const metrics = seed.modes.map((mode) => analyzeVariableLegMode(
+    seed.baseProject,
+    seed.adjustment,
+    mode,
+    phaseSamples,
+    iterations,
+  ));
+  const family = scoreVariableLegFamily(metrics, seed.modes, seed.adjustment);
+  return {
+    metrics,
+    evaluation: evaluateVariableLegConstraints(metrics, source.requirements),
+    score: family.score,
+    cost: family.cost,
+    continuity: continuityPenalty(metrics),
+  };
+}
+
+function seedEvaluationIsBetter(
+  current: EvaluatedSeed,
+  candidate: EvaluatedSeed,
+  preferContinuity = true,
+) {
+  if (candidate.evaluation.hardPassed !== current.evaluation.hardPassed) {
+    return candidate.evaluation.hardPassed;
+  }
+  const currentHardViolation = constraintHardViolation(current.evaluation);
+  const candidateHardViolation = constraintHardViolation(candidate.evaluation);
+  if (Math.abs(candidateHardViolation - currentHardViolation) > 1e-6) {
+    return candidateHardViolation < currentHardViolation;
+  }
+  if (preferContinuity && candidate.continuity < current.continuity - 1e-6) return true;
+  if (!preferContinuity || Math.abs(candidate.continuity - current.continuity) <= 1e-6) {
+    if (Math.abs(candidate.score - current.score) > 1e-6) return candidate.score > current.score;
+    return candidate.evaluation.softScore >= current.evaluation.softScore;
+  }
+  return false;
+}
+
+function candidateFromSeed(
+  source: VariableLegProject,
+  seed: SearchSeed,
+  id: string,
+  label: string,
+  phaseSamples = 72,
+  iterations = 90,
+): VariableLegCandidate {
+  const result = evaluateSearchSeed(source, seed, phaseSamples, iterations);
+  return {
+    id,
+    label,
+    topology: seed.topology,
+    baseProject: cloneProject(seed.baseProject),
+    adjustment: { ...seed.adjustment },
+    modes: cloneModes(seed.modes),
+    score: result.score,
+    familyRmse: result.metrics.reduce((sum, metric) => sum + metric.rmse, 0) / Math.max(1, result.metrics.length),
+    adjustmentStroke: scoreVariableLegFamily(result.metrics, seed.modes, seed.adjustment).stroke,
+    metrics: result.metrics,
+    constraintEvaluation: result.evaluation,
+  };
+}
+
+function resolveRefinementParameters(
+  source: VariableLegProject,
+  request: RefinementRequest,
+): ResolvedRefinementParameter[] {
+  const parameterIds = new Set<VariableLegRefinementParameterId>(request.allowedParameterIds);
+  if (request.selectedBarId) parameterIds.add(variableLegBarLengthParameterId(request.selectedBarId));
+
+  const modeIds = new Set(request.modeIds);
+  for (const modeId of modeIds) {
+    if (!source.modes.some((mode) => mode.id === modeId)) {
+      throw new Error(`精修工况不存在：${modeId}`);
+    }
+    parameterIds.add(variableLegModeAdjustmentParameterId(modeId));
+  }
+
+  const resolved: ResolvedRefinementParameter[] = [];
+  for (const parameterId of parameterIds) {
+    if (parameterId.startsWith("bar-length:")) {
+      const targetId = parameterId.slice("bar-length:".length);
+      if (request.selectedBarId && targetId !== request.selectedBarId) {
+        throw new Error(`当前杆件精修只能修改 ${request.selectedBarId}`);
+      }
+      if (!source.baseProject.bars.some((bar) => bar.id === targetId)) {
+        throw new Error(`精修杆件不存在：${targetId}`);
+      }
+      resolved.push({ kind: "bar-length", targetId });
+      continue;
+    }
+    if (parameterId.startsWith("joint-x:") || parameterId.startsWith("joint-y:")) {
+      const axis = parameterId.startsWith("joint-x:") ? "x" : "y";
+      const targetId = parameterId.slice("joint-x:".length);
+      const joint = source.baseProject.joints.find((item) => item.id === targetId);
+      if (!joint?.fixed) throw new Error(`精修固定铰点不存在：${targetId}`);
+      resolved.push({ kind: "joint-coordinate", targetId, axis });
+      continue;
+    }
+    if (parameterId === VARIABLE_LEG_RAIL_ANGLE_PARAMETER_ID) {
+      if (source.adjustment.kind !== "moving-pivot") {
+        throw new Error("只有移动铰点调节允许精修导轨角度");
+      }
+      resolved.push({ kind: "rail-angle" });
+      continue;
+    }
+    if (parameterId.startsWith("mode-adjustment:")) {
+      const modeId = parameterId.slice("mode-adjustment:".length);
+      if (!modeIds.has(modeId)) {
+        throw new Error(`锁止值参数必须同时列入 modeIds：${modeId}`);
+      }
+      resolved.push({ kind: "mode-adjustment", modeId });
+      continue;
+    }
+    throw new Error(`不支持的精修参数：${parameterId}`);
+  }
+  return resolved;
+}
 
 function continuityPenalty(metrics: ReturnType<typeof analyzeVariableLegMode>[]) {
   return metrics.reduce((sum, metric) => sum
@@ -93,6 +390,71 @@ function scaleProject(project: FreeMechanismProject, scale: number) {
   return next;
 }
 
+export function createGuidedDesignSearchSeed(
+  source: VariableLegProject,
+  request: GuidedDesignRequest,
+  role: GuidedDesignRole,
+) {
+  const roleGeometry = {
+    recommended: { scale: 1, crank: 1 },
+    conservative: { scale: 1.04, crank: 0.96 },
+    performance: { scale: 1, crank: 1.07 },
+  }[role];
+  const seed = buildGuidedDesignSeed(source, request, role);
+  const baseProject = scaleProject(source.baseProject, roleGeometry.scale);
+  const driver = baseProject.bars.find((bar) => bar.id === baseProject.driverId);
+  if (driver) {
+    driver.length *= roleGeometry.crank;
+    const endpoints = new Set([driver.a, driver.b]);
+    baseProject.dimensions = baseProject.dimensions.map((dimension) => (
+      dimension.type === "distance" && endpoints.has(dimension.a) && endpoints.has(dimension.b)
+        ? { ...dimension, value: driver.length }
+        : dimension
+    ));
+  }
+
+  let adjustment: VariableLegAdjustment;
+  if (source.adjustment.kind === "moving-pivot") {
+    const joint = baseProject.joints.find((item) => item.id === source.adjustment.targetId);
+    if (!joint) throw new Error(`当前机构缺少调节铰点：${source.adjustment.targetId}`);
+    adjustment = {
+      ...source.adjustment,
+      baseX: joint.x,
+      baseY: joint.y,
+      minimum: source.adjustment.minimum * roleGeometry.scale,
+      maximum: source.adjustment.maximum * roleGeometry.scale,
+    };
+  } else {
+    const bar = baseProject.bars.find((item) => item.id === source.adjustment.targetId);
+    if (!bar) throw new Error(`当前机构缺少调节杆件：${source.adjustment.targetId}`);
+    adjustment = {
+      ...source.adjustment,
+      baseLength: bar.length,
+      minimum: source.adjustment.minimum * roleGeometry.scale,
+      maximum: source.adjustment.maximum * roleGeometry.scale,
+    };
+  }
+
+  const modes = seed.modes.map((mode) => {
+    const sourceMode = source.modes.find((item) => item.id === mode.id) ?? mode;
+    const adjustmentValue = source.adjustment.kind === "moving-pivot"
+      ? clamp(sourceMode.adjustmentValue * roleGeometry.scale, adjustment.minimum, adjustment.maximum)
+      : clamp(
+        (adjustment.kind === "telescopic-bar" ? adjustment.baseLength : source.adjustment.baseLength)
+          + (sourceMode.adjustmentValue - source.adjustment.baseLength) * roleGeometry.scale,
+        adjustment.minimum,
+        adjustment.maximum,
+      );
+    return { ...mode, adjustmentValue };
+  });
+  return {
+    ...seed,
+    baseProject,
+    adjustment,
+    modes,
+  } satisfies VariableLegProject;
+}
+
 function adjustmentFor(
   topology: VariableLegTopology,
   kind: VariableLegAdjustmentKind,
@@ -136,9 +498,11 @@ async function yieldToWorker() {
 
 async function refineCurrentTarget(
   source: VariableLegProject,
+  request: RefinementRequest,
   onProgress: ((progress: VariableLegSynthesisProgress) => void) | undefined,
   shouldCancel: () => boolean,
 ) {
+  const parameters = resolveRefinementParameters(source, request);
   const random = createRandom(20260715);
   let best: SearchSeed = {
     topology: source.topology,
@@ -148,25 +512,29 @@ async function refineCurrentTarget(
     score: -1,
     cost: Number.POSITIVE_INFINITY,
   };
-  const initialMetrics = best.modes.map((mode) => analyzeVariableLegMode(best.baseProject, best.adjustment, mode, 42, 56));
-  const initialFamily = scoreVariableLegFamily(initialMetrics, best.modes, best.adjustment);
-  let bestContinuityPenalty = continuityPenalty(initialMetrics);
-  best = { ...best, score: initialFamily.score, cost: initialFamily.cost };
-  const iterations = 32;
+  let bestEvaluation = evaluateSearchSeed(source, best, 42, 56);
+  best = { ...best, score: bestEvaluation.score, cost: bestEvaluation.cost };
+  if (parameters.length === 0) {
+    onProgress?.({ progress: 1, stage: "finalize", message: "未解锁精修参数，已返回未修改候选" });
+    return [candidateFromSeed(source, best, "variable-leg-refinement-no-change", "未修改候选")];
+  }
+
+  const iterations = clamp(Math.round(request.iterations ?? 32), 1, 200);
+  const characteristicLength = Math.max(40, ...source.baseProject.bars.map((bar) => bar.length));
   for (let iteration = 0; iteration < iterations; iteration += 1) {
     if (shouldCancel()) throw new VariableLegSynthesisCancelled();
     const temperature = 1 - iteration / iterations;
     const testProject = cloneProject(best.baseProject);
     let testAdjustment: VariableLegAdjustment = { ...best.adjustment };
-    let adjustmentDelta = 0;
-    const mutableBars = testProject.bars.filter((bar) => bar.id !== testProject.driverId);
-    const bar = mutableBars[Math.floor(random() * mutableBars.length)];
-    if (bar) {
+    const testModes = cloneModes(best.modes);
+    const parameter = parameters[Math.floor(random() * parameters.length)];
+
+    if (parameter.kind === "bar-length") {
+      const bar = testProject.bars.find((item) => item.id === parameter.targetId)!;
       const previousLength = bar.length;
       bar.length *= 1 + (random() * 2 - 1) * 0.05 * temperature;
       if (testAdjustment.kind === "telescopic-bar" && bar.id === testAdjustment.targetId) {
         const delta = bar.length - previousLength;
-        adjustmentDelta = delta;
         testAdjustment = {
           ...testAdjustment,
           baseLength: bar.length,
@@ -174,76 +542,105 @@ async function refineCurrentTarget(
           maximum: testAdjustment.maximum + delta,
         };
       }
-    }
-    const testModes = best.modes.map((mode) => ({
-      ...mode,
-      targetPath: mode.targetPath.map((point) => ({ ...point })),
-      adjustmentValue: clamp(
-        mode.adjustmentValue + adjustmentDelta + (random() * 2 - 1) * (testAdjustment.maximum - testAdjustment.minimum) * 0.16 * temperature,
+    } else if (parameter.kind === "joint-coordinate") {
+      const joint = testProject.joints.find((item) => item.id === parameter.targetId)!;
+      joint[parameter.axis] += (random() * 2 - 1) * characteristicLength * 0.025 * temperature;
+      testProject.bodies = testProject.bodies.map((body) => body.jointIds.includes(joint.id)
+        ? createRigidBody(body.id, body.jointIds, testProject.joints)
+        : body);
+      if (testAdjustment.kind === "moving-pivot" && testAdjustment.targetId === joint.id) {
+        testAdjustment = {
+          ...testAdjustment,
+          baseX: joint.x,
+          baseY: joint.y,
+        };
+      }
+    } else if (parameter.kind === "rail-angle" && testAdjustment.kind === "moving-pivot") {
+      testAdjustment = {
+        ...testAdjustment,
+        railAngle: clamp(testAdjustment.railAngle + (random() * 2 - 1) * 12 * temperature, -85, 85),
+      };
+    } else if (parameter.kind === "mode-adjustment") {
+      const mode = testModes.find((item) => item.id === parameter.modeId)!;
+      mode.adjustmentValue = clamp(
+        mode.adjustmentValue + (random() * 2 - 1) * (testAdjustment.maximum - testAdjustment.minimum) * 0.16 * temperature,
         testAdjustment.minimum,
         testAdjustment.maximum,
-      ),
-    }));
-    const metrics = testModes.map((mode) => analyzeVariableLegMode(testProject, testAdjustment, mode, 42, 56));
-    const family = scoreVariableLegFamily(metrics, testModes, testAdjustment);
-    const testContinuityPenalty = continuityPenalty(metrics);
-    if (testContinuityPenalty < bestContinuityPenalty - 1e-6
-      || (Math.abs(testContinuityPenalty - bestContinuityPenalty) <= 1e-6 && family.score >= best.score)) {
+      );
+    }
+
+    const testSeed: SearchSeed = {
+      ...best,
+      baseProject: testProject,
+      adjustment: testAdjustment,
+      modes: testModes,
+    };
+    const testEvaluation = evaluateSearchSeed(source, testSeed, 42, 56);
+    if (seedEvaluationIsBetter(bestEvaluation, testEvaluation)) {
       best = {
-        ...best,
+        ...testSeed,
         baseProject: testProject,
         adjustment: testAdjustment,
         modes: testModes,
-        score: family.score,
-        cost: family.cost,
+        score: testEvaluation.score,
+        cost: testEvaluation.cost,
       };
-      bestContinuityPenalty = testContinuityPenalty;
+      bestEvaluation = testEvaluation;
     }
     onProgress?.({
       progress: (iteration + 1) / iterations * 0.92,
       stage: "refine",
-      message: `精修当前杆件：${iteration + 1}/${iterations}`,
+      message: `受控精修：${iteration + 1}/${iterations}`,
     });
     if (iteration % 2 === 1) await yieldToWorker();
   }
-  const metrics = best.modes.map((mode) => analyzeVariableLegMode(best.baseProject, best.adjustment, mode, 72, 90));
-  const family = scoreVariableLegFamily(metrics, best.modes, best.adjustment);
-  onProgress?.({ progress: 1, stage: "finalize", message: "当前杆件精修完成" });
-  return [{
-    id: "variable-leg-current-target",
-    label: "当前杆精修",
-    topology: best.topology,
-    baseProject: best.baseProject,
-    adjustment: best.adjustment,
-    modes: best.modes,
-    score: family.score,
-    familyRmse: metrics.reduce((sum, metric) => sum + metric.rmse, 0) / Math.max(1, metrics.length),
-    adjustmentStroke: family.stroke,
-    metrics,
-  } satisfies VariableLegCandidate];
+  const label = request.selectedBarId ? `${request.selectedBarId} 精修候选` : "受控精修候选";
+  onProgress?.({ progress: 1, stage: "finalize", message: `${label}已生成，等待预览和应用` });
+  return [candidateFromSeed(source, best, "variable-leg-controlled-refinement", label)];
 }
 
-function guidedPreflightMetrics(project: VariableLegProject, request: GuidedDesignRequest, sampleCount: number) {
+export async function refineVariableLeg(
+  source: VariableLegProject,
+  request: RefinementRequest,
+  onProgress?: (progress: VariableLegSynthesisProgress) => void,
+  shouldCancel: () => boolean = () => false,
+): Promise<VariableLegCandidate[]> {
+  const sourceSnapshot = cloneVariableLegProject(source);
+  return refineCurrentTarget(sourceSnapshot, request, onProgress, shouldCancel);
+}
+
+function guidedPreflightMetrics(project: VariableLegProject, request: GuidedDesignRequest) {
   const mode = project.modes.find((item) => item.id === request.scenario);
   if (!mode) return [];
-  return [analyzeVariableLegMode(project.baseProject, project.adjustment, mode, sampleCount, 64)];
+  // Sparse phase steps can make the continuation solver jump branches and
+  // falsely label the same mechanism unhealthy. Preflight and final
+  // verification therefore share the same 72 × 90 continuation resolution.
+  return [analyzeVariableLegMode(project.baseProject, project.adjustment, mode, 72, 90)];
 }
 
-export function preflightGuidedDesign(source: VariableLegProject, request: GuidedDesignRequest): GuidedDesignPreflight {
-  const currentGate = assessGuidedHardGate(guidedPreflightMetrics(source, request, 24), request.scenario);
-  const baseline = createGuidedSafeBaseline(source.topology, request.scenario);
-  const selected = currentGate.passed ? source : baseline;
-  const selectedGate = assessGuidedHardGate(guidedPreflightMetrics(selected, request, 36), request.scenario);
+export function preflightGuidedDesign(
+  source: VariableLegProject,
+  request: GuidedDesignRequest,
+  options: VariableLegGuidedSynthesisOptions = {},
+): GuidedDesignPreflight {
+  const currentGate = assessGuidedHardGate(guidedPreflightMetrics(source, request), request.scenario);
+  const useOfflineBaseline = !currentGate.passed && options.allowOfflineBaselineFallback === true;
+  const selected = useOfflineBaseline
+    ? createGuidedSafeBaseline(source.topology, request.scenario)
+    : source;
+  const selectedGate = assessGuidedHardGate(guidedPreflightMetrics(selected, request), request.scenario);
   return {
-    source: currentGate.passed ? "current" : "safe-baseline",
+    source: useOfflineBaseline ? "safe-baseline" : "current",
     currentGate,
     selectedGate,
     zones: guidedDesignZones(request),
     message: currentGate.passed
       ? "当前机构通过快速健康检查，本次从当前机构继续搜索。"
-      : selectedGate.passed
+      : useOfflineBaseline && selectedGate.passed
         ? "当前机构不可用，本次从同拓扑安全基线生成；不会覆盖当前项目。"
-        : "当前机构未通过快速检查；将从同拓扑离线种子继续搜索，只有最终通过完整硬门槛才会显示。",
+        : useOfflineBaseline
+          ? "当前机构与显式选择的离线种子均未通过快速检查；只有最终通过完整硬门槛的候选才会返回。"
+          : "当前机构未通过快速检查；离线种子回退未启用，将只从当前机构克隆继续搜索。",
   };
 }
 
@@ -267,11 +664,13 @@ export async function synthesizeVariableLegGuidedDesign(
   request: GuidedDesignRequest,
   onProgress?: (progress: VariableLegSynthesisProgress) => void,
   shouldCancel: () => boolean = () => false,
+  options: VariableLegGuidedSynthesisOptions = {},
 ): Promise<GuidedDesignResult> {
-  const preflight = preflightGuidedDesign(source, request);
-  const baseline = preflight.source === "current" ? cloneVariableLegProject(source) : (() => {
-    const project = createGuidedSafeBaseline(source.topology, request.scenario);
-    project.deployment = source.deployment;
+  const sourceSnapshot = cloneVariableLegProject(source);
+  const preflight = preflightGuidedDesign(sourceSnapshot, request, options);
+  const baseline = preflight.source === "current" ? cloneVariableLegProject(sourceSnapshot) : (() => {
+    const project = createGuidedSafeBaseline(sourceSnapshot.topology, request.scenario);
+    project.deployment = sourceSnapshot.deployment;
     return project;
   })();
   const roles: Array<{ role: GuidedDesignRole; label: string }> = [
@@ -283,7 +682,7 @@ export async function synthesizeVariableLegGuidedDesign(
   for (let index = 0; index < roles.length; index += 1) {
     if (shouldCancel()) throw new VariableLegSynthesisCancelled();
     const option = roles[index];
-    const seed = buildGuidedDesignSeed(baseline, request, option.role);
+    const seed = createGuidedDesignSearchSeed(baseline, request, option.role);
     const seedMetrics: ReturnType<typeof analyzeVariableLegMode>[] = [];
     seed.modes = seed.modes.map((mode) => {
       let bestMode = { ...mode };
@@ -316,6 +715,12 @@ export async function synthesizeVariableLegGuidedDesign(
     const seedIsUsable = assessGuidedHardGate(seedMetrics, request.scenario).passed;
     const refined = seedIsUsable ? [] : await refineCurrentTarget(
         seed,
+        {
+          allowedParameterIds: seed.baseProject.bars
+            .filter((bar) => bar.id !== seed.baseProject.driverId)
+            .map((bar) => variableLegBarLengthParameterId(bar.id)),
+          modeIds: seed.modes.map((mode) => mode.id),
+        },
         (progress) => onProgress?.({
           ...progress,
           progress: (index + progress.progress) / roles.length,
@@ -349,6 +754,7 @@ export async function synthesizeVariableLegGuidedDesign(
       hardGateResult,
       compatibility: summarizeGuidedCompatibility(finalMetrics, request.scenario),
       metrics: finalMetrics,
+      constraintEvaluation: evaluateVariableLegConstraints(finalMetrics, sourceSnapshot.requirements),
       });
     }
   }
@@ -361,50 +767,99 @@ export async function synthesizeVariableLeg(
   onProgress?: (progress: VariableLegSynthesisProgress) => void,
   shouldCancel: () => boolean = () => false,
   scope: VariableLegSynthesisScope = "global",
+  refinementRequest?: RefinementRequest,
+  generationRequest: VariableLegGenerationRequest = {},
 ): Promise<VariableLegCandidate[]> {
-  if (source.modes.length === 0 || source.modes.some((mode) => mode.targetPath.length < 12)) {
+  const sourceSnapshot = cloneVariableLegProject(source);
+  if (sourceSnapshot.modes.length === 0 || sourceSnapshot.modes.some((mode) => mode.targetPath.length < 12)) {
     throw new Error("每个工况至少需要 12 个目标轨迹点");
   }
-  if (scope === "current-target") return refineCurrentTarget(source, onProgress, shouldCancel);
+  if (scope === "current-target") {
+    return refineCurrentTarget(
+      sourceSnapshot,
+      refinementRequest ?? { allowedParameterIds: [], modeIds: [] },
+      onProgress,
+      shouldCancel,
+    );
+  }
 
   // The topology selector is an engineering constraint, not merely the
   // initial preview. Global synthesis explores adjustment targets and scales
   // within the selected family so a Klann project cannot silently turn into a
   // Jansen project (and vice versa).
-  const topologies: VariableLegTopology[] = [source.topology];
+  const topologies: VariableLegTopology[] = [sourceSnapshot.topology];
   const scales = [0.86, 1, 1.14];
   const combinations = topologies.flatMap((topology) => {
     const options = VARIABLE_LEG_OPTIONS[topology];
-    return [
-      ...options.movingPivots.map((option) => ({ topology, kind: "moving-pivot" as const, targetId: option.id })),
-      ...options.telescopicBars.map((option) => ({ topology, kind: "telescopic-bar" as const, targetId: option.id })),
+    const availableProject = generationRequest.seedSource === "template"
+      ? getVariableLegTemplate(topology)
+      : sourceSnapshot.baseProject;
+    const available = [
+      ...options.movingPivots
+        .filter((option) => availableProject.joints.some((joint) => joint.id === option.id))
+        .map((option) => ({ topology, kind: "moving-pivot" as const, targetId: option.id })),
+      ...options.telescopicBars
+        .filter((option) => availableProject.bars.some((bar) => bar.id === option.id))
+        .map((option) => ({ topology, kind: "telescopic-bar" as const, targetId: option.id })),
     ];
+    const currentTargetExists = sourceSnapshot.adjustment.kind === "moving-pivot"
+      ? availableProject.joints.some((joint) => joint.id === sourceSnapshot.adjustment.targetId)
+      : availableProject.bars.some((bar) => bar.id === sourceSnapshot.adjustment.targetId);
+    if (currentTargetExists && !available.some((item) => (
+      item.kind === sourceSnapshot.adjustment.kind
+      && item.targetId === sourceSnapshot.adjustment.targetId
+    ))) {
+      available.unshift({
+        topology,
+        kind: sourceSnapshot.adjustment.kind,
+        targetId: sourceSnapshot.adjustment.targetId,
+      });
+    }
+    return available;
   });
-  const totalScanSteps = combinations.length * scales.length * source.modes.length;
+  if (combinations.length === 0) {
+    throw new Error("当前机构没有可用于生成的调节对象；如需模板种子，请显式选择模板生成。");
+  }
+  const totalScanSteps = combinations.length * scales.length * sourceSnapshot.modes.length;
   let completedScanSteps = 0;
   const seeds: SearchSeed[] = [];
 
   for (const combination of combinations) {
     for (const scale of scales) {
       if (shouldCancel()) throw new VariableLegSynthesisCancelled();
-      const baseProject = scaleProject(getVariableLegTemplate(combination.topology), scale);
+      const seedProject = generationRequest.seedSource === "template"
+        ? getVariableLegTemplate(combination.topology)
+        : sourceSnapshot.baseProject;
+      const baseProject = scaleProject(seedProject, scale);
       let adjustment = adjustmentFor(combination.topology, combination.kind, combination.targetId, baseProject);
       if (adjustment.kind === "moving-pivot") {
-        adjustment = { ...adjustment, railAngle: source.adjustment.kind === "moving-pivot" ? source.adjustment.railAngle : -20 };
+        adjustment = {
+          ...adjustment,
+          railAngle: sourceSnapshot.adjustment.kind === "moving-pivot" ? sourceSnapshot.adjustment.railAngle : -20,
+        };
       }
-      const modes = cloneModes(source.modes);
+      const modes = cloneModes(sourceSnapshot.modes);
       let weightedCost = 0;
       for (const mode of modes) {
         let bestValue = clamp(mode.adjustmentValue, adjustment.minimum, adjustment.maximum);
         let bestMetric = analyzeVariableLegMode(baseProject, adjustment, { ...mode, adjustmentValue: bestValue }, 36, 48);
         let bestCost = modeCost(bestMetric, mode);
+        const requirement = sourceSnapshot.requirements.find((item) => item.modeId === mode.id);
+        let bestHardViolation = requirement
+          ? constraintHardViolation(evaluateVariableLegConstraints([bestMetric], [requirement]))
+          : 0;
         for (let sampleIndex = 0; sampleIndex < 7; sampleIndex += 1) {
           const value = adjustment.minimum + (adjustment.maximum - adjustment.minimum) * sampleIndex / 6;
           const testMode = { ...mode, adjustmentValue: value };
           const metric = analyzeVariableLegMode(baseProject, adjustment, testMode, 36, 48);
           const cost = modeCost(metric, mode);
-          if (cost < bestCost) {
+          const hardViolation = requirement
+            ? constraintHardViolation(evaluateVariableLegConstraints([metric], [requirement]))
+            : 0;
+          if (hardViolation < bestHardViolation - 1e-6
+            || (Math.abs(hardViolation - bestHardViolation) <= 1e-6 && cost < bestCost)) {
             bestCost = cost;
+            bestHardViolation = hardViolation;
             bestValue = value;
             bestMetric = metric;
           }
@@ -422,11 +877,30 @@ export async function synthesizeVariableLeg(
       }
       const metrics = modes.map((mode) => analyzeVariableLegMode(baseProject, adjustment, mode, 36, 48));
       const family = scoreVariableLegFamily(metrics, modes, adjustment);
-      seeds.push({ topology: combination.topology, baseProject, adjustment, modes, score: family.score, cost: weightedCost });
+      seeds.push({
+        topology: combination.topology,
+        baseProject,
+        adjustment,
+        modes,
+        score: family.score,
+        cost: weightedCost,
+        evaluation: evaluateVariableLegConstraints(metrics, sourceSnapshot.requirements),
+      });
     }
   }
 
-  seeds.sort((first, second) => second.score - first.score || first.cost - second.cost);
+  seeds.sort((first, second) => {
+    if (first.evaluation?.hardPassed !== second.evaluation?.hardPassed) {
+      return first.evaluation?.hardPassed ? -1 : 1;
+    }
+    const hardViolationDifference = constraintHardViolation(first.evaluation)
+      - constraintHardViolation(second.evaluation);
+    if (Math.abs(hardViolationDifference) > 1e-6) return hardViolationDifference;
+    const scoreDifference = second.score - first.score;
+    if (Math.abs(scoreDifference) > 1e-6) return scoreDifference;
+    const softDifference = (second.evaluation?.softScore ?? 0) - (first.evaluation?.softScore ?? 0);
+    return Math.abs(softDifference) > 1e-6 ? softDifference : first.cost - second.cost;
+  });
   const selectedSeeds: SearchSeed[] = [];
   for (const seed of seeds) {
     const duplicate = selectedSeeds.some((item) => item.topology === seed.topology
@@ -441,6 +915,7 @@ export async function synthesizeVariableLeg(
   for (let seedIndex = 0; seedIndex < selectedSeeds.length; seedIndex += 1) {
     if (shouldCancel()) throw new VariableLegSynthesisCancelled();
     let best = selectedSeeds[seedIndex];
+    let bestEvaluation = evaluateSearchSeed(sourceSnapshot, best, 42, 56);
     const iterations = 18;
     for (let iteration = 0; iteration < iterations; iteration += 1) {
       const temperature = 1 - iteration / iterations;
@@ -461,9 +936,16 @@ export async function synthesizeVariableLeg(
           testAdjustment.maximum,
         ),
       }));
-      const metrics = testModes.map((mode) => analyzeVariableLegMode(testProject, testAdjustment, mode, 42, 56));
-      const family = scoreVariableLegFamily(metrics, testModes, testAdjustment);
-      if (family.score >= best.score) best = { ...best, baseProject: testProject, adjustment: testAdjustment, modes: testModes, score: family.score, cost: 100 - family.score };
+      const testSeed = { ...best, baseProject: testProject, adjustment: testAdjustment, modes: testModes };
+      const testEvaluation = evaluateSearchSeed(sourceSnapshot, testSeed, 42, 56);
+      if (seedEvaluationIsBetter(bestEvaluation, testEvaluation, false)) {
+        best = {
+          ...testSeed,
+          score: testEvaluation.score,
+          cost: testEvaluation.cost,
+        };
+        bestEvaluation = testEvaluation;
+      }
       onProgress?.({
         progress: 0.58 + ((seedIndex * iterations + iteration + 1) / Math.max(1, selectedSeeds.length * iterations)) * 0.37,
         stage: "refine",
@@ -475,22 +957,23 @@ export async function synthesizeVariableLeg(
   }
 
   if (shouldCancel()) throw new VariableLegSynthesisCancelled();
-  const finalCandidates = refined.map((seed, index): VariableLegCandidate => {
-    const metrics = seed.modes.map((mode) => analyzeVariableLegMode(seed.baseProject, seed.adjustment, mode, 72, 90));
-    const family = scoreVariableLegFamily(metrics, seed.modes, seed.adjustment);
-    return {
-      id: `variable-leg-${index + 1}`,
-      label: index === 0 ? "综合推荐" : seed.adjustment.kind === "moving-pivot" ? "低惯量调节" : "轨迹变化优先",
-      topology: seed.topology,
-      baseProject: seed.baseProject,
-      adjustment: seed.adjustment,
-      modes: seed.modes,
-      score: family.score,
-      familyRmse: metrics.reduce((sum, metric) => sum + metric.rmse, 0) / Math.max(1, metrics.length),
-      adjustmentStroke: family.stroke,
-      metrics,
-    };
-  }).sort((first, second) => second.score - first.score);
+  const finalCandidates = refined.map((seed, index) => candidateFromSeed(
+    sourceSnapshot,
+    seed,
+    `variable-leg-${index + 1}`,
+    index === 0 ? "综合推荐" : seed.adjustment.kind === "moving-pivot" ? "低惯量调节" : "轨迹变化优先",
+  )).sort((first, second) => {
+    if (first.constraintEvaluation?.hardPassed !== second.constraintEvaluation?.hardPassed) {
+      return first.constraintEvaluation?.hardPassed ? -1 : 1;
+    }
+    const hardViolationDifference = constraintHardViolation(first.constraintEvaluation)
+      - constraintHardViolation(second.constraintEvaluation);
+    if (Math.abs(hardViolationDifference) > 1e-6) return hardViolationDifference;
+    const scoreDifference = second.score - first.score;
+    if (Math.abs(scoreDifference) > 1e-6) return scoreDifference;
+    return (second.constraintEvaluation?.softScore ?? 0)
+      - (first.constraintEvaluation?.softScore ?? 0);
+  });
 
   const diverse: VariableLegCandidate[] = [];
   for (const candidate of finalCandidates) {

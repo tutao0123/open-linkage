@@ -4,6 +4,7 @@ import {
   KLANN_PROJECT,
   cloneProject,
   createRigidBody,
+  getRotationDriver,
   maximumConstraintError,
   predictJointPositions,
   resolveTracerPoint,
@@ -57,11 +58,13 @@ export type VariableLegModeMetrics = {
   validRatio: number;
   maxConstraintError: number;
   closureError: number;
+  closureTolerance?: number;
   branchSwitches: number;
   rmse: number;
   maxError: number;
   stepLength: number;
   liftHeight: number;
+  stanceRatio: number;
   stanceGroundY: number;
   stanceStraightness: number;
   singularityMargin: number;
@@ -75,6 +78,67 @@ export type VariableLegModeMetrics = {
 export type VariableLegCandidateQuality = {
   level: "usable" | "continuous" | "invalid";
   issues: string[];
+};
+
+export type ConstraintLevel = "hard" | "soft";
+export type ConstraintRule = "range" | "minimum" | "maximum";
+export type VariableLegConstraintMetric = "stepLength" | "liftHeight" | "stanceRatio" | "landingVerticalSpeed";
+
+export type MetricConstraint = {
+  metric: VariableLegConstraintMetric;
+  rule: ConstraintRule;
+  target: number;
+  tolerance: number;
+  level: ConstraintLevel;
+  weight: number;
+};
+
+export type ConditionRequirement = {
+  modeId: string;
+  enabled: boolean;
+  role: "primary" | "supporting";
+  rpm: number;
+  constraints: Record<VariableLegConstraintMetric, MetricConstraint>;
+};
+
+export type MetricConstraintEvaluation = MetricConstraint & {
+  actual: number | null;
+  difference: number | null;
+  passed: boolean;
+  status: "passed" | "soft-failed" | "hard-failed";
+  reason: string;
+};
+
+export type SafetyConstraintMetric = "validRatio" | "branchSwitches" | "closureError" | "singularityMargin";
+
+export type SafetyConstraintEvaluation = {
+  metric: SafetyConstraintMetric;
+  rule: "minimum" | "maximum" | "finite";
+  threshold: number | null;
+  actual: number | null;
+  passed: boolean;
+  level: "hard";
+  reason: string;
+};
+
+export type ConditionConstraintEvaluation = {
+  modeId: string;
+  enabled: boolean;
+  hardPassed: boolean;
+  softScore: number;
+  metrics: Record<VariableLegConstraintMetric, MetricConstraintEvaluation>;
+  safety: SafetyConstraintEvaluation[];
+  issues: string[];
+  warnings: string[];
+};
+
+export type ConstraintEvaluation = {
+  passed: boolean;
+  hardPassed: boolean;
+  softScore: number;
+  conditions: ConditionConstraintEvaluation[];
+  issues: string[];
+  warnings: string[];
 };
 
 export type GuidedDesignScenario = "cruise" | "sprint" | "obstacle";
@@ -139,10 +203,11 @@ export type VariableLegCandidate = {
   guidedScenario?: GuidedDesignScenario;
   hardGateResult?: GuidedHardGateResult;
   compatibility?: GuidedScenarioCompatibility[];
+  constraintEvaluation?: ConstraintEvaluation;
 };
 
 export type VariableLegProject = {
-  version: 2;
+  version: 3;
   mechanismType: "variable-geometry-leg";
   topology: VariableLegTopology;
   baseProject: FreeMechanismProject;
@@ -151,7 +216,12 @@ export type VariableLegProject = {
   activeModeId: string;
   inputPhase: number;
   deployment: VariableLegDeployment;
+  requirements: ConditionRequirement[];
+  revisionId: string;
+  currentVersionId: string;
+  /** @deprecated Transient synthesis results now belong in DesignRun state. */
   candidates?: VariableLegCandidate[];
+  /** @deprecated The selected preview now belongs in view state. */
   selectedCandidateId?: string | null;
 };
 
@@ -308,6 +378,246 @@ export function measureGaitClearance(path: Point[], stanceStart: number, stanceE
   return measureClearance(path, stanceStart, stanceEnd).clearance;
 }
 
+function measurePathStanceRatio(path: Point[]) {
+  if (path.length < 3) return 0;
+  const ys = path.map((point) => point.y);
+  const groundY = Math.max(...ys);
+  const swingY = Math.min(...ys);
+  const groundBand = Math.max(2, (groundY - swingY) * 0.08);
+  return path.filter((point) => point.y >= groundY - groundBand).length / path.length;
+}
+
+function modeStanceRatio(mode: Pick<VariableLegMode, "stanceStart" | "stanceEnd">) {
+  const start = ((mode.stanceStart % 1) + 1) % 1;
+  const end = ((mode.stanceEnd % 1) + 1) % 1;
+  return end >= start ? end - start : 1 - start + end;
+}
+
+function defaultLandingSpeedLimit(modeId: string) {
+  if (modeId === "sprint") return 180;
+  if (modeId === "obstacle") return 110;
+  return 130;
+}
+
+export function createDefaultConditionRequirements(
+  modes: VariableLegMode[],
+  primaryModeId: string = modes[0]?.id ?? "",
+): ConditionRequirement[] {
+  const resolvedPrimaryModeId = modes.some((mode) => mode.id === primaryModeId)
+    ? primaryModeId
+    : modes[0]?.id ?? "";
+  return modes.map((mode) => {
+    const xs = mode.targetPath.map((point) => point.x);
+    const stepLength = xs.length ? Math.max(...xs) - Math.min(...xs) : 0;
+    const liftHeight = measureGaitClearance(mode.targetPath, mode.stanceStart, mode.stanceEnd);
+    const stanceRatio = modeStanceRatio(mode);
+    const level: ConstraintLevel = mode.id === resolvedPrimaryModeId ? "hard" : "soft";
+    return {
+      modeId: mode.id,
+      enabled: true,
+      role: mode.id === resolvedPrimaryModeId ? "primary" : "supporting",
+      rpm: mode.rpm,
+      constraints: {
+        stepLength: {
+          metric: "stepLength",
+          rule: "range",
+          target: stepLength,
+          tolerance: stepLength * 0.05,
+          level,
+          weight: Math.max(0.1, mode.weight),
+        },
+        liftHeight: {
+          metric: "liftHeight",
+          rule: "minimum",
+          target: liftHeight,
+          tolerance: 0,
+          level,
+          weight: Math.max(0.1, mode.weight),
+        },
+        stanceRatio: {
+          metric: "stanceRatio",
+          rule: "range",
+          target: stanceRatio,
+          tolerance: 0.03,
+          level,
+          weight: Math.max(0.1, mode.weight),
+        },
+        landingVerticalSpeed: {
+          metric: "landingVerticalSpeed",
+          rule: "maximum",
+          target: defaultLandingSpeedLimit(mode.id),
+          tolerance: 0,
+          level,
+          weight: Math.max(0.1, mode.weight),
+        },
+      },
+    };
+  });
+}
+
+function evaluateMetricConstraint(
+  constraint: MetricConstraint,
+  actual: number | null,
+): MetricConstraintEvaluation {
+  const finiteActual = actual !== null && Number.isFinite(actual);
+  const difference = finiteActual ? actual - constraint.target : null;
+  const passed = finiteActual && (
+    constraint.rule === "range"
+      ? Math.abs(difference!) <= Math.max(0, constraint.tolerance)
+      : constraint.rule === "minimum"
+        ? actual >= constraint.target
+        : actual <= constraint.target
+  );
+  const status = passed ? "passed" : constraint.level === "hard" ? "hard-failed" : "soft-failed";
+  const ruleText = constraint.rule === "range"
+    ? `${constraint.target} ± ${Math.max(0, constraint.tolerance)}`
+    : constraint.rule === "minimum"
+      ? `≥ ${constraint.target}`
+      : `≤ ${constraint.target}`;
+  return {
+    ...constraint,
+    actual: finiteActual ? actual : null,
+    difference,
+    passed,
+    status,
+    reason: passed
+      ? `${constraint.metric} 已满足 ${ruleText}`
+      : `${constraint.metric} 实际 ${finiteActual ? actual : "不可用"}，要求 ${ruleText}`,
+  };
+}
+
+function metricClosureTolerance(metric: VariableLegModeMetrics | undefined) {
+  return metric?.closureTolerance !== undefined && Number.isFinite(metric.closureTolerance)
+    ? metric.closureTolerance
+    : 0.25;
+}
+
+function metricClosurePassed(metric: VariableLegModeMetrics | undefined) {
+  return Boolean(
+    metric
+    && Number.isFinite(metric.closureError)
+    && metric.closureError <= metricClosureTolerance(metric),
+  );
+}
+
+function evaluateSafetyConstraints(metric: VariableLegModeMetrics | undefined): SafetyConstraintEvaluation[] {
+  const actual = (value: number | undefined) => value !== undefined && Number.isFinite(value) ? value : null;
+  const validRatio = actual(metric?.validRatio);
+  const branchSwitches = actual(metric?.branchSwitches);
+  const closureError = actual(metric?.closureError);
+  const closureTolerance = metricClosureTolerance(metric);
+  const singularityMargin = actual(metric?.singularityMargin);
+  return [
+    {
+      metric: "validRatio",
+      rule: "minimum",
+      threshold: 0.99,
+      actual: validRatio,
+      passed: validRatio !== null && validRatio >= 0.99,
+      level: "hard",
+      reason: validRatio !== null && validRatio >= 0.99 ? "validRatio 整周求解率已达到 99%" : "validRatio 整周求解率必须至少为 99%",
+    },
+    {
+      metric: "branchSwitches",
+      rule: "maximum",
+      threshold: 0,
+      actual: branchSwitches,
+      passed: branchSwitches !== null && branchSwitches === 0,
+      level: "hard",
+      reason: branchSwitches === 0 ? "branchSwitches 装配分支保持连续" : "branchSwitches 装配分支切换次数必须为 0",
+    },
+    {
+      metric: "closureError",
+      rule: "maximum",
+      threshold: closureTolerance,
+      actual: closureError,
+      passed: closureError !== null && closureError <= closureTolerance,
+      level: "hard",
+      reason: closureError !== null && closureError <= closureTolerance
+        ? `closureError 全机构 2π 闭合误差不超过 ${closureTolerance} mm`
+        : `closureError 全机构 2π 闭合误差必须不超过 ${closureTolerance} mm`,
+    },
+    {
+      metric: "singularityMargin",
+      rule: "minimum",
+      threshold: 5,
+      actual: singularityMargin,
+      passed: singularityMargin !== null && singularityMargin >= 5,
+      level: "hard",
+      reason: singularityMargin !== null && singularityMargin >= 5
+        ? "singularityMargin 奇异裕度已达到 5°"
+        : "singularityMargin 奇异裕度必须至少为 5°",
+    },
+  ];
+}
+
+function metricSoftScore(evaluation: MetricConstraintEvaluation) {
+  if (evaluation.passed) return 1;
+  if (evaluation.actual === null) return 0;
+  const tolerance = evaluation.rule === "range" ? Math.max(0, evaluation.tolerance) : 0;
+  const violation = evaluation.rule === "range"
+    ? Math.max(0, Math.abs(evaluation.difference ?? 0) - tolerance)
+    : evaluation.rule === "minimum"
+      ? Math.max(0, -1 * (evaluation.difference ?? 0))
+      : Math.max(0, evaluation.difference ?? 0);
+  return clamp(1 - violation / Math.max(1, Math.abs(evaluation.target)), 0, 1);
+}
+
+export function evaluateVariableLegConstraints(
+  metrics: VariableLegModeMetrics[],
+  requirements: ConditionRequirement[],
+): ConstraintEvaluation {
+  const conditions = requirements.map((requirement): ConditionConstraintEvaluation => {
+    const metric = metrics.find((item) => item.modeId === requirement.modeId);
+    const evaluatedMetrics = Object.fromEntries(
+      (Object.keys(requirement.constraints) as VariableLegConstraintMetric[]).map((key) => [
+        key,
+        evaluateMetricConstraint(requirement.constraints[key], metric?.[key] ?? null),
+      ]),
+    ) as Record<VariableLegConstraintMetric, MetricConstraintEvaluation>;
+    const safety = requirement.enabled ? evaluateSafetyConstraints(metric) : [];
+    const enabledEvaluations = requirement.enabled ? Object.values(evaluatedMetrics) : [];
+    const issues = [
+      ...safety.filter((item) => !item.passed).map((item) => `${requirement.modeId}: ${item.reason}`),
+      ...enabledEvaluations
+        .filter((item) => item.level === "hard" && !item.passed)
+        .map((item) => `${requirement.modeId}: ${item.reason}`),
+    ];
+    const warnings = enabledEvaluations
+      .filter((item) => item.level === "soft" && !item.passed)
+      .map((item) => `${requirement.modeId}: ${item.reason}`);
+    const softMetrics = enabledEvaluations.filter((item) => item.level === "soft");
+    const softWeight = softMetrics.reduce((sum, item) => sum + Math.max(0, item.weight), 0);
+    const softScore = softMetrics.length
+      ? softMetrics.reduce((sum, item) => sum + metricSoftScore(item) * Math.max(0, item.weight), 0) / Math.max(1e-9, softWeight)
+      : 1;
+    return {
+      modeId: requirement.modeId,
+      enabled: requirement.enabled,
+      hardPassed: issues.length === 0,
+      softScore,
+      metrics: evaluatedMetrics,
+      safety,
+      issues,
+      warnings,
+    };
+  });
+  const enabledConditions = conditions.filter((condition) => condition.enabled);
+  const issues = enabledConditions.flatMap((condition) => condition.issues);
+  const warnings = enabledConditions.flatMap((condition) => condition.warnings);
+  const softScore = enabledConditions.length
+    ? enabledConditions.reduce((sum, condition) => sum + condition.softScore, 0) / enabledConditions.length
+    : 1;
+  return {
+    passed: issues.length === 0,
+    hardPassed: issues.length === 0,
+    softScore,
+    conditions,
+    issues,
+    warnings,
+  };
+}
+
 export function assessVariableLegCandidate(
   metrics: VariableLegModeMetrics[],
   modes: VariableLegMode[],
@@ -316,7 +626,7 @@ export function assessVariableLegCandidate(
   const continuous = metrics.length > 0 && metrics.every((metric) => (
     metric.validRatio >= 0.99
     && metric.branchSwitches === 0
-    && Number.isFinite(metric.closureError)
+    && metricClosurePassed(metric)
   ));
   if (!continuous) {
     return { level: "invalid", issues: ["存在不可达相位或装配分支跳变"] };
@@ -338,6 +648,25 @@ function cloneMode(mode: VariableLegMode): VariableLegMode {
   return { ...mode, targetPath: mode.targetPath.map((point) => ({ ...point })) };
 }
 
+function cloneConstraintEvaluation(evaluation: ConstraintEvaluation | undefined) {
+  if (!evaluation) return undefined;
+  return {
+    ...evaluation,
+    conditions: evaluation.conditions.map((condition) => ({
+      ...condition,
+      metrics: Object.fromEntries(
+        (Object.entries(condition.metrics) as Array<[VariableLegConstraintMetric, MetricConstraintEvaluation]>)
+          .map(([key, metric]) => [key, { ...metric }]),
+      ) as Record<VariableLegConstraintMetric, MetricConstraintEvaluation>,
+      safety: condition.safety.map((item) => ({ ...item })),
+      issues: [...condition.issues],
+      warnings: [...condition.warnings],
+    })),
+    issues: [...evaluation.issues],
+    warnings: [...evaluation.warnings],
+  };
+}
+
 export function cloneVariableLegProject(project: VariableLegProject): VariableLegProject {
   return {
     ...project,
@@ -348,14 +677,39 @@ export function cloneVariableLegProject(project: VariableLegProject): VariableLe
       ...project.deployment,
       legs: project.deployment.legs.map((leg) => ({ ...leg })),
     },
+    requirements: project.requirements.map((requirement) => ({
+      ...requirement,
+      constraints: Object.fromEntries(
+        (Object.entries(requirement.constraints) as Array<[VariableLegConstraintMetric, MetricConstraint]>)
+          .map(([key, constraint]) => [key, { ...constraint }]),
+      ) as Record<VariableLegConstraintMetric, MetricConstraint>,
+    })),
     candidates: project.candidates?.map((candidate) => ({
       ...candidate,
       baseProject: cloneProject(candidate.baseProject),
       adjustment: { ...candidate.adjustment },
       modes: candidate.modes.map(cloneMode),
       metrics: candidate.metrics.map((metric) => ({ ...metric, path: metric.path.map((point) => ({ ...point })) })),
+      constraintEvaluation: cloneConstraintEvaluation(candidate.constraintEvaluation),
     })),
   };
+}
+
+let variableLegRevisionSequence = 0;
+
+export function createVariableLegRevisionId(prefix = "revision") {
+  variableLegRevisionSequence += 1;
+  return `${prefix}-${Date.now().toString(36)}-${variableLegRevisionSequence.toString(36)}`;
+}
+
+export function advanceVariableLegProjectRevision(
+  source: VariableLegProject,
+  options: { checkpoint?: boolean } = {},
+) {
+  const project = cloneVariableLegProject(source);
+  project.revisionId = createVariableLegRevisionId("revision");
+  if (options.checkpoint) project.currentVersionId = createVariableLegRevisionId("version");
+  return project;
 }
 
 export function getVariableLegTemplate(topology: VariableLegTopology) {
@@ -432,6 +786,15 @@ export function restoreVariableLegStandardModes(source: VariableLegProject) {
   const customModes = project.modes.filter((mode) => !standardIds.has(mode.id));
   project.modes = [...restored, ...customModes].slice(0, 6);
   if (!project.modes.some((mode) => mode.id === project.activeModeId)) project.activeModeId = "cruise";
+  const existingRequirements = new Map(project.requirements.map((requirement) => [requirement.modeId, requirement]));
+  const primaryModeId = project.requirements.find((requirement) => requirement.role === "primary" && project.modes.some((mode) => mode.id === requirement.modeId))?.modeId
+    ?? project.activeModeId;
+  const defaults = createDefaultConditionRequirements(project.modes, primaryModeId);
+  project.requirements = defaults.map((requirement) => {
+    const existing = existingRequirements.get(requirement.modeId);
+    if (!existing || existing.role !== requirement.role) return requirement;
+    return existing;
+  });
   project.candidates = [];
   project.selectedCandidateId = null;
   return project;
@@ -458,16 +821,20 @@ export function createDefaultAdjustment(topology: VariableLegTopology, kind: Var
 }
 
 export function createDefaultVariableLegProject(): VariableLegProject {
+  const modes = createDefaultModes();
   return {
-    version: 2,
+    version: 3,
     mechanismType: "variable-geometry-leg",
     topology: "klann",
     baseProject: getVariableLegTemplate("klann"),
     adjustment: createDefaultAdjustment("klann", "moving-pivot"),
-    modes: createDefaultModes(),
+    modes,
     activeModeId: "cruise",
     inputPhase: 0,
     deployment: createVariableLegDeployment(),
+    requirements: createDefaultConditionRequirements(modes, "cruise"),
+    revisionId: "revision-0",
+    currentVersionId: "version-0",
     candidates: [],
     selectedCandidateId: null,
   };
@@ -600,6 +967,7 @@ export function buildGuidedDesignSeed(
     baseProject,
     adjustment,
     modes,
+    requirements: createDefaultConditionRequirements(modes, request.scenario),
     activeModeId: modes.some((mode) => mode.id === source.activeModeId) ? source.activeModeId : (modes[0]?.id ?? source.activeModeId),
     candidates: [],
     selectedCandidateId: null,
@@ -611,7 +979,7 @@ export function assessGuidedHardGate(metrics: VariableLegModeMetrics[], scenario
   const issues: string[] = [];
   if (!metric || metric.validRatio < 0.99) issues.push("完整求解率低于 99%");
   if (!metric || metric.branchSwitches !== 0) issues.push("存在装配分支跳变");
-  if (!metric || !Number.isFinite(metric.closureError)) issues.push("闭环误差不可用");
+  if (!metricClosurePassed(metric)) issues.push("全机构 2π 闭合误差超限");
   if (!metric || metric.singularityMargin < 5) issues.push("最小夹角低于 5°");
   return {
     passed: issues.length === 0,
@@ -625,7 +993,10 @@ export function assessGuidedHardGate(metrics: VariableLegModeMetrics[], scenario
 export function summarizeGuidedCompatibility(metrics: VariableLegModeMetrics[], scenario: GuidedDesignScenario): GuidedScenarioCompatibility[] {
   return metrics.filter((metric) => metric.modeId !== scenario).map((metric) => ({
     modeId: metric.modeId,
-    level: metric.validRatio >= 0.99 && metric.branchSwitches === 0 && metric.singularityMargin >= 5
+    level: metric.validRatio >= 0.99
+      && metric.branchSwitches === 0
+      && metricClosurePassed(metric)
+      && metric.singularityMargin >= 5
       ? "compatible"
       : metric.validRatio >= 0.9 && metric.branchSwitches <= 1 ? "exploratory" : "unavailable",
     validRatio: metric.validRatio,
@@ -691,7 +1062,7 @@ function variableLegMetricsAreFeasible(metrics: VariableLegModeMetrics[], baseli
   return metrics.every((metric) => {
     const baseline = baselineMetrics?.find((item) => item.modeId === metric.modeId);
     const requiredValidRatio = Math.min(0.999, baseline?.validRatio ?? 0.999);
-    return metric.validRatio + 1e-9 >= requiredValidRatio && Number.isFinite(metric.closureError);
+    return metric.validRatio + 1e-9 >= requiredValidRatio && metricClosurePassed(metric);
   });
 }
 
@@ -881,36 +1252,125 @@ function jointAngleMargin(project: FreeMechanismProject) {
       neighbors.set(pair.b, [...(neighbors.get(pair.b) ?? []), pair.a]);
     }
   }
+  const rotationDriver = project.driverMode === "rotation" || project.driverMode === "oscillation"
+    ? getRotationDriver(project.joints, project.bars, project.driverId)
+    : null;
   let margin = 90;
   for (const joint of project.joints) {
+    if (joint.fixed || joint.id === rotationDriver?.driven.id) continue;
+    // A pairwise angle at a ternary or higher joint is not a mechanism
+    // singularity: one edge may align while the remaining constraint still
+    // fixes the link orientation. Restrict this inexpensive proxy to true
+    // two-neighbour dyads; a future Jacobian metric can replace the proxy
+    // without changing the unified constraint interface.
     const adjacent = [...new Set(neighbors.get(joint.id) ?? [])];
-    if (adjacent.length < 2) continue;
-    for (let firstIndex = 0; firstIndex < adjacent.length - 1; firstIndex += 1) {
-      for (let secondIndex = firstIndex + 1; secondIndex < adjacent.length; secondIndex += 1) {
-        const first = byId.get(adjacent[firstIndex]);
-        const second = byId.get(adjacent[secondIndex]);
+    if (adjacent.length !== 2) continue;
+    const first = byId.get(adjacent[0]);
+    const second = byId.get(adjacent[1]);
+    if (!first || !second) continue;
+    const ax = first.x - joint.x;
+    const ay = first.y - joint.y;
+    const bx = second.x - joint.x;
+    const by = second.y - joint.y;
+    const denominator = Math.hypot(ax, ay) * Math.hypot(bx, by);
+    if (denominator < 1e-6) return 0;
+    const angle = Math.acos(clamp((ax * bx + ay * by) / denominator, -1, 1)) * 180 / Math.PI;
+    margin = Math.min(margin, angle, 180 - angle);
+  }
+  return margin;
+}
+
+function branchSignatures(project: FreeMechanismProject) {
+  const byId = new Map(project.joints.map((joint) => [joint.id, joint]));
+  const incidentLinks = new Map<string, Array<{ neighborId: string; groupId: string }>>();
+  const addIncidentLink = (jointId: string, neighborId: string, groupId: string) => {
+    incidentLinks.set(jointId, [
+      ...(incidentLinks.get(jointId) ?? []),
+      { neighborId, groupId },
+    ]);
+  };
+  for (const bar of project.bars) {
+    addIncidentLink(bar.a, bar.b, `bar:${bar.id}`);
+    addIncidentLink(bar.b, bar.a, `bar:${bar.id}`);
+  }
+  for (const body of project.bodies) {
+    for (const pair of body.pairs) {
+      addIncidentLink(pair.a, pair.b, `body:${body.id}`);
+      addIncidentLink(pair.b, pair.a, `body:${body.id}`);
+    }
+  }
+  const rotationDriver = project.driverMode === "rotation" || project.driverMode === "oscillation"
+    ? getRotationDriver(project.joints, project.bars, project.driverId)
+    : null;
+  const signatures = new Map<string, number>();
+  for (const joint of project.joints) {
+    if (joint.fixed || joint.id === rotationDriver?.driven.id) continue;
+    const groups = [...new Set((incidentLinks.get(joint.id) ?? []).map((item) => item.groupId))]
+      .sort()
+      .map((groupId) => {
+        const representative = (incidentLinks.get(joint.id) ?? [])
+          .filter((item) => item.groupId === groupId)
+          .sort((first, second) => first.neighborId.localeCompare(second.neighborId))[0];
+        return representative ? { ...representative, groupId } : null;
+      })
+      .filter((item): item is { neighborId: string; groupId: string } => item !== null);
+    for (let firstIndex = 0; firstIndex < groups.length - 1; firstIndex += 1) {
+      for (let secondIndex = firstIndex + 1; secondIndex < groups.length; secondIndex += 1) {
+        const first = byId.get(groups[firstIndex].neighborId);
+        const second = byId.get(groups[secondIndex].neighborId);
         if (!first || !second) continue;
         const ax = first.x - joint.x;
         const ay = first.y - joint.y;
         const bx = second.x - joint.x;
         const by = second.y - joint.y;
         const denominator = Math.hypot(ax, ay) * Math.hypot(bx, by);
-        if (denominator < 1e-6) return 0;
-        const angle = Math.acos(clamp((ax * bx + ay * by) / denominator, -1, 1)) * 180 / Math.PI;
-        margin = Math.min(margin, angle, 180 - angle);
+        if (denominator < 1e-9) continue;
+        signatures.set(
+          `${joint.id}:${groups[firstIndex].groupId}:${groups[secondIndex].groupId}`,
+          (ax * by - ay * bx) / denominator,
+        );
       }
     }
   }
-  return margin;
+  return signatures;
 }
 
-function branchSignature(project: FreeMechanismProject) {
-  const tracer = resolveTracerPoint(project);
-  const fixed = project.joints.filter((joint) => joint.fixed);
-  if (!tracer || fixed.length < 2) return 0;
-  const first = fixed[0];
-  const second = fixed[1];
-  return Math.sign((second.x - first.x) * (tracer.y - first.y) - (second.y - first.y) * (tracer.x - first.x));
+function countBranchSwitches(samples: VariableLegSample[]) {
+  let previous = samples[0] ? branchSignatures(samples[0].project) : new Map<string, number>();
+  let branchSwitches = 0;
+  const robustSignThreshold = Math.sin(5 * Math.PI / 180);
+  for (const sample of samples.slice(1)) {
+    const current = branchSignatures(sample.project);
+    let switched = false;
+    for (const [key, value] of current) {
+      const previousValue = previous.get(key);
+      if (previousValue === undefined) continue;
+      if (
+        Math.abs(previousValue) >= robustSignThreshold
+        && Math.abs(value) >= robustSignThreshold
+        && Math.sign(previousValue) !== Math.sign(value)
+      ) {
+        switched = true;
+        break;
+      }
+    }
+    if (switched) branchSwitches += 1;
+    previous = current;
+  }
+  return branchSwitches;
+}
+
+function mechanismClosureError(first: FreeMechanismProject | undefined, last: FreeMechanismProject | undefined) {
+  if (!first || !last) return Number.POSITIVE_INFINITY;
+  const firstById = new Map(first.joints.map((joint) => [joint.id, joint]));
+  if (!firstById.size || last.joints.length !== first.joints.length) return Number.POSITIVE_INFINITY;
+  let closureError = 0;
+  for (const joint of last.joints) {
+    const initial = firstById.get(joint.id);
+    if (!initial) return Number.POSITIVE_INFINITY;
+    closureError = Math.max(closureError, Math.hypot(joint.x - initial.x, joint.y - initial.y));
+  }
+  return closureError;
 }
 
 function variableLegConstraintTolerance(project: FreeMechanismProject) {
@@ -942,13 +1402,16 @@ export function sampleVariableLeg(
   sampleCount = 72,
   iterations = 90,
   startPhase = 0,
+  includeEndpoint = false,
 ): VariableLegSample[] {
   let state = materializeVariableLegMode(baseProject, adjustment, value);
   let previousJoints: typeof state.joints | null = null;
   const samples: VariableLegSample[] = [];
   const phaseDirection = variableLegPhaseDirection(baseProject);
-  for (let index = 0; index < sampleCount; index += 1) {
-    const phase = startPhase + phaseDirection * index * Math.PI * 2 / sampleCount;
+  const intervalCount = Math.max(1, Math.round(sampleCount));
+  const outputCount = intervalCount + (includeEndpoint ? 1 : 0);
+  for (let index = 0; index < outputCount; index += 1) {
+    const phase = startPhase + phaseDirection * index * Math.PI * 2 / intervalCount;
     const seeded = previousJoints ? { ...state, joints: predictJointPositions(state.joints, previousJoints) } : state;
     const before = state.joints.map((joint) => ({ ...joint, slider: joint.slider ? { ...joint.slider } : undefined }));
     const joints = solveFreeMechanism(seeded, phase, iterations);
@@ -1001,14 +1464,27 @@ export function analyzeVariableLegMode(
   sampleCount = 72,
   iterations = 90,
 ): VariableLegModeMetrics {
-  const samples = sampleVariableLeg(baseProject, adjustment, mode.adjustmentValue, sampleCount, iterations);
+  const cycleSamples = sampleVariableLeg(
+    baseProject,
+    adjustment,
+    mode.adjustmentValue,
+    sampleCount,
+    iterations,
+    0,
+    true,
+  );
+  const samples = cycleSamples.slice(0, -1);
   // The generic constraint solver reports a summed positional residual rather
   // than a normalized per-joint error. Scale the acceptance threshold with the
   // mechanism so the same project behaves consistently in mm-sized templates.
   const constraintTolerance = variableLegConstraintTolerance(baseProject);
-  const validSamples = samples.filter(
-    (sample) => sample.tracer && Number.isFinite(sample.error) && sample.error <= constraintTolerance,
+  const sampleIsValid = (sample: VariableLegSample) => (
+    sample.tracer && Number.isFinite(sample.error) && sample.error <= constraintTolerance
   );
+  const validSamples = samples.filter(
+    sampleIsValid,
+  );
+  const validCycleSamples = cycleSamples.filter(sampleIsValid);
   const path = validSamples.map((sample) => sample.tracer!).filter(Boolean);
   const match = matchClosedPath(mode.targetPath, path);
   const clearance = measureClearance(path, mode.stanceStart, mode.stanceEnd, match.shift);
@@ -1032,25 +1508,20 @@ export function analyzeVariableLegMode(
   const targetLandingIndex = Math.round(clamp(mode.stanceStart, 0, 1) * Math.max(0, path.length - 1));
   const landingIndex = ((targetLandingIndex - match.shift) % Math.max(1, path.length) + Math.max(1, path.length)) % Math.max(1, path.length);
   const landing = speeds[landingIndex] ?? { x: 0, y: 0 };
-  let branchSwitches = 0;
-  let lastSignature = 0;
-  for (const sample of validSamples) {
-    const signature = branchSignature(sample.project);
-    if (lastSignature && signature && signature !== lastSignature) branchSwitches += 1;
-    if (signature) lastSignature = signature;
-  }
-  const firstTracer = path[0];
-  const lastTracer = path[path.length - 1];
+  const branchSwitches = countBranchSwitches(cycleSamples);
+  const closureTolerance = Math.max(0.25, constraintTolerance * 5);
   return {
     modeId: mode.id,
-    validRatio: validSamples.length / Math.max(1, samples.length),
-    maxConstraintError: Math.max(0, ...samples.map((sample) => Number.isFinite(sample.error) ? sample.error : 1e6)),
-    closureError: firstTracer && lastTracer ? Math.hypot(firstTracer.x - lastTracer.x, firstTracer.y - lastTracer.y) : Number.POSITIVE_INFINITY,
+    validRatio: validCycleSamples.length / Math.max(1, cycleSamples.length),
+    maxConstraintError: Math.max(0, ...cycleSamples.map((sample) => Number.isFinite(sample.error) ? sample.error : 1e6)),
+    closureError: mechanismClosureError(cycleSamples[0]?.project, cycleSamples[cycleSamples.length - 1]?.project),
+    closureTolerance,
     branchSwitches,
     rmse: match.rmse,
     maxError: match.maxError,
     stepLength: xs.length ? Math.max(...xs) - Math.min(...xs) : 0,
     liftHeight: clearance.clearance,
+    stanceRatio: measurePathStanceRatio(path),
     stanceGroundY: clearance.groundY,
     stanceStraightness,
     singularityMargin: Math.min(90, ...validSamples.map((sample) => sample.singularityMargin)),
@@ -1209,11 +1680,10 @@ export function scanVariableLegAdjustmentFeasibility(
         phaseSamples,
         iterations,
       );
-      const closureTolerance = Math.max(2, Math.max(1, ...project.baseProject.bars.map((bar) => bar.length)) * 0.08);
       if (metric.validRatio < 0.999
         || metric.branchSwitches > 0
         || metric.maxConstraintError > variableLegConstraintTolerance(project.baseProject)
-        || metric.closureError > closureTolerance
+        || !metricClosurePassed(metric)
         || metric.singularityMargin < 5) failedModeIds.push(mode.id);
     }
     samples.push({ value, feasible: failedModeIds.length === 0, failedModeIds });
@@ -1302,45 +1772,129 @@ export function scoreVariableLegFamily(metrics: VariableLegModeMetrics[], modes:
 }
 
 export function analyzeVariableLegProject(project: VariableLegProject, sampleCount = 72, iterations = 90) {
-  const metrics = project.modes.map((mode) => analyzeVariableLegMode(project.baseProject, project.adjustment, mode, sampleCount, iterations));
+  const requirementsByMode = new Map(project.requirements.map((requirement) => [requirement.modeId, requirement]));
+  const metrics = project.modes.map((mode) => {
+    const requirement = requirementsByMode.get(mode.id);
+    const modeWithFixedRpm = requirement ? { ...mode, rpm: requirement.rpm } : mode;
+    return analyzeVariableLegMode(project.baseProject, project.adjustment, modeWithFixedRpm, sampleCount, iterations);
+  });
   const family = scoreVariableLegFamily(metrics, project.modes, project.adjustment);
-  return { metrics, ...family };
+  const evaluation = evaluateVariableLegConstraints(metrics, project.requirements);
+  return { metrics, ...family, evaluation };
 }
 
-export function isVariableLegProject(value: unknown): value is VariableLegProject {
+const VARIABLE_LEG_CONSTRAINT_METRICS: VariableLegConstraintMetric[] = [
+  "stepLength",
+  "liftHeight",
+  "stanceRatio",
+  "landingVerticalSpeed",
+];
+
+function isMetricConstraint(value: unknown, metric: VariableLegConstraintMetric): value is MetricConstraint {
+  if (!value || typeof value !== "object") return false;
+  const constraint = value as Partial<MetricConstraint>;
+  return constraint.metric === metric
+    && (constraint.rule === "range" || constraint.rule === "minimum" || constraint.rule === "maximum")
+    && Number.isFinite(constraint.target)
+    && Number.isFinite(constraint.tolerance)
+    && (constraint.tolerance ?? -1) >= 0
+    && (constraint.level === "hard" || constraint.level === "soft")
+    && Number.isFinite(constraint.weight)
+    && (constraint.weight ?? -1) >= 0;
+}
+
+function areConditionRequirementsValid(value: unknown, modeIds: string[]): value is ConditionRequirement[] {
+  if (!Array.isArray(value) || value.length !== modeIds.length) return false;
+  const requirementIds = value.map((requirement) => (
+    requirement && typeof requirement === "object"
+      ? (requirement as Partial<ConditionRequirement>).modeId
+      : undefined
+  ));
+  if (new Set(requirementIds).size !== requirementIds.length) return false;
+  if (!modeIds.every((modeId) => requirementIds.includes(modeId))) return false;
+  let primaryCount = 0;
+  for (const item of value) {
+    if (!item || typeof item !== "object") return false;
+    const requirement = item as Partial<ConditionRequirement>;
+    if (typeof requirement.modeId !== "string"
+      || typeof requirement.enabled !== "boolean"
+      || (requirement.role !== "primary" && requirement.role !== "supporting")
+      || !Number.isFinite(requirement.rpm)
+      || (requirement.rpm ?? 0) <= 0
+      || !requirement.constraints
+      || !VARIABLE_LEG_CONSTRAINT_METRICS.every((metric) => isMetricConstraint(requirement.constraints?.[metric], metric))) return false;
+    if (requirement.role === "primary") primaryCount += 1;
+  }
+  return primaryCount === 1;
+}
+
+function hasVariableLegProjectCore(value: unknown) {
   if (!value || typeof value !== "object") return false;
   const project = value as Partial<VariableLegProject>;
-  return project.version === 2
-    && project.mechanismType === "variable-geometry-leg"
+  return project.mechanismType === "variable-geometry-leg"
     && (project.topology === "klann" || project.topology === "jansen")
     && Boolean(project.baseProject && Array.isArray(project.baseProject.joints) && Array.isArray(project.baseProject.bars))
     && Boolean(project.adjustment && (project.adjustment.kind === "moving-pivot" || project.adjustment.kind === "telescopic-bar"))
     && Array.isArray(project.modes)
     && project.modes.length > 0
     && project.modes.length <= 6
-    && project.modes.every((mode) => typeof mode.id === "string" && Array.isArray(mode.targetPath))
-    && isVariableLegDeployment(project.deployment);
+    && project.modes.every((mode) => (
+      typeof mode.id === "string"
+      && Array.isArray(mode.targetPath)
+      && Number.isFinite(mode.rpm)
+      && Number.isFinite(mode.weight)
+      && Number.isFinite(mode.stanceStart)
+      && Number.isFinite(mode.stanceEnd)
+      && Number.isFinite(mode.adjustmentValue)
+    ));
+}
+
+export function isVariableLegProject(value: unknown): value is VariableLegProject {
+  if (!hasVariableLegProjectCore(value)) return false;
+  const project = value as Partial<VariableLegProject>;
+  const modeIds = project.modes!.map((mode) => mode.id);
+  return project.version === 3
+    && new Set(modeIds).size === modeIds.length
+    && typeof project.activeModeId === "string"
+    && modeIds.includes(project.activeModeId)
+    && Number.isFinite(project.inputPhase)
+    && isVariableLegDeployment(project.deployment)
+    && areConditionRequirementsValid(project.requirements, modeIds)
+    && typeof project.revisionId === "string"
+    && project.revisionId.length > 0
+    && typeof project.currentVersionId === "string"
+    && project.currentVersionId.length > 0;
 }
 
 export function migrateVariableLegProject(value: unknown): VariableLegProject | null {
   if (isVariableLegProject(value)) return cloneVariableLegProject(value);
-  if (!value || typeof value !== "object") return null;
-  const legacy = value as Partial<Omit<VariableLegProject, "version" | "deployment">> & { version?: unknown };
-  if (legacy.version !== 1
-    || legacy.mechanismType !== "variable-geometry-leg"
-    || (legacy.topology !== "klann" && legacy.topology !== "jansen")
-    || !legacy.baseProject
-    || !legacy.adjustment
-    || !Array.isArray(legacy.modes)
-    || legacy.modes.length < 1
-    || legacy.modes.length > 6
-    || !legacy.modes.every((mode) => typeof mode.id === "string" && Array.isArray(mode.targetPath))) return null;
+  if (!hasVariableLegProjectCore(value)) return null;
+  const legacy = value as Omit<VariableLegProject, "version" | "deployment" | "requirements" | "revisionId" | "currentVersionId"> & {
+    version: unknown;
+    deployment?: unknown;
+    requirements?: unknown;
+    revisionId?: unknown;
+    currentVersionId?: unknown;
+  };
+  if (legacy.version !== 1 && legacy.version !== 2) return null;
+  const activeModeId = typeof legacy.activeModeId === "string" && legacy.modes.some((mode) => mode.id === legacy.activeModeId)
+    ? legacy.activeModeId
+    : legacy.modes[0].id;
+  const modeIds = legacy.modes.map((mode) => mode.id);
+  const requirements = areConditionRequirementsValid(legacy.requirements, modeIds)
+    ? legacy.requirements
+    : createDefaultConditionRequirements(legacy.modes, activeModeId);
   const migrated = {
     ...legacy,
-    version: 2 as const,
+    version: 3 as const,
     inputPhase: typeof legacy.inputPhase === "number" ? legacy.inputPhase : 0,
-    activeModeId: typeof legacy.activeModeId === "string" ? legacy.activeModeId : legacy.modes[0].id,
-    deployment: createVariableLegDeployment(),
+    activeModeId,
+    deployment: isVariableLegDeployment(legacy.deployment) ? legacy.deployment : createVariableLegDeployment(),
+    requirements,
+    revisionId: typeof legacy.revisionId === "string" && legacy.revisionId ? legacy.revisionId : "revision-imported-0",
+    currentVersionId: typeof legacy.currentVersionId === "string" && legacy.currentVersionId
+      ? legacy.currentVersionId
+      : "version-imported-0",
   } as VariableLegProject;
   return isVariableLegProject(migrated) ? cloneVariableLegProject(migrated) : null;
 }

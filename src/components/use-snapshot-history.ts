@@ -7,6 +7,7 @@ export function useSnapshotHistory<T>(initialValue: T, clone: (value: T) => T) {
   const valueRef = useRef(value);
   const undoRef = useRef<T[]>([]);
   const redoRef = useRef<T[]>([]);
+  const transactionRef = useRef<T | null>(null);
   const [availability, setAvailability] = useState({ canUndo: false, canRedo: false });
 
   const refresh = useCallback(() => {
@@ -21,13 +22,36 @@ export function useSnapshotHistory<T>(initialValue: T, clone: (value: T) => T) {
   const commit = useCallback((next: T) => {
     undoRef.current = [...undoRef.current.slice(-49), clone(valueRef.current)];
     redoRef.current = [];
+    transactionRef.current = null;
     replace(next);
     refresh();
   }, [clone, refresh, replace]);
 
+  const beginTransaction = useCallback(() => {
+    if (transactionRef.current === null) transactionRef.current = clone(valueRef.current);
+  }, [clone]);
+
+  const commitTransaction = useCallback((next: T) => {
+    const before = transactionRef.current;
+    transactionRef.current = null;
+    if (before === null) {
+      commit(next);
+      return;
+    }
+    undoRef.current = [...undoRef.current.slice(-49), before];
+    redoRef.current = [];
+    replace(next);
+    refresh();
+  }, [commit, refresh, replace]);
+
+  const cancelTransaction = useCallback(() => {
+    transactionRef.current = null;
+  }, []);
+
   const reset = useCallback((next: T) => {
     undoRef.current = [];
     redoRef.current = [];
+    transactionRef.current = null;
     replace(clone(next));
     refresh();
   }, [clone, refresh, replace]);
@@ -54,5 +78,18 @@ export function useSnapshotHistory<T>(initialValue: T, clone: (value: T) => T) {
     return restored;
   }, [clone, refresh, replace]);
 
-  return { value, valueRef, replace, commit, reset, undo, redo, canUndo: availability.canUndo, canRedo: availability.canRedo };
+  return {
+    value,
+    valueRef,
+    replace,
+    commit,
+    beginTransaction,
+    commitTransaction,
+    cancelTransaction,
+    reset,
+    undo,
+    redo,
+    canUndo: availability.canUndo,
+    canRedo: availability.canRedo,
+  };
 }

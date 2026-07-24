@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  advanceVariableLegProjectRevision,
   analyzeVariableLegBarSamples,
   analyzeVariableLegProject,
   assessGuidedHardGate,
@@ -14,6 +15,7 @@ import {
   createDefaultAdjustment,
   createDefaultVariableLegProject,
   createGuidedDesignRequest,
+  evaluateVariableLegConstraints,
   getVariableLegTemplate,
   guidedDesignZones,
   isVariableLegProject,
@@ -176,15 +178,128 @@ describe("variable geometry walking leg", () => {
     expect(cloned.modes.map((mode) => mode.name)).toEqual(["巡航", "高速", "越障"]);
     expect(cloned.adjustment).toEqual(source.adjustment);
     expect(cloned.deployment).toEqual(source.deployment);
+    expect(cloned.version).toBe(3);
+    expect(cloned.requirements).toEqual(source.requirements);
   });
 
   it("migrates a version 1 project to the default two-leg deployment", () => {
     const source = createDefaultVariableLegProject();
     const legacy = { ...source, version: 1, deployment: undefined };
     const migrated = migrateVariableLegProject(JSON.parse(JSON.stringify(legacy)) as unknown);
-    expect(migrated?.version).toBe(2);
+    expect(migrated?.version).toBe(3);
     expect(migrated?.deployment.legCount).toBe(2);
     expect(migrated?.deployment.preset).toBe("alternating");
+  });
+
+  it("creates hard primary targets, soft supporting targets, and fixed RPM inputs", () => {
+    const project = createDefaultVariableLegProject();
+    const primary = project.requirements.find((requirement) => requirement.role === "primary")!;
+    const supporting = project.requirements.filter((requirement) => requirement.role === "supporting");
+    expect(primary.modeId).toBe("cruise");
+    expect(primary.rpm).toBe(project.modes.find((mode) => mode.id === primary.modeId)?.rpm);
+    expect(Object.values(primary.constraints).every((constraint) => constraint.level === "hard")).toBe(true);
+    expect(supporting.every((requirement) => Object.values(requirement.constraints).every((constraint) => constraint.level === "soft"))).toBe(true);
+    expect(primary.constraints.stepLength.rule).toBe("range");
+    expect(primary.constraints.stepLength.tolerance).toBeCloseTo(primary.constraints.stepLength.target * 0.05);
+    expect(primary.constraints.liftHeight.rule).toBe("minimum");
+    expect(primary.constraints.stanceRatio.tolerance).toBeCloseTo(0.03);
+    expect(primary.constraints.landingVerticalSpeed.rule).toBe("maximum");
+
+    const baselineLandingSpeed = analyzeVariableLegProject(project, 18, 50).metrics
+      .find((metric) => metric.modeId === primary.modeId)!.landingVerticalSpeed;
+    project.modes.find((mode) => mode.id === primary.modeId)!.rpm = 1;
+    const fixedInputLandingSpeed = analyzeVariableLegProject(project, 18, 50).metrics
+      .find((metric) => metric.modeId === primary.modeId)!.landingVerticalSpeed;
+    expect(fixedInputLandingSpeed).toBeCloseTo(baselineLandingSpeed, 8);
+  });
+
+  it("treats landing speed by hard-soft level while safety gates stay hard for every enabled mode", () => {
+    const project = createDefaultVariableLegProject();
+    const primary = project.requirements.find((requirement) => requirement.role === "primary")!;
+    const analyzed = analyzeVariableLegProject(project, 12, 40).metrics;
+    const passing = analyzed.map((metric) => {
+      const requirement = project.requirements.find((item) => item.modeId === metric.modeId)!;
+      return {
+        ...metric,
+        validRatio: 1,
+        branchSwitches: 0,
+        closureError: 0,
+        singularityMargin: 10,
+        stepLength: requirement.constraints.stepLength.target,
+        liftHeight: requirement.constraints.liftHeight.target,
+        stanceRatio: requirement.constraints.stanceRatio.target,
+        landingVerticalSpeed: requirement.constraints.landingVerticalSpeed.target,
+      };
+    });
+    expect(evaluateVariableLegConstraints(passing, project.requirements).passed).toBe(true);
+
+    const supportingModeId = project.requirements.find((requirement) => requirement.role === "supporting")!.modeId;
+    const softLandingFailure = passing.map((metric) => metric.modeId === supportingModeId
+      ? { ...metric, landingVerticalSpeed: project.requirements.find((item) => item.modeId === supportingModeId)!.constraints.landingVerticalSpeed.target + 1 }
+      : metric);
+    const softEvaluation = evaluateVariableLegConstraints(softLandingFailure, project.requirements);
+    expect(softEvaluation.hardPassed).toBe(true);
+    expect(softEvaluation.warnings.some((warning) => warning.includes("landingVerticalSpeed"))).toBe(true);
+
+    const safetyFailures = [
+      ["validRatio", { validRatio: 0.98 }],
+      ["branchSwitches", { branchSwitches: 1 }],
+      ["closureError", { closureError: Number.POSITIVE_INFINITY }],
+      ["closureError", { closureError: 1, closureTolerance: 0.25 }],
+      ["singularityMargin", { singularityMargin: 4.99 }],
+    ] as const;
+    for (const [safetyMetric, patch] of safetyFailures) {
+      const unsafeSupportingMode = softLandingFailure.map((metric) => metric.modeId === supportingModeId
+        ? { ...metric, ...patch }
+        : metric);
+      const unsafeEvaluation = evaluateVariableLegConstraints(unsafeSupportingMode, project.requirements);
+      expect(unsafeEvaluation.hardPassed).toBe(false);
+      expect(unsafeEvaluation.issues.some((issue) => issue.includes(safetyMetric))).toBe(true);
+    }
+
+    const hardLandingFailure = passing.map((metric) => metric.modeId === primary.modeId
+      ? { ...metric, landingVerticalSpeed: primary.constraints.landingVerticalSpeed.target + 1 }
+      : metric);
+    const hardEvaluation = evaluateVariableLegConstraints(hardLandingFailure, project.requirements);
+    expect(hardEvaluation.hardPassed).toBe(false);
+    expect(hardEvaluation.issues.some((issue) => issue.includes("landingVerticalSpeed"))).toBe(true);
+  });
+
+  it("uses local assembly branches, a full 2π endpoint, and dyad-only singularity margins", () => {
+    const project = createDefaultVariableLegProject();
+    const metrics = analyzeVariableLegProject(project, 72, 90).metrics;
+    expect(metrics.every((metric) => metric.branchSwitches === 0)).toBe(true);
+    expect(metrics.every((metric) => metric.singularityMargin >= 5)).toBe(true);
+    expect(metrics.every((metric) => Number.isFinite(metric.closureError))).toBe(true);
+    expect(metrics.every((metric) => (metric.closureTolerance ?? 0) > 0)).toBe(true);
+  });
+
+  it("migrates version 2 geometry, modes, and deployment while generating v3 requirements", () => {
+    const source = createDefaultVariableLegProject();
+    source.baseProject.joints[0].x += 7;
+    source.deployment.mountSpan = 432;
+    const legacy = JSON.parse(JSON.stringify(source)) as Record<string, unknown>;
+    legacy.version = 2;
+    delete legacy.requirements;
+    delete legacy.revisionId;
+    delete legacy.currentVersionId;
+    const migrated = migrateVariableLegProject(legacy);
+    expect(migrated?.version).toBe(3);
+    expect(migrated?.baseProject.joints[0].x).toBe(source.baseProject.joints[0].x);
+    expect(migrated?.modes).toEqual(source.modes);
+    expect(migrated?.deployment.mountSpan).toBe(432);
+    expect(migrated?.requirements).toHaveLength(source.modes.length);
+    expect(migrated?.requirements.find((requirement) => requirement.modeId === source.activeModeId)?.role).toBe("primary");
+  });
+
+  it("advances revisions without moving the persisted checkpoint unless requested", () => {
+    const source = createDefaultVariableLegProject();
+    const revised = advanceVariableLegProjectRevision(source);
+    expect(revised.revisionId).not.toBe(source.revisionId);
+    expect(revised.currentVersionId).toBe(source.currentVersionId);
+    const checkpointed = advanceVariableLegProjectRevision(revised, { checkpoint: true });
+    expect(checkpointed.revisionId).not.toBe(revised.revisionId);
+    expect(checkpointed.currentVersionId).not.toBe(revised.currentVersionId);
   });
 
   it("restores missing standard modes without replacing the existing obstacle mode", () => {
@@ -296,14 +411,14 @@ describe("variable geometry walking leg", () => {
     expect(source.baseProject.bars.find((item) => item.id === bar.id)?.length).toBe(bar.length);
   });
 
-  it("keeps an invalid Klann draft out of the project and suggests a feasible value", () => {
+  it("keeps an invalid Klann draft out of the project when no all-mode feasible value exists", () => {
     const source = createDefaultVariableLegProject();
     const bar = source.baseProject.bars.find((item) => item.id === "L2")!;
     const bounds = getVariableLegBaselineBounds(source, { kind: "bar-length", targetId: bar.id });
     const preview = previewVariableLegEditableParameter(source, { kind: "bar-length", targetId: bar.id }, 200, bounds);
     expect(preview.requestedValid).toBe(false);
-    expect(preview.nearestFeasibleValue).not.toBeNull();
-    expect(preview.previewProject?.baseProject.bars.find((item) => item.id === bar.id)?.length).toBeCloseTo(preview.nearestFeasibleValue!);
+    expect(preview.nearestFeasibleValue).toBeNull();
+    expect(preview.previewProject).toBeNull();
     expect(source.baseProject.bars.find((item) => item.id === bar.id)?.length).toBe(bar.length);
   });
 
@@ -342,7 +457,7 @@ describe("variable geometry walking leg", () => {
     expect(first.metrics.map((metric) => metric.validRatio)).toEqual(second.metrics.map((metric) => metric.validRatio));
   });
 
-  it("improves the three-mode baseline reproducibly", async () => {
+  it("ranks unified hard constraints reproducibly without changing topology", async () => {
     const project = createDefaultVariableLegProject();
     const baseline = analyzeVariableLegProject(project, 36, 60).score;
     const first = await synthesizeVariableLeg(project);
@@ -350,13 +465,9 @@ describe("variable geometry walking leg", () => {
     expect(first).toHaveLength(5);
     expect(first.every((candidate) => candidate.topology === project.topology)).toBe(true);
     expect(first[0].score).toBeGreaterThan(baseline);
-    const obstacleIndex = first[0].modes.findIndex((mode) => mode.id === "obstacle");
-    const obstacleMode = first[0].modes[obstacleIndex];
-    const obstacleTargetClearance = measureGaitClearance(obstacleMode.targetPath, obstacleMode.stanceStart, obstacleMode.stanceEnd);
-    const otherClearances = first[0].metrics.filter((_, index) => index !== obstacleIndex).map((metric) => metric.liftHeight);
-    expect(first[0].metrics[obstacleIndex].liftHeight).toBeGreaterThanOrEqual(Math.max(...otherClearances) - 5);
-    expect(first[0].metrics[obstacleIndex].liftHeight).toBeGreaterThanOrEqual(obstacleTargetClearance * 0.45);
-    expect(assessVariableLegCandidate(first[0].metrics, first[0].modes).level).toBe("usable");
+    expect(first.every((candidate) => candidate.constraintEvaluation)).toBe(true);
+    expect(first[0].constraintEvaluation!.issues.length)
+      .toBe(Math.min(...first.map((candidate) => candidate.constraintEvaluation!.issues.length)));
     expect(first[0].metrics.every((metric) => metric.validRatio >= 0.99)).toBe(true);
     expect(first.map((candidate) => [candidate.topology, candidate.adjustment.kind, candidate.adjustment.targetId, candidate.score]))
       .toEqual(second.map((candidate) => [candidate.topology, candidate.adjustment.kind, candidate.adjustment.targetId, candidate.score]));

@@ -5,81 +5,106 @@ import {
   preflightGuidedDesign,
   synthesizeVariableLeg,
   synthesizeVariableLegGuidedDesign,
-  type VariableLegSynthesisScope,
-} from "@/lib/variable-leg-synthesis";
+  type VariableLegWorkerRequest,
+  type VariableLegWorkerResponse,
+} from "../lib/variable-leg-synthesis";
 import {
   previewVariableLegBarLength,
   previewVariableLegEditableParameter,
   scanVariableLegAdjustmentFeasibility,
   validateVariableLegKinematics,
-  type VariableLegProject,
-  type GuidedDesignRequest,
-  type VariableLegEditableParameter,
-  type VariableLegFeasibleInterval,
-} from "@/lib/variable-leg";
+} from "../lib/variable-leg";
 
-type StartMessage = { type: "start"; requestId: string; project: VariableLegProject; scope?: VariableLegSynthesisScope };
-type FeasibilityMessage = { type: "feasibility"; requestId: string; project: VariableLegProject };
-type GuidedDesignMessage = { type: "guided-design"; requestId: string; project: VariableLegProject; request: GuidedDesignRequest };
-type GuidedPreflightMessage = { type: "guided-preflight"; requestId: string; project: VariableLegProject; request: GuidedDesignRequest };
-type BarPreviewMessage = { type: "bar-preview"; requestId: string; project: VariableLegProject; barId: string; requestedLength: number };
-type ParameterPreviewMessage = { type: "parameter-preview"; requestId: string; project: VariableLegProject; parameter: VariableLegEditableParameter; requestedValue: number; bounds?: VariableLegFeasibleInterval[] };
-type ProjectCheckMessage = { type: "project-check"; requestId: string; project: VariableLegProject; baselineProject?: VariableLegProject };
-type CancelMessage = { type: "cancel"; requestId: string };
+type WorkerResponsePayload<T = VariableLegWorkerResponse> = T extends VariableLegWorkerResponse
+  ? Omit<T, "requestId" | "runId" | "sourceRevisionId">
+  : never;
 
 const cancelled = new Set<string>();
 
-self.addEventListener("message", (event: MessageEvent<StartMessage | FeasibilityMessage | GuidedDesignMessage | GuidedPreflightMessage | BarPreviewMessage | ParameterPreviewMessage | ProjectCheckMessage | CancelMessage>) => {
+function correlationFor(message: VariableLegWorkerRequest) {
+  const projectRevisionId = "project" in message ? message.project.revisionId : undefined;
+  return {
+    requestId: message.requestId,
+    runId: message.runId ?? message.requestId,
+    sourceRevisionId: message.sourceRevisionId ?? projectRevisionId ?? "legacy",
+  };
+}
+
+function postWorkerResponse(
+  correlation: ReturnType<typeof correlationFor>,
+  payload: WorkerResponsePayload,
+) {
+  self.postMessage({ ...correlation, ...payload } satisfies VariableLegWorkerResponse);
+}
+
+self.addEventListener("message", (event: MessageEvent<VariableLegWorkerRequest>) => {
   const message = event.data;
   if (message.type === "cancel") {
     cancelled.add(message.requestId);
     return;
   }
+  const correlation = correlationFor(message);
+  if (message.sourceRevisionId && message.project.revisionId
+    && message.sourceRevisionId !== message.project.revisionId) {
+    postWorkerResponse(correlation, {
+      type: "error",
+      message: "求解请求的源版本与项目快照不一致，结果已拒绝。",
+    });
+    return;
+  }
   if (message.type === "feasibility") {
-    const { requestId, project } = message;
+    const { project } = message;
     try {
       const feasibility = scanVariableLegAdjustmentFeasibility(project, 41, 36, 70);
-      self.postMessage({ type: "feasibility-result", requestId, feasibility });
+      postWorkerResponse(correlation, { type: "feasibility-result", feasibility });
     } catch (error: unknown) {
-      self.postMessage({ type: "error", requestId, message: error instanceof Error ? error.message : "可行范围检查失败" });
+      postWorkerResponse(correlation, { type: "error", message: error instanceof Error ? error.message : "可行范围检查失败" });
     }
     return;
   }
   if (message.type === "bar-preview") {
-    const { requestId, project, barId, requestedLength } = message;
+    const { project, barId, requestedLength } = message;
     try {
       const preview = previewVariableLegBarLength(project, barId, requestedLength);
-      self.postMessage({ type: "bar-preview-result", requestId, preview });
+      postWorkerResponse(correlation, { type: "bar-preview-result", preview });
     } catch (error: unknown) {
-      self.postMessage({ type: "error", requestId, message: error instanceof Error ? error.message : "杆长草稿检查失败" });
+      postWorkerResponse(correlation, { type: "error", message: error instanceof Error ? error.message : "杆长草稿检查失败" });
     }
     return;
   }
   if (message.type === "parameter-preview") {
-    const { requestId, project, parameter, requestedValue, bounds } = message;
+    const { project, parameter, requestedValue, bounds } = message;
     try {
       const preview = previewVariableLegEditableParameter(project, parameter, requestedValue, bounds);
-      self.postMessage({ type: "parameter-preview-result", requestId, preview });
+      postWorkerResponse(correlation, { type: "parameter-preview-result", preview });
     } catch (error: unknown) {
-      self.postMessage({ type: "error", requestId, message: error instanceof Error ? error.message : "参数可行范围检查失败" });
+      postWorkerResponse(correlation, { type: "error", message: error instanceof Error ? error.message : "参数可行范围检查失败" });
     }
     return;
   }
   if (message.type === "project-check") {
-    const { requestId, project, baselineProject } = message;
+    const { project, baselineProject } = message;
     try {
-      self.postMessage({ type: "project-check-result", requestId, validation: validateVariableLegKinematics(project, 54, 80, baselineProject) });
+      postWorkerResponse(correlation, {
+        type: "project-check-result",
+        validation: validateVariableLegKinematics(project, 54, 80, baselineProject),
+      });
     } catch (error: unknown) {
-      self.postMessage({ type: "error", requestId, message: error instanceof Error ? error.message : "整周可行性检查失败" });
+      postWorkerResponse(correlation, { type: "error", message: error instanceof Error ? error.message : "整周可行性检查失败" });
     }
     return;
   }
   if (message.type === "guided-preflight") {
-    const { requestId, project, request } = message;
+    const { project, request } = message;
     try {
-      self.postMessage({ type: "guided-preflight-result", requestId, preflight: preflightGuidedDesign(project, request) });
+      postWorkerResponse(correlation, {
+        type: "guided-preflight-result",
+        preflight: preflightGuidedDesign(project, request, {
+          allowOfflineBaselineFallback: message.allowOfflineBaselineFallback,
+        }),
+      });
     } catch (error: unknown) {
-      self.postMessage({ type: "error", requestId, message: error instanceof Error ? error.message : "引导预检失败" });
+      postWorkerResponse(correlation, { type: "error", message: error instanceof Error ? error.message : "引导预检失败" });
     }
     return;
   }
@@ -89,30 +114,33 @@ self.addEventListener("message", (event: MessageEvent<StartMessage | Feasibility
     void synthesizeVariableLegGuidedDesign(
       project,
       request,
-      (progress) => self.postMessage({ type: "progress", requestId, progress }),
+      (progress) => postWorkerResponse(correlation, { type: "progress", progress }),
       () => cancelled.has(requestId),
+      { allowOfflineBaselineFallback: message.allowOfflineBaselineFallback },
     ).then((result) => {
-      self.postMessage({ type: "guided-design-result", requestId, result });
+      postWorkerResponse(correlation, { type: "guided-design-result", result });
     }).catch((error: unknown) => {
-      if (error instanceof VariableLegSynthesisCancelled) self.postMessage({ type: "cancelled", requestId });
-      else self.postMessage({ type: "error", requestId, message: error instanceof Error ? error.message : "引导设计失败" });
+      if (error instanceof VariableLegSynthesisCancelled) postWorkerResponse(correlation, { type: "cancelled" });
+      else postWorkerResponse(correlation, { type: "error", message: error instanceof Error ? error.message : "引导设计失败" });
     }).finally(() => cancelled.delete(requestId));
     return;
   }
-  const { requestId, project, scope } = message;
+  const { requestId, project, scope, refinementRequest, generationRequest } = message;
   cancelled.delete(requestId);
   void synthesizeVariableLeg(
     project,
-    (progress) => self.postMessage({ type: "progress", requestId, progress }),
+    (progress) => postWorkerResponse(correlation, { type: "progress", progress }),
     () => cancelled.has(requestId),
     scope,
+    refinementRequest,
+    generationRequest,
   ).then((candidates) => {
-    self.postMessage({ type: "result", requestId, candidates });
+    postWorkerResponse(correlation, { type: "result", candidates });
   }).catch((error: unknown) => {
     if (error instanceof VariableLegSynthesisCancelled) {
-      self.postMessage({ type: "cancelled", requestId });
+      postWorkerResponse(correlation, { type: "cancelled" });
     } else {
-      self.postMessage({ type: "error", requestId, message: error instanceof Error ? error.message : "可变几何综合失败" });
+      postWorkerResponse(correlation, { type: "error", message: error instanceof Error ? error.message : "可变几何综合失败" });
     }
   }).finally(() => cancelled.delete(requestId));
 });

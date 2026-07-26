@@ -249,6 +249,11 @@ function sameCandidateReference(first: CandidateReference | null, second: Candid
   return first?.runId === second.runId && first.candidateId === second.candidateId;
 }
 
+function isCandidateApplicable(candidate: VariableLegCandidate) {
+  return candidate.constraintEvaluation?.hardPassed
+    ?? assessVariableLegCandidate(candidate.metrics, candidate.modes).level === "usable";
+}
+
 function describeCandidateBatchFailure(candidates: VariableLegCandidate[], project: VariableLegProject) {
   const evaluations = candidates.flatMap((candidate) => candidate.constraintEvaluation?.conditions ?? []);
   const safetyFailure = evaluations.flatMap((condition) => condition.safety
@@ -465,6 +470,8 @@ export function VariableGeometryLegLab() {
   );
   const latestRun = session.designRuns.at(-1) ?? null;
   const latestCandidates = latestRun?.candidates ?? [];
+  const latestApplicableCandidates = latestCandidates.filter(isCandidateApplicable);
+  const hiddenCandidateCount = latestCandidates.length - latestApplicableCandidates.length;
   const previewReference = session.draftSource;
   const previewRun = previewReference ? session.designRuns.find((run) => run.runId === previewReference.runId) ?? null : null;
   const previewCandidate = previewReference && previewRun
@@ -473,7 +480,7 @@ export function VariableGeometryLegLab() {
   const comparisonCandidates = session.comparisonSelection.flatMap((reference) => {
     const run = session.designRuns.find((item) => item.runId === reference.runId);
     const candidate = run?.candidates.find((item) => item.id === reference.candidateId);
-    return run && candidate ? [{ reference, run, candidate }] : [];
+    return run && candidate && isCandidateApplicable(candidate) ? [{ reference, run, candidate }] : [];
   });
   const activeConditionEvaluation = analysis.evaluation.conditions.find((condition) => condition.modeId === activeMode.id);
 
@@ -981,8 +988,8 @@ export function VariableGeometryLegLab() {
         if (!response.candidates.length) {
           const currentSafetyFailed = analysis.evaluation.conditions.some((condition) => condition.enabled && condition.safety.some((item) => !item.passed));
           setMessage(currentSafetyFailed
-            ? "当前机构未通过安全运动学门槛，且搜索预算内没有找到可用候选。请先查看具体安全项或显式改用模板种子。"
-            : "约束定义有效，但本次搜索预算内未找到候选；当前项目保持不变，可增加预算或调整具体软目标。");
+            ? "未找到可应用方案。当前机构未通过安全运动学门槛，请返回调整机构，或显式改用模板种子后重试。"
+            : "未找到可应用方案。系统不会推荐未通过硬约束的结果；请返回调整目标或机构后重试。");
           return;
         }
         const applicableCount = response.candidates.filter((candidate) => candidate.constraintEvaluation?.hardPassed).length;
@@ -1753,7 +1760,11 @@ export function VariableGeometryLegLab() {
             {searching && <button className={styles.cancelButton} type="button" onClick={cancelSynthesis}>取消搜索</button>}
             <div className={styles.progress}><i style={{ width: `${searchProgress.progress * 100}%` }} /></div>
             <small role="status" aria-live="polite">{searching ? searchProgress.message : message}</small>
-            {latestRun && <div className={`${styles.runBadge} ${latestRun.stale ? styles.runStale : ""}`}>最近批次 {latestRun.runId} · {latestRun.candidates.length} 个候选 · {latestRun.stale ? "源版本已过期" : latestRun.status}</div>}
+            {latestRun && <div className={`${styles.runBadge} ${latestRun.stale ? styles.runStale : ""}`}>
+              最近批次 {latestRun.runId} · {latestApplicableCandidates.length} 个可应用方案
+              {hiddenCandidateCount > 0 ? ` · 已隐藏 ${hiddenCandidateCount} 个未通过项` : ""}
+              {" · "}{latestRun.stale ? "源版本已过期" : latestRun.status}
+            </div>}
           </section>}
 
           {workspaceStep === 5 && <section className={`${styles.stepPanel} ${styles.searchBox}`}>
@@ -1948,10 +1959,8 @@ export function VariableGeometryLegLab() {
 
         <aside id="variable-leg-results" className={`${styles.panel} ${styles.analysisPanel} ${resultsOpen ? styles.analysisPanelOpen : ""}`} aria-label="候选与工程检查" onKeyDown={(event) => { if (event.key === "Escape" && resultsOpen) toggleResultsDrawer(); }}>
           <div className={styles.panelTitle}><div><span>02</span><h2>候选与工程检查</h2></div><button ref={resultsCloseRef} type="button" onClick={toggleResultsDrawer}>关闭</button></div>
-          {latestCandidates.length && latestRun ? <div className={styles.candidateList}>
-            {latestCandidates.slice(0, 5).map((candidate, index) => {
-              const quality = assessVariableLegCandidate(candidate.metrics, candidate.modes);
-              const usable = candidate.constraintEvaluation?.hardPassed ?? quality.level === "usable";
+          {latestApplicableCandidates.length && latestRun ? <div className={styles.candidateList}>
+            {latestApplicableCandidates.slice(0, 5).map((candidate, index) => {
               const selectedMetric = candidate.metrics.find((metric) => metric.modeId === project.activeModeId) ?? candidate.metrics[0];
               const reference = { runId: latestRun.runId, candidateId: candidate.id };
               const previewed = sameCandidateReference(previewReference, reference);
@@ -1959,18 +1968,29 @@ export function VariableGeometryLegLab() {
               return <div key={`${latestRun.runId}-${candidate.id}`} className={`${styles.candidateCard} ${previewed ? styles.selectedCandidate : ""}`}>
                 <button type="button" aria-label={`真实预览${candidate.label}`} onClick={() => previewDesignCandidate(reference)}>
                   <span className={styles.rank}>{String(index + 1).padStart(2, "0")}</span>
-                  <span><b>{candidate.label} <i className={usable ? styles.candidateFeasible : styles.candidateNear}>{usable ? "硬约束通过" : "不可应用"}</i></b><small>{topologyName(candidate.topology)} · {adjustmentName(candidate.adjustment.kind)} · {candidate.adjustment.targetId}</small></span>
+                  <span><b>{candidate.label} <i className={styles.candidateFeasible}>可应用</i></b><small>{topologyName(candidate.topology)} · {adjustmentName(candidate.adjustment.kind)} · {candidate.adjustment.targetId}</small></span>
                   <strong>{candidate.score.toFixed(0)}</strong>
                   <em>实际：步长 {selectedMetric?.stepLength.toFixed(0)} mm · 抬脚 {selectedMetric?.liftHeight.toFixed(0)} mm · 落地 {selectedMetric?.landingVerticalSpeed.toFixed(0)} mm/s</em>
                   <em>{latestRun.stale ? "源版本已过期，仅可查看" : candidate.constraintEvaluation?.issues[0] ?? "全部启用工况已统一评估"}</em>
                 </button>
                 <div className={styles.candidateActions}>
                   <button type="button" className={pinned ? styles.pinButtonActive : ""} onClick={() => toggleComparisonCandidate(reference)}>{pinned ? "取消固定" : "固定比较"}</button>
-                  <button type="button" className={styles.candidatePrimaryAction} onClick={() => applyDesignCandidate(reference)} disabled={!usable || latestRun.stale}>应用此方案</button>
+                  <button type="button" className={styles.candidatePrimaryAction} onClick={() => applyDesignCandidate(reference)} disabled={latestRun.stale}>应用此方案</button>
                 </div>
               </div>;
             })}
-          </div> : <div className={styles.emptyState}><b>{latestRun?.status === "failed" ? "生成失败" : "等待候选批次"}</b><p>{latestRun?.error ?? "在第 4 步创建候选。生成和精修不会覆盖当前项目；结果会先进入真实草稿预览。"}</p></div>}
+          </div> : <div className={styles.emptyState}>
+            <b>{latestRun?.status === "failed" ? "生成失败" : latestRun?.status === "completed" ? "未找到可应用方案" : "等待候选批次"}</b>
+            <p>{latestRun?.error ?? (latestRun?.status === "completed"
+              ? latestCandidates.length
+                ? describeCandidateBatchFailure(latestCandidates, project)
+                : "本次搜索没有方案通过全部硬约束。系统没有生成或推荐不可应用候选。"
+              : "在第 4 步创建候选。生成和精修不会覆盖当前项目；结果会先进入真实草稿预览。")}</p>
+            {latestRun?.status === "completed" && <div className={styles.emptyStateActions}>
+              <button type="button" onClick={() => { changeWorkspaceStep(2); setResultsOpen(false); }}>调整目标</button>
+              <button type="button" onClick={() => { changeWorkspaceStep(3); setResultsOpen(false); }}>调整机构</button>
+            </div>}
+          </div>}
 
           {comparisonCandidates.length > 0 && <div className={styles.comparisonMatrix}>
             <table>
@@ -2076,7 +2096,7 @@ export function VariableGeometryLegLab() {
           </div>
           <p className={styles.disclaimer}>这里的“高速、越障”仅代表目标足迹工况。当前版本不计算质量、地面接触力、弹簧储能、结构应力或整机稳定性。</p>
         </aside>
-        <button ref={resultsToggleRef} type="button" className={styles.resultDrawerButton} aria-controls="variable-leg-results" aria-expanded={resultsOpen} onClick={toggleResultsDrawer}>{resultsOpen ? "关闭结果" : latestCandidates.length ? `查看 ${latestCandidates.length} 个候选` : "查看结果"}</button>
+        <button ref={resultsToggleRef} type="button" className={styles.resultDrawerButton} aria-controls="variable-leg-results" aria-expanded={resultsOpen} onClick={toggleResultsDrawer}>{resultsOpen ? "关闭结果" : latestApplicableCandidates.length ? `查看 ${latestApplicableCandidates.length} 个可应用方案` : "查看搜索结果"}</button>
       </div>}
     </main>
   );

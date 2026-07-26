@@ -121,6 +121,23 @@ describe("variable-leg synthesis protocol", () => {
     expect(project).toEqual(sourceSnapshot);
   });
 
+  it("never returns candidates that fail hard constraints", async () => {
+    const project = createDefaultVariableLegProject();
+    project.requirements[0].constraints.stepLength.target = 2_000;
+    project.requirements[0].constraints.stepLength.tolerance = 0;
+    const sourceSnapshot = cloneVariableLegProject(project);
+    const progressMessages: string[] = [];
+
+    const candidates = await synthesizeVariableLeg(
+      project,
+      (progress) => progressMessages.push(progress.message),
+    );
+
+    expect(candidates).toEqual([]);
+    expect(progressMessages.at(-1)).toBe("搜索完成，未找到通过全部硬约束的方案");
+    expect(project).toEqual(sourceSnapshot);
+  }, 30_000);
+
   it("exports a correlated worker protocol for design runs", () => {
     const project = createDefaultVariableLegProject();
     const request = {

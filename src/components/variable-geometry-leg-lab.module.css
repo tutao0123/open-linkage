@@ -209,6 +209,9 @@
 .emptyState { margin:18px 0; padding:17px; border:1px dashed #bfc2b8; color:#646a64; }
 .emptyState b { color:#242a27; font-size:13px; }
 .emptyState p { margin:8px 0 0; font-size:10px; line-height:1.6; }
+.emptyStateActions { margin-top:12px; display:flex; gap:7px; }
+.emptyStateActions button { flex:1; padding:8px; border:1px solid #aeb2a9; background:#f2f1eb; color:#242a27; cursor:pointer; font-size:9px; }
+.emptyStateActions button:first-child { border-color:#171b19; background:#171b19; color:#c8ff3d; }
 .relaxSuggestions { margin-top:10px; display:grid; gap:6px; }
 .relaxSuggestions button { padding:8px; border:1px solid #d09a76; background:#f4dfd2; color:#712e20; cursor:pointer; font-size:9px; }
 .modeSummary>div { padding:10px 0; display:flex; justify-content:space-between; align-items:end; border-bottom:1px solid #d2d3cc; }

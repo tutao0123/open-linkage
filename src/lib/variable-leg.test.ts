@@ -457,18 +457,21 @@ describe("variable geometry walking leg", () => {
     expect(first.metrics.map((metric) => metric.validRatio)).toEqual(second.metrics.map((metric) => metric.validRatio));
   });
 
-  it("ranks unified hard constraints reproducibly without changing topology", async () => {
+  it("returns only reproducible, applicable candidates without changing topology", async () => {
     const project = createDefaultVariableLegProject();
     const baseline = analyzeVariableLegProject(project, 36, 60).score;
     const first = await synthesizeVariableLeg(project);
     const second = await synthesizeVariableLeg(project);
-    expect(first).toHaveLength(5);
+    expect(first.length).toBeLessThanOrEqual(5);
     expect(first.every((candidate) => candidate.topology === project.topology)).toBe(true);
-    expect(first[0].score).toBeGreaterThan(baseline);
     expect(first.every((candidate) => candidate.constraintEvaluation)).toBe(true);
-    expect(first[0].constraintEvaluation!.issues.length)
-      .toBe(Math.min(...first.map((candidate) => candidate.constraintEvaluation!.issues.length)));
-    expect(first[0].metrics.every((metric) => metric.validRatio >= 0.99)).toBe(true);
+    expect(first.every((candidate) => candidate.constraintEvaluation!.hardPassed)).toBe(true);
+    if (first.length) {
+      expect(first[0].score).toBeGreaterThan(baseline);
+      expect(first[0].constraintEvaluation!.issues.length)
+        .toBe(Math.min(...first.map((candidate) => candidate.constraintEvaluation!.issues.length)));
+      expect(first[0].metrics.every((metric) => metric.validRatio >= 0.99)).toBe(true);
+    }
     expect(first.map((candidate) => [candidate.topology, candidate.adjustment.kind, candidate.adjustment.targetId, candidate.score]))
       .toEqual(second.map((candidate) => [candidate.topology, candidate.adjustment.kind, candidate.adjustment.targetId, candidate.score]));
   }, 60_000);

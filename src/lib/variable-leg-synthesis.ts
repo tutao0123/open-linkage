@@ -975,20 +975,30 @@ export async function synthesizeVariableLeg(
       - (first.constraintEvaluation?.softScore ?? 0);
   });
 
+  // Near misses are useful internally for ranking the search, but they are not
+  // actionable design candidates. Returning them made the UI present a
+  // "recommended" option that could never be applied.
+  const applicableCandidates = finalCandidates.filter((candidate) => candidate.constraintEvaluation?.hardPassed === true);
   const diverse: VariableLegCandidate[] = [];
-  for (const candidate of finalCandidates) {
+  for (const candidate of applicableCandidates) {
     const duplicate = diverse.some((item) => item.topology === candidate.topology
       && item.adjustment.kind === candidate.adjustment.kind
       && item.adjustment.targetId === candidate.adjustment.targetId);
     if (!duplicate || diverse.length < 2) diverse.push(candidate);
     if (diverse.length >= 5) break;
   }
-  for (const candidate of finalCandidates) {
+  for (const candidate of applicableCandidates) {
     if (!diverse.includes(candidate)) diverse.push(candidate);
     if (diverse.length >= 5) break;
   }
 
-  onProgress?.({ progress: 1, stage: "finalize", message: `已完成 ${diverse.length} 套候选方案` });
+  onProgress?.({
+    progress: 1,
+    stage: "finalize",
+    message: diverse.length
+      ? `已完成 ${diverse.length} 套可应用方案`
+      : "搜索完成，未找到通过全部硬约束的方案",
+  });
   return diverse.map((candidate, index) => ({
     ...candidate,
     id: `variable-leg-${index + 1}`,

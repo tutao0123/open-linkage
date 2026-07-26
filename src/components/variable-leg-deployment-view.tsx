@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 
+import { localizeReactTree } from "@/lib/i18n";
 import type { VariableLegMode, VariableLegModeMetrics, VariableLegSample } from "@/lib/variable-leg";
 import {
   phaseIsInVariableLegStance,
@@ -11,6 +12,7 @@ import {
 } from "@/lib/variable-leg-gait";
 
 import styles from "./variable-geometry-leg-lab.module.css";
+import { useLanguage } from "./locale-shell";
 
 type VariableLegDeploymentViewProps = {
   samples: VariableLegSample[];
@@ -35,6 +37,7 @@ export function VariableLegDeploymentView({
   selectedBarId,
   onSelectBar,
 }: VariableLegDeploymentViewProps) {
+  const language = useLanguage();
   const visualScale = ({ 2: 0.82, 4: 0.72, 6: 0.63, 8: 0.56 } as const)[deployment.legCount];
   const anchor = useMemo(() => {
     const fixed = samples[0]?.project.joints.filter((joint) => joint.fixed) ?? [];
@@ -63,7 +66,7 @@ export function VariableLegDeploymentView({
     return first.side === "right" ? -1 : 1;
   });
 
-  return <>
+  return localizeReactTree(<>
     <defs>
       <pattern id="variable-leg-deployment-grid" width="25" height="25" patternUnits="userSpaceOnUse">
         <path d="M25 0H0V25" className={styles.grid} />
@@ -139,5 +142,5 @@ export function VariableLegDeploymentView({
         })}
       </g>}
     </g>
-  </>;
+  </>, language);
 }

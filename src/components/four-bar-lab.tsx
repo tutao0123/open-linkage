@@ -11,6 +11,8 @@ import {
   type Point,
 } from "@/lib/four-bar";
 import { fitFourBarToClosedPath, type PathFitResult } from "@/lib/path-synthesis";
+import { localizeReactTree } from "@/lib/i18n";
+import { useLanguage } from "./locale-shell";
 import { SvgViewportControls } from "./svg-viewport-controls";
 import { useSvgViewport } from "./use-svg-viewport";
 import styles from "./four-bar-lab.module.css";
@@ -53,6 +55,7 @@ function formatNumber(value: number | null, digits = 1) {
 }
 
 export function FourBarLab() {
+  const language = useLanguage();
   const svgRef = useRef<SVGSVGElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [parameters, setParameters] = useState(DEFAULT_PARAMETERS);
@@ -314,7 +317,7 @@ export function FourBarLab() {
     setProjectMessage("已恢复默认项目");
   };
 
-  return (
+  return localizeReactTree((
     <div className={styles.workspace}>
       <header className={styles.header}>
         <Link className={styles.brand} href="/">
@@ -571,5 +574,5 @@ export function FourBarLab() {
         </aside>
       </div>
     </div>
-  );
+  ), language);
 }

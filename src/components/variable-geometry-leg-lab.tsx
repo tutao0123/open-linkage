@@ -12,6 +12,7 @@ import {
 } from "react";
 
 import type { Point } from "@/lib/four-bar";
+import { localizeReactTree, withLanguagePath } from "@/lib/i18n";
 import {
   VARIABLE_LEG_MODE_COLORS,
   VARIABLE_LEG_OPTIONS,
@@ -91,6 +92,7 @@ import {
   type VariableLegSession,
 } from "@/lib/variable-leg-session";
 import { SvgViewportControls } from "./svg-viewport-controls";
+import { useLanguage } from "./locale-shell";
 import { useSnapshotHistory } from "./use-snapshot-history";
 import { useSvgViewport } from "./use-svg-viewport";
 import { VariableLegDeploymentView } from "./variable-leg-deployment-view";
@@ -339,6 +341,7 @@ function removeUnsafeLegacyRecommendations(project: VariableLegProject) {
 }
 
 export function VariableGeometryLegLab() {
+  const language = useLanguage();
   const initialProject = useMemo(() => createDefaultVariableLegProject(), []);
   const history = useSnapshotHistory(initialProject, cloneVariableLegProject);
   const {
@@ -1285,7 +1288,7 @@ export function VariableGeometryLegLab() {
   const openInDesigner = () => {
     const transfer = createVariableLegDesignerTransfer(project);
     window.sessionStorage.setItem(TRANSFER_KEY, JSON.stringify(transfer));
-    window.location.href = "/designer?transfer=variable-leg";
+    window.location.href = withLanguagePath("/designer?transfer=variable-leg", language);
   };
 
   const setDeploymentLegCount = (legCount: VariableLegCount) => {
@@ -1483,7 +1486,7 @@ export function VariableGeometryLegLab() {
     ...gaitWarnings,
   ].filter((warning): warning is string => Boolean(warning));
 
-  return (
+  return localizeReactTree((
     <main className={styles.workspace}>
       <header className={styles.header}>
         <Link className={styles.brand} href="/"><span className={styles.brandMark} />OpenLinkage</Link>
@@ -2099,5 +2102,5 @@ export function VariableGeometryLegLab() {
         <button ref={resultsToggleRef} type="button" className={styles.resultDrawerButton} aria-controls="variable-leg-results" aria-expanded={resultsOpen} onClick={toggleResultsDrawer}>{resultsOpen ? "关闭结果" : latestApplicableCandidates.length ? `查看 ${latestApplicableCandidates.length} 个可应用方案` : "查看搜索结果"}</button>
       </div>}
     </main>
-  );
+  ), language);
 }

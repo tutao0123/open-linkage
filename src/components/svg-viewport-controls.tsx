@@ -1,5 +1,7 @@
 "use client";
 
+import { localizeReactTree } from "@/lib/i18n";
+import { useLanguage } from "./locale-shell";
 import styles from "./svg-viewport-controls.module.css";
 
 type SvgViewportControlsProps = {
@@ -15,7 +17,8 @@ export function SvgViewportControls({
   onZoomOut,
   onReset,
 }: SvgViewportControlsProps) {
-  return (
+  const language = useLanguage();
+  return localizeReactTree((
     <div className={styles.controls} role="group" aria-label="画布视图控制">
       <button type="button" onClick={onZoomOut} aria-label="缩小画布" title="缩小">−</button>
       <button className={styles.zoomValue} type="button" onClick={onReset} aria-label="复位画布视图" title="复位视图">
@@ -24,5 +27,5 @@ export function SvgViewportControls({
       <button type="button" onClick={onZoomIn} aria-label="放大画布" title="放大">＋</button>
       <span title="鼠标滚轮缩放；Alt 或中键拖动平移">滚轮缩放</span>
     </div>
-  );
+  ), language);
 }

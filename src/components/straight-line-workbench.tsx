@@ -17,6 +17,8 @@ import {
   type FreeJoint,
   type FreeMechanismProject,
 } from "@/lib/free-mechanism";
+import { localizeReactTree } from "@/lib/i18n";
+import { useLanguage } from "./locale-shell";
 import { SvgViewportControls } from "./svg-viewport-controls";
 import { useSvgViewport } from "./use-svg-viewport";
 import styles from "./straight-line-workbench.module.css";
@@ -174,6 +176,7 @@ function renderCoordinate(value: number) {
 }
 
 export function StraightLineWorkbench() {
+  const language = useLanguage();
   const svgRef = useRef<SVGSVGElement>(null);
   const [templateId, setTemplateId] = useState(TEMPLATES[0].id);
   const activeTemplate = TEMPLATES.find((template) => template.id === templateId) ?? TEMPLATES[0];
@@ -247,7 +250,7 @@ export function StraightLineWorkbench() {
   const fixedJoints = project.joints.filter((joint) => joint.fixed);
   const phaseDegrees = ((phase * 180 / Math.PI) % 360 + 360) % 360;
 
-  return (
+  return localizeReactTree((
     <main className={styles.workspace}>
       <header className={styles.header}>
         <Link className={styles.brand} href="/"><span className={styles.brandMark} />OpenLinkage</Link>
@@ -335,5 +338,5 @@ export function StraightLineWorkbench() {
         </aside>
       </div>
     </main>
-  );
+  ), language);
 }

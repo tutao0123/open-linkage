@@ -21,6 +21,8 @@ import {
   parseSixBarProject,
   type SixBarProject,
 } from "@/lib/six-bar-project";
+import { localizeReactTree } from "@/lib/i18n";
+import { useLanguage } from "./locale-shell";
 import { SvgViewportControls } from "./svg-viewport-controls";
 import { useSvgViewport } from "./use-svg-viewport";
 import editorStyles from "./four-bar-editor.module.css";
@@ -75,6 +77,7 @@ function pathData(points: Point[], close = false) {
 }
 
 export function SixBarLegLab() {
+  const language = useLanguage();
   const svgRef = useRef<SVGSVGElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [parameters, setParameters] = useState(DEFAULT_PARAMETERS);
@@ -334,7 +337,7 @@ export function SixBarLegLab() {
     }
   };
 
-  return (
+  return localizeReactTree((
     <div className={styles.workspace}>
       <header className={styles.header}>
         <Link className={styles.brand} href="/"><span className={styles.brandMark} />OpenLinkage</Link>
@@ -513,5 +516,5 @@ export function SixBarLegLab() {
         </aside>
       </div>
     </div>
-  );
+  ), language);
 }

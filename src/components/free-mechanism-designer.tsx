@@ -12,6 +12,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 
+import { localizeReactTree, withLanguagePath } from "@/lib/i18n";
 import {
   DEMO_PROJECT,
   MECHANISM_TEMPLATES,
@@ -58,6 +59,7 @@ import {
 import { getVariableLegBaselineBounds } from "@/lib/variable-leg-baselines";
 import { SvgViewportControls } from "./svg-viewport-controls";
 import { useMechanismHistory } from "./use-mechanism-history";
+import { useLanguage } from "./locale-shell";
 import { useSvgViewport } from "./use-svg-viewport";
 import styles from "./free-mechanism-designer.module.css";
 import viewportStyles from "./workbench-viewport.module.css";
@@ -134,6 +136,7 @@ type FreeMechanismDesignerProps = {
 };
 
 export function FreeMechanismDesigner({ initialTemplateId, loadTransfer = false }: FreeMechanismDesignerProps) {
+  const language = useLanguage();
   const initialTemplate = MECHANISM_TEMPLATES.find((template) => template.id === initialTemplateId);
   const history = useMechanismHistory(initialTemplate?.project ?? DEMO_PROJECT);
   const { project, projectRef, replace, checkpoint, commit, undo, redo, canUndo, canRedo } = history;
@@ -982,7 +985,7 @@ export function FreeMechanismDesigner({ initialTemplateId, loadTransfer = false 
           editableProject: cloneProject(project),
         };
         window.sessionStorage.setItem("open-linkage:designer-transfer", JSON.stringify(returned));
-        window.location.href = "/variable-leg?transfer=designer";
+        window.location.href = withLanguagePath("/variable-leg?transfer=designer", language);
       } else if (response.type === "project-check-result") {
         setMessage(`无法返回：${response.validation.failedModeIds.join("、")}工况未通过整周检查；请应用推荐可行值或撤销本次修改。`);
       } else if (response.type === "error") setMessage(response.message);
@@ -996,7 +999,7 @@ export function FreeMechanismDesigner({ initialTemplateId, loadTransfer = false 
     worker.postMessage({ type: "project-check", requestId, project: cloneVariableLegProject(currentVariableLegProject), baselineProject: cloneVariableLegProject(variableLegTransfer.variableProject) });
   };
 
-  return (
+  return localizeReactTree((
     <main className={styles.workspace}>
       <header className={styles.header}>
         <Link className={styles.brand} href="/"><span className={styles.brandMark} />OpenLinkage</Link>
@@ -1461,5 +1464,5 @@ export function FreeMechanismDesigner({ initialTemplateId, loadTransfer = false 
         </aside>
       </div>
     </main>
-  );
+  ), language);
 }

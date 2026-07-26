@@ -253,16 +253,65 @@
 .healthGood p,.healthWarn p { margin:7px 0 0; line-height:1.55; }
 .healthWarn ul { margin:7px 0 0; padding-left:16px; line-height:1.55; }
 .disclaimer { margin:16px 0 0; color:#777c77; font-size:9px; line-height:1.55; }
-.workflowStepper { margin:0 0 12px; display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:4px; }
-.workflowStepper button { min-width:0; min-height:54px; padding:7px 5px; display:flex; flex-direction:column; align-items:flex-start; gap:3px; border:1px solid #bfc2b9; background:#e8e8e1; color:#555c56; cursor:pointer; text-align:left; }
+.workflowStepper { margin:0 0 12px; display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:4px; }
+.workflowStepper button { min-width:0; min-height:56px; padding:7px 5px; display:flex; flex-direction:column; align-items:flex-start; gap:3px; border:1px solid #bfc2b9; background:#e8e8e1; color:#555c56; cursor:pointer; text-align:left; }
 .workflowStepper button>span { width:20px; height:20px; display:grid; place-items:center; border:1px solid #aeb2a9; border-radius:50%; font:9px "Cascadia Mono",Consolas,monospace; }
-.workflowStepper button>b { max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:8px; }
+.workflowStepper button>b { max-width:100%; font-size:8px; line-height:1.25; }
 .workflowStepper .activeStep { border-color:#111515; background:#111515; color:#c8ff3d; }
 .workflowStepper .activeStep>span { border-color:#c8ff3d; }
+.conditionLanding { min-height:calc(100vh - 66px); padding:clamp(38px,7vh,76px) 24px; display:flex; flex-direction:column; align-items:center; background:radial-gradient(circle at 50% 0%,#f7f7f1 0,#ecece5 58%,#e3e4dc 100%); }
+.conditionLandingIntro { max-width:620px; text-align:center; }
+.conditionLandingIntro>span { color:#737b72; font:9px "Cascadia Mono",Consolas,monospace; letter-spacing:.16em; }
+.conditionLandingIntro h1 { margin:12px 0 10px; font-size:clamp(30px,4vw,48px); letter-spacing:-.04em; }
+.conditionLandingIntro p { margin:0; color:#626a63; font-size:13px; line-height:1.6; }
+.landingConditionGrid { width:min(900px,100%); margin-top:38px; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; }
+.landingConditionCard { min-height:240px; padding:24px; position:relative; display:flex; flex-direction:column; align-items:flex-start; border:1px solid #c4c8bf; background:#f8f8f3; color:#1f2421; cursor:pointer; text-align:left; transition:transform .16s ease,border-color .16s ease,box-shadow .16s ease; }
+.landingConditionCard:hover { transform:translateY(-3px); border-color:#141916; box-shadow:0 15px 34px rgb(42 48 43 / 12%); }
+.landingConditionCard:focus-visible { outline:3px solid #1685a5; outline-offset:3px; }
+.landingConditionCard>i { width:12px; height:12px; margin:34px 0 12px; border-radius:50%; }
+.landingConditionCard>b { font-size:24px; }
+.landingConditionCard>p { margin:10px 0 20px; color:#606861; font-size:11px; line-height:1.55; }
+.landingConditionCard>em { margin-top:auto; color:#303831; font-size:10px; font-style:normal; font-weight:700; }
+.conditionLanding>.restoreConditions { width:auto; margin-top:18px; padding-inline:16px; }
+.conditionLandingHint { margin-top:22px; color:#717871; font-size:9px; }
 .stepPanel { margin-bottom:12px; padding:12px; border:1px solid #c7cac1; background:#e8e8e1; }
 .stepLead { margin:0 0 10px; color:#626962; font-size:9px; line-height:1.5; }
+.stepHeading { margin-bottom:12px; padding-bottom:10px; border-bottom:1px solid #c9cbc3; }
+.stepHeading>span,.startBadge { color:#69715f; font:8px "Cascadia Mono",Consolas,monospace; letter-spacing:.08em; }
+.stepHeading h2,.conditionStart h2 { margin:4px 0 6px; font-size:16px; line-height:1.25; }
+.stepHeading p { margin:0; color:#626962; font-size:9px; line-height:1.5; }
+.conditionStart { padding:14px; background:#edf1e5; border-color:#aebf83; }
+.startBadge { display:inline-flex; padding:4px 6px; background:#111515; color:#c8ff3d; }
+.conditionChoiceList { display:grid; gap:8px; }
+.conditionChoice { border:1px solid #c2c8b7; background:#f8f8f3; transition:border-color .15s ease,box-shadow .15s ease; }
+.conditionChoice.enabledCondition { border-color:#9faf84; }
+.conditionChoice.primaryCondition { border-color:#111515; box-shadow:inset 4px 0 #c8ff3d; }
+.conditionMainAction { width:100%; padding:9px 10px; display:grid; gap:4px; border:0; background:transparent; color:#2b302c; cursor:pointer; text-align:left; }
+.conditionMainAction>span:not(.conditionEyebrow):not(.conditionChoiceTitle) { color:#5e665f; font-size:9px; line-height:1.45; }
+.conditionMainAction>small { color:#717a70; font:8px "Cascadia Mono",Consolas,monospace; }
+.conditionEyebrow { color:#747d72; font:7px "Cascadia Mono",Consolas,monospace; letter-spacing:.12em; }
+.conditionChoiceTitle { display:flex; align-items:center; gap:7px; }
+.conditionChoiceTitle i { width:9px; height:9px; border-radius:50%; }
+.conditionChoiceTitle b { font-size:13px; }
+.conditionChoiceTitle em { margin-left:auto; padding:3px 5px; background:#e5e8df; color:#5c655b; font-size:7px; font-style:normal; }
+.primaryCondition .conditionChoiceTitle em { background:#111515; color:#c8ff3d; }
+.supportingToggle { padding:6px 10px; display:flex; align-items:center; gap:7px; border-top:1px solid #d8dbd3; color:#535b54; font-size:8px; cursor:pointer; }
+.supportingToggle input { accent-color:#111515; }
+.supportingToggle input:disabled { cursor:not-allowed; }
+.restoreConditions { width:100%; margin-top:9px; padding:8px; border:1px dashed #9eaa8d; background:transparent; color:#515c4d; cursor:pointer; font-size:8px; }
+.selectionSummary { margin-top:10px; padding:10px; display:grid; grid-template-columns:1fr auto; gap:3px 8px; background:#111515; color:#f1f2ec; }
+.selectionSummary span { color:#aeb6ad; font-size:8px; }
+.selectionSummary b { grid-row:1/3; grid-column:2; align-self:center; color:#c8ff3d; font-size:12px; }
+.selectionSummary small { color:#c9cec7; font-size:8px; }
 .conditionToolbar,.requirementHeader,.sourceChoice,.refinementHeader,.candidateActions,.versionHeader { display:flex; align-items:center; justify-content:space-between; gap:8px; }
 .conditionToolbar { margin-bottom:8px; }
+.supportingConditionPicker { margin-bottom:12px; padding:10px; border:1px solid #c6c9c0; background:#f3f3ed; }
+.supportingConditionPicker>b { font-size:9px; }
+.supportingConditionPicker>div { margin:8px 0 6px; display:flex; flex-wrap:wrap; gap:6px; }
+.supportingConditionPicker label { padding:6px 8px; display:flex; align-items:center; gap:5px; border:1px solid #c5c8bf; background:#fff; color:#5b635c; cursor:pointer; font-size:8px; }
+.supportingConditionPicker .supportingConditionActive { border-color:#111515; background:#111515; color:#c8ff3d; }
+.supportingConditionPicker input { margin:0; accent-color:#8dbd24; }
+.supportingConditionPicker>small { color:#747b74; font-size:8px; }
 .conditionToolbar button,.requirementHeader button,.candidateActions button,.versionList button { padding:6px 8px; border:1px solid #b9bdb4; background:#f4f3ed; cursor:pointer; font-size:8px; }
 .requirementHeader button { color:inherit; text-align:left; text-decoration:none; }
 .requirementList { display:grid; gap:7px; }
@@ -273,7 +322,18 @@
 .requirementIdentity i { width:8px; height:8px; border-radius:50%; }
 .requirementIdentity b { font-size:10px; }
 .requirementIdentity small { display:block; margin-top:2px; color:#717871; font-size:7px; }
-.requirementRole { padding:4px 6px; border:1px solid #b9bdb4; background:#fff; font-size:8px; }
+.requirementRole { padding:4px 6px; display:flex; align-items:center; gap:5px; border:1px solid #b9bdb4; background:#fff; font-size:8px; }
+.requirementRole input { width:48px; padding:4px; border:1px solid #c3c6bd; font:9px "Cascadia Mono",Consolas,monospace; }
+.conditionNameField { margin-bottom:8px; display:grid; grid-template-columns:auto minmax(0,1fr); align-items:center; gap:8px; color:#626962; font-size:8px; }
+.conditionNameField input { min-width:0; width:100%; padding:6px; border:1px solid #c3c6bd; background:#fff; font:9px "Cascadia Mono",Consolas,monospace; }
+.rpmField { display:flex; align-items:center; gap:4px; color:#626962; font-size:8px; }
+.rpmField input { width:54px; padding:5px; border:1px solid #c3c6bd; background:#fff; font:9px "Cascadia Mono",Consolas,monospace; }
+.rpmField span { color:#747b74; font-size:7px; }
+.targetGrid { display:grid; grid-template-columns:1fr 1fr; gap:7px; }
+.targetGrid>label { padding:9px; display:grid; grid-template-columns:1fr 74px; align-items:center; gap:8px; border:1px solid #d0d2ca; background:#faf9f4; }
+.targetGrid>label>span { display:flex; flex-direction:column; gap:2px; color:#4d554f; font-size:9px; }
+.targetGrid>label small { color:#7a807a; font-size:7px; }
+.targetGrid input { min-width:0; width:100%; padding:7px; border:1px solid #c3c6bd; background:#fff; font:10px "Cascadia Mono",Consolas,monospace; text-align:right; }
 .constraintGrid { display:grid; grid-template-columns:1fr; gap:6px; }
 .constraintItem { min-width:0; padding:7px; display:grid; gap:5px; border:1px solid #d0d2ca; background:#faf9f4; }
 .constraintItem>span { display:flex; align-items:center; justify-content:space-between; gap:4px; color:#626962; font-size:8px; }
@@ -285,6 +345,16 @@
 .statusFail { background:#f0d5c8; color:#772f20; }
 .advancedDisclosure { margin-top:8px; }
 .advancedDisclosure>summary { padding:8px 0; cursor:pointer; color:#4e554f; font-size:9px; font-weight:650; }
+.advancedConstraintList { display:grid; gap:6px; }
+.advancedConstraintItem { padding:7px; display:grid; grid-template-columns:minmax(74px,1fr) repeat(3,minmax(0,.85fr)); gap:5px; align-items:end; border:1px solid #d0d2ca; background:#faf9f4; }
+.advancedConstraintItem>span { display:flex; align-items:center; justify-content:space-between; gap:4px; align-self:center; font-size:8px; }
+.advancedConstraintItem label { display:grid; gap:3px; color:#707770; font-size:7px; }
+.advancedConstraintItem input,.advancedConstraintItem select { min-width:0; width:100%; padding:5px; border:1px solid #c3c6bd; background:#fff; font:8px "Cascadia Mono",Consolas,monospace; }
+.advancedConstraintItem>small { grid-column:1/-1; color:#777e77; font-size:7px; }
+.advancedConditionMeta { margin-top:8px; padding-top:8px; display:grid; gap:7px; border-top:1px solid #d0d2ca; }
+.advancedConditionMeta .conditionNameField { margin:0; }
+.advancedConditionMeta .requirementRole { justify-content:space-between; }
+.advancedConditionMeta>button { padding:7px; border:1px solid #b9bdb4; background:#f4f3ed; cursor:pointer; font-size:8px; }
 .sourceChoice { margin:8px 0; align-items:stretch; }
 .sourceChoice label { flex:1; padding:8px; display:flex; gap:6px; align-items:flex-start; border:1px solid #c1c5bb; background:#f4f3ed; color:#4f5650; font-size:8px; line-height:1.4; cursor:pointer; }
 .sourceChoice input { margin:1px 0 0; accent-color:#111515; }
@@ -316,6 +386,15 @@
 .versionItem span { min-width:0; display:flex; flex-direction:column; gap:2px; }
 .versionItem b { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:9px; }
 .versionItem small { color:#737973; font:7px "Cascadia Mono",Consolas,monospace; }
+.lockValueHeader { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+.lockValueHeader>span { display:flex; align-items:center; gap:7px; }
+.lockValueHeader>span i { width:9px; height:9px; border-radius:50%; }
+.lockValueHeader>span b { font-size:11px; }
+.lockValueHeader label { display:flex; align-items:center; gap:6px; color:#606660; font-size:9px; }
+.lockValueHeader input { width:82px; padding:6px; }
+.stepNavigation { margin-top:14px; padding-top:12px; display:flex; align-items:center; justify-content:space-between; gap:8px; border-top:1px solid #ced0c7; }
+.stepNavigation button { min-height:38px; padding:8px 10px; border:1px solid #bfc2b9; background:#e8e8e1; color:#4d544e; cursor:pointer; font-size:9px; }
+.stepNavigation .nextStepButton { margin-left:auto; border-color:#111515; background:#111515; color:#c8ff3d; font-weight:700; }
 .resultDrawerButton { display:none; }
 .analysisPanel .panelTitle>button { display:none; }
 .srOnly { width:1px; height:1px; padding:0; position:absolute; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
@@ -332,10 +411,17 @@
 @media(max-width:899px){
   .layout { grid-template-columns:300px minmax(0,1fr); }
   .workflowStepper { grid-template-columns:1fr 1fr; }
+  .landingConditionGrid { max-width:560px; grid-template-columns:1fr; }
+  .landingConditionCard { min-height:150px; }
+  .landingConditionCard>i { margin:18px 0 8px; }
   .analysisPanel { width:min(460px,100vw); }
 }
 @media(max-width:780px){
   .header nav a:nth-child(-n+3),.header nav span { display:none; }
+  .conditionLanding { min-height:calc(100vh - 66px); padding:32px 16px; }
+  .conditionLandingIntro { text-align:left; }
+  .landingConditionGrid { margin-top:24px; }
+  .conditionLandingHint { text-align:center; }
   .layout { display:block; }
   .panel { max-height:none; border:0; border-bottom:1px solid #c5c6be; }
   .analysisPanel { max-height:none; position:fixed; top:66px; bottom:0; overflow-y:auto; border-left:0; }
@@ -345,6 +431,9 @@
   .candidateList,.modeSummary { display:block; }
   .transport { flex-wrap:wrap; }
   .modeTabs { grid-template-columns:repeat(2,1fr); }
+  .targetGrid { grid-template-columns:1fr; }
+  .advancedConstraintItem { grid-template-columns:1fr 1fr 1fr; }
+  .advancedConstraintItem>span { grid-column:1/-1; }
   .constraintGrid,.unlockList { grid-template-columns:1fr; }
   .previewBanner { flex-wrap:wrap; }
 }

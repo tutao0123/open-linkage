@@ -10,6 +10,7 @@ type MechanismLayout = {
   input: Point;
   coupler: Point;
   output: Point;
+  secondary: Point;
   traceAnchor: Point;
   trace: Point;
   phase: number;
@@ -17,11 +18,15 @@ type MechanismLayout = {
 
 const groundA = { x: 126, y: 310 };
 const groundB = { x: 492, y: 310 };
+const groundC = { x: 610, y: 310 };
 const initialInput = { x: 230, y: 190 };
 const initialOutput = { x: 438, y: 150 };
+const initialSecondary = { x: 560, y: 95 };
 const crankLength = Math.hypot(initialInput.x - groundA.x, initialInput.y - groundA.y);
 const couplerLength = Math.hypot(initialOutput.x - initialInput.x, initialOutput.y - initialInput.y);
 const rockerLength = Math.hypot(groundB.x - initialOutput.x, groundB.y - initialOutput.y);
+const secondaryCouplerLength = Math.hypot(initialSecondary.x - initialOutput.x, initialSecondary.y - initialOutput.y);
+const secondaryRockerLength = Math.hypot(groundC.x - initialSecondary.x, groundC.y - initialSecondary.y);
 const initialPhase = Math.atan2(initialInput.y - groundA.y, initialInput.x - groundA.x);
 const groundLength = Math.hypot(groundB.x - groundA.x, groundB.y - groundA.y);
 const phaseLimit = Math.acos(
@@ -37,19 +42,21 @@ const phaseLimit = Math.acos(
 const motionMinPhase = -phaseLimit + 0.015;
 const motionMaxPhase = phaseLimit - 0.015;
 
-function solveLayout(phase: number): MechanismLayout {
-  const input = {
-    x: groundA.x + crankLength * Math.cos(phase),
-    y: groundA.y + crankLength * Math.sin(phase),
-  };
-  const dx = groundB.x - input.x;
-  const dy = groundB.y - input.y;
-  const distance = Math.hypot(dx, dy);
-  const baseDistance = (couplerLength ** 2 - rockerLength ** 2 + distance ** 2) / (2 * distance);
-  const height = Math.sqrt(Math.max(0, couplerLength ** 2 - baseDistance ** 2));
+function solveCirclePair(
+  centerA: Point,
+  radiusA: number,
+  centerB: Point,
+  radiusB: number,
+  preferred: Point,
+) {
+  const dx = centerB.x - centerA.x;
+  const dy = centerB.y - centerA.y;
+  const distance = Math.max(Math.hypot(dx, dy), Number.EPSILON);
+  const baseDistance = (radiusA ** 2 - radiusB ** 2 + distance ** 2) / (2 * distance);
+  const height = Math.sqrt(Math.max(0, radiusA ** 2 - baseDistance ** 2));
   const base = {
-    x: input.x + (baseDistance * dx) / distance,
-    y: input.y + (baseDistance * dy) / distance,
+    x: centerA.x + (baseDistance * dx) / distance,
+    y: centerA.y + (baseDistance * dy) / distance,
   };
   const perpendicular = { x: -dy / distance, y: dx / distance };
   const upper = {
@@ -60,20 +67,31 @@ function solveLayout(phase: number): MechanismLayout {
     x: base.x + height * perpendicular.x,
     y: base.y + height * perpendicular.y,
   };
-  const output = upper.y < lower.y ? upper : lower;
-  const couplerVector = { x: output.x - input.x, y: output.y - input.y };
-  const couplerDistance = Math.hypot(couplerVector.x, couplerVector.y);
-  const normal = { x: -couplerVector.y / couplerDistance, y: couplerVector.x / couplerDistance };
+  return Math.hypot(upper.x - preferred.x, upper.y - preferred.y) <= Math.hypot(lower.x - preferred.x, lower.y - preferred.y)
+    ? upper
+    : lower;
+}
+
+function solveLayout(phase: number): MechanismLayout {
+  const input = {
+    x: groundA.x + crankLength * Math.cos(phase),
+    y: groundA.y + crankLength * Math.sin(phase),
+  };
+  const coupler = solveCirclePair(input, couplerLength, groundB, rockerLength, initialOutput);
+  const secondary = solveCirclePair(coupler, secondaryCouplerLength, groundC, secondaryRockerLength, initialSecondary);
+  const secondaryVector = { x: secondary.x - coupler.x, y: secondary.y - coupler.y };
+  const secondaryDistance = Math.hypot(secondaryVector.x, secondaryVector.y);
+  const normal = { x: -secondaryVector.y / secondaryDistance, y: secondaryVector.x / secondaryDistance };
   const traceAnchor = {
-    x: input.x + couplerVector.x * 0.65,
-    y: input.y + couplerVector.y * 0.65,
+    x: coupler.x + secondaryVector.x * 0.62,
+    y: coupler.y + secondaryVector.y * 0.62,
   };
   const trace = {
-    x: traceAnchor.x + normal.x * 98,
-    y: traceAnchor.y + normal.y * 98,
+    x: traceAnchor.x + normal.x * 75,
+    y: traceAnchor.y + normal.y * 75,
   };
 
-  return { input, coupler: output, output: groundB, traceAnchor, trace, phase };
+  return { input, coupler, output: groundB, secondary, traceAnchor, trace, phase };
 }
 
 const initialLayout = solveLayout(initialPhase);
@@ -89,6 +107,7 @@ function buildMotionPath(selectPoint: (layout: MechanismLayout) => Point) {
 
 const trajectoryPath = buildMotionPath((layout) => layout.trace);
 const couplerTrajectoryPath = buildMotionPath((layout) => layout.coupler);
+const secondaryTrajectoryPath = buildMotionPath((layout) => layout.secondary);
 const driveSweepPath = (() => {
   const start = {
     x: groundA.x + crankLength * Math.cos(motionMinPhase),
@@ -131,37 +150,44 @@ export function MechanismPreview({ language }: { language: Language }) {
 
   const labels = language === "zh"
     ? { card: "平面连杆机构概念示意", image: "运动中的四杆机构" }
-    : { card: "Conceptual diagram of planar linkage mechanism", image: "Four-bar mechanism in motion" };
+    : { card: "Conceptual diagram of a double-loop six-bar mechanism", image: "Animated double-loop six-bar mechanism" };
 
   return (
     <div className="mechanism-card" aria-label={labels.card}>
-      <div className="card-head"><span>LINKAGE / LIVE PREVIEW</span><span>θ {degrees(layout.phase).toFixed(1)}°</span></div>
+      <div className="card-head"><span>LINKAGE / SIX-BAR PREVIEW</span><span>θ {degrees(layout.phase).toFixed(1)}°</span></div>
       <svg viewBox="-60 40 720 500" role="img" aria-label={labels.image}>
         <path className="drive-sweep" d={driveSweepPath} />
         <path className="coupler-trajectory" d={couplerTrajectoryPath} />
+        <path className="secondary-trajectory" d={secondaryTrajectoryPath} />
         <path className="trajectory" d={trajectoryPath} />
         <line className="ground" x1={groundA.x} y1={groundA.y} x2={groundB.x} y2={groundB.y} />
+        <line className="ground secondary-ground" x1={groundB.x} y1={groundB.y} x2={groundC.x} y2={groundC.y} />
         <line className="link link-a" x1={groundA.x} y1={groundA.y} x2={layout.input.x} y2={layout.input.y} />
         <line className="link link-b" x1={layout.input.x} y1={layout.input.y} x2={layout.coupler.x} y2={layout.coupler.y} />
         <line className="link link-c" x1={layout.coupler.x} y1={layout.coupler.y} x2={layout.output.x} y2={layout.output.y} />
-        <line className="coupler" x1={layout.input.x} y1={layout.input.y} x2={layout.trace.x} y2={layout.trace.y} />
-        <line className="coupler-offset" x1={layout.coupler.x} y1={layout.coupler.y} x2={layout.trace.x} y2={layout.trace.y} />
+        <line className="link link-d" x1={layout.coupler.x} y1={layout.coupler.y} x2={layout.secondary.x} y2={layout.secondary.y} />
+        <line className="link link-e" x1={layout.secondary.x} y1={layout.secondary.y} x2={groundC.x} y2={groundC.y} />
+        <line className="coupler" x1={layout.coupler.x} y1={layout.coupler.y} x2={layout.trace.x} y2={layout.trace.y} />
+        <line className="coupler-offset" x1={layout.secondary.x} y1={layout.secondary.y} x2={layout.trace.x} y2={layout.trace.y} />
         <circle className="trace-anchor" cx={layout.traceAnchor.x} cy={layout.traceAnchor.y} r="4" />
-        {[groundA, layout.input, layout.coupler, groundB].map((point, index) => (
+        {[groundA, layout.input, layout.coupler, groundB, layout.secondary, groundC].map((point, index) => (
           <g key={`${index}-${point.x.toFixed(2)}`}>
             <circle className="joint-ring" cx={point.x} cy={point.y} r="13" />
             <circle className="joint" cx={point.x} cy={point.y} r="5" />
           </g>
         ))}
         <g className="joint-labels" aria-hidden="true">
-          <text x={groundA.x - 28} y={groundA.y + 28}>J1</text>
+          <text x={groundA.x - 28} y={groundA.y + 28}>A</text>
           <text x={layout.input.x - 24} y={layout.input.y - 20}>J2</text>
           <text x={layout.coupler.x + 14} y={layout.coupler.y - 16}>J3</text>
+          <text x={groundB.x + 14} y={groundB.y + 28}>B</text>
+          <text x={layout.secondary.x + 14} y={layout.secondary.y - 16}>J5</text>
+          <text x={groundC.x + 12} y={groundC.y + 28}>C</text>
           <text x={layout.trace.x + 12} y={layout.trace.y - 12}>P</text>
         </g>
         <circle className="trace-point" cx={layout.trace.x} cy={layout.trace.y} r="7" />
       </svg>
-      <div className="card-stats"><span>PLANE <b>XY</b></span><span>LINKS <b>4</b></span><span>TRACE <b>P</b></span><span>SOLVER <b>READY</b></span></div>
+      <div className="card-stats"><span>PLANE <b>XY</b></span><span>LINKS <b>6</b></span><span>LOOPS <b>2</b></span><span>TRACE <b>P</b></span><span>SOLVER <b>READY</b></span></div>
     </div>
   );
 }

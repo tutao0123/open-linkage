@@ -32,10 +32,14 @@ a { color:inherit; text-decoration:none; }
 .mechanism-card svg { width:100%; height:auto; overflow:visible; }
 .mechanism-card .trajectory { fill:none; stroke:#667169; stroke-width:2; stroke-dasharray:5 7; }
 .mechanism-card .coupler-trajectory { fill:none; stroke:#46524b; stroke-width:1.5; stroke-dasharray:3 8; opacity:.9; }
+.mechanism-card .secondary-trajectory { fill:none; stroke:#829076; stroke-width:1.25; stroke-dasharray:2 8; opacity:.75; }
 .mechanism-card .drive-sweep { fill:none; stroke:#56625a; stroke-width:1.5; stroke-dasharray:2 8; opacity:.9; }
 .mechanism-card .ground { stroke:#8c968e; stroke-width:5; }
+.mechanism-card .secondary-ground { stroke:#69766d; stroke-width:4; }
 .mechanism-card .link { stroke:#f1f2eb; stroke-width:17; stroke-linecap:round; }
 .mechanism-card .link-b { stroke:var(--acid); }
+.mechanism-card .link-d { stroke:#d8e1d1; }
+.mechanism-card .link-e { stroke:#b9c8b0; }
 .mechanism-card .coupler { stroke:#899188; stroke-width:5; }
 .mechanism-card .coupler-offset { stroke:#667169; stroke-width:3; stroke-dasharray:4 5; }
 .mechanism-card .trace-anchor { fill:#111515; stroke:#899188; stroke-width:2; }

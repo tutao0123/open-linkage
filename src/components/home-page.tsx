@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { MechanismPreview } from "@/components/mechanism-preview";
 import { localizeReactTree, type Language } from "@/lib/i18n";
 
 const workbenches = [
@@ -75,21 +76,7 @@ export function HomePage({ language }: { language: Language }) {
           </div>
         </div>
 
-        <div className="mechanism-card" aria-label="平面连杆机构概念示意">
-          <div className="card-head"><span>LINKAGE / LIVE PREVIEW</span><span>θ 38.4°</span></div>
-          <svg viewBox="0 0 620 420" role="img" aria-label="运动中的四杆机构">
-            <path className="trajectory" d="M120 259 C196 135 364 99 505 178 C559 209 555 269 485 302 C348 366 181 341 120 259Z" />
-            <line className="ground" x1="95" y1="310" x2="520" y2="310" />
-            <line className="link link-a" x1="126" y1="310" x2="230" y2="190" />
-            <line className="link link-b" x1="230" y1="190" x2="438" y2="150" />
-            <line className="link link-c" x1="438" y1="150" x2="492" y2="310" />
-            <line className="coupler" x1="230" y1="190" x2="365" y2="263" />
-            {[[126, 310], [230, 190], [438, 150], [492, 310], [365, 263]].map(([x, y]) => (
-              <g key={`${x}-${y}`}><circle className="joint-ring" cx={x} cy={y} r="13" /><circle className="joint" cx={x} cy={y} r="5" /></g>
-            ))}
-          </svg>
-          <div className="card-stats"><span>PLANE <b>XY</b></span><span>DOF <b>1</b></span><span>SOLVER <b>READY</b></span></div>
-        </div>
+        <MechanismPreview language={language} />
       </section>
 
       <section className="workbenches" id="workbenches">

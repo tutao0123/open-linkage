@@ -95,6 +95,14 @@ export function MechanismPreview({ language }: { language: Language }) {
     if (first.side === second.side) return first.station - second.station;
     return first.side === "right" ? -1 : 1;
   });
+  const skeleton = {
+    spineY: chassis.y + chassis.height * 0.48,
+    rearX: chassis.x + 48,
+    frontX: chassis.x + chassis.width - 54,
+    neckX: chassis.x + chassis.width - 22,
+    headY: chassis.y + 6,
+    tailX: chassis.x + 8,
+  };
 
   const labels = language === "zh"
     ? {
@@ -133,7 +141,20 @@ export function MechanismPreview({ language }: { language: Language }) {
         <g className="walking-chassis">
           <rect x={chassis.x} y={chassis.y} width={chassis.width} height={chassis.height} rx="14" />
           <line x1={chassis.x + 30} y1={chassis.y + chassis.height / 2} x2={chassis.x + chassis.width - 30} y2={chassis.y + chassis.height / 2} />
-          <text x={chassis.x + chassis.width / 2} y={chassis.y + 25}>OPENLINKAGE / 4-LEG WALK</text>
+          <text x={chassis.x + chassis.width / 2} y={chassis.y + 25}>OPENLINKAGE / QUADRUPED RIG</text>
+        </g>
+        <g className="walking-animal-skeleton" aria-hidden="true">
+          <line className="walking-skeleton-spine" x1={skeleton.rearX} y1={skeleton.spineY} x2={skeleton.frontX} y2={skeleton.spineY} />
+          <line className="walking-skeleton-rod" x1={skeleton.frontX} y1={skeleton.spineY} x2={skeleton.neckX} y2={skeleton.headY + 12} />
+          <line className="walking-skeleton-rod" x1={skeleton.neckX} y1={skeleton.headY + 12} x2={skeleton.neckX + 30} y2={skeleton.headY + 12} />
+          <line className="walking-skeleton-rod" x1={skeleton.neckX + 30} y1={skeleton.headY + 12} x2={skeleton.neckX + 40} y2={skeleton.headY + 20} />
+          <line className="walking-skeleton-rod" x1={skeleton.rearX} y1={skeleton.spineY} x2={skeleton.tailX - 30} y2={skeleton.spineY - 16} />
+          <line className="walking-skeleton-rod" x1={skeleton.tailX - 30} y1={skeleton.spineY - 16} x2={skeleton.tailX - 48} y2={skeleton.spineY - 6} />
+          <line className="walking-skeleton-rib" x1={skeleton.rearX + 50} y1={skeleton.spineY} x2={skeleton.rearX + 42} y2={skeleton.spineY + 22} />
+          <line className="walking-skeleton-rib" x1={skeleton.frontX - 42} y1={skeleton.spineY} x2={skeleton.frontX - 34} y2={skeleton.spineY + 22} />
+          <circle className="walking-skeleton-joint" cx={skeleton.rearX} cy={skeleton.spineY} r="5" />
+          <circle className="walking-skeleton-joint" cx={skeleton.frontX} cy={skeleton.spineY} r="5" />
+          <circle className="walking-skeleton-head" cx={skeleton.neckX + 16} cy={skeleton.headY + 12} r="11" />
         </g>
         {orderedLegs.map((leg) => {
           const sample = samples[variableLegSampleIndex(phase, leg.phaseOffset, samples.length)];

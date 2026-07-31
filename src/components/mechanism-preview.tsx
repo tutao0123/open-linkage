@@ -117,7 +117,7 @@ export function MechanismPreview({ language }: { language: Language }) {
     };
 
   return (
-    <div className="mechanism-card" aria-label={labels.card}>
+    <div className="mechanism-card walking-preview-card" aria-label={labels.card}>
       <div className="card-head">
         <span>LINKAGE / 4-LEG WALK</span>
         <span>θ {degrees(phase).toFixed(1)}°</span>

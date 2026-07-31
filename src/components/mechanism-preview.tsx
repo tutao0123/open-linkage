@@ -22,6 +22,19 @@ const crankLength = Math.hypot(initialInput.x - groundA.x, initialInput.y - grou
 const couplerLength = Math.hypot(initialOutput.x - initialInput.x, initialOutput.y - initialInput.y);
 const rockerLength = Math.hypot(groundB.x - initialOutput.x, groundB.y - initialOutput.y);
 const initialPhase = Math.atan2(initialInput.y - groundA.y, initialInput.x - groundA.x);
+const groundLength = Math.hypot(groundB.x - groundA.x, groundB.y - groundA.y);
+const phaseLimit = Math.acos(
+  Math.max(
+    -1,
+    Math.min(
+      1,
+      (groundLength ** 2 + crankLength ** 2 - (couplerLength + rockerLength) ** 2) /
+        (2 * groundLength * crankLength),
+    ),
+  ),
+);
+const motionMinPhase = -phaseLimit + 0.015;
+const motionMaxPhase = phaseLimit - 0.015;
 
 function solveLayout(phase: number): MechanismLayout {
   const input = {
@@ -60,6 +73,17 @@ function solveLayout(phase: number): MechanismLayout {
 
 const initialLayout = solveLayout(initialPhase);
 
+function buildTrajectoryPath() {
+  const samples = 96;
+  return Array.from({ length: samples + 1 }, (_, index) => {
+    const phase = motionMinPhase + ((motionMaxPhase - motionMinPhase) * index) / samples;
+    const point = solveLayout(phase).trace;
+    return `${index === 0 ? "M" : "L"} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`;
+  }).join(" ");
+}
+
+const trajectoryPath = buildTrajectoryPath();
+
 function degrees(radians: number) {
   return ((radians * 180) / Math.PI + 360) % 360;
 }
@@ -72,8 +96,15 @@ export function MechanismPreview({ language }: { language: Language }) {
 
     let frame = 0;
     const startedAt = performance.now();
+    const motionSpan = motionMaxPhase - motionMinPhase;
+    const cycleSpan = motionSpan * 2;
+    const motionRate = 0.48;
+    const startingProgress = initialPhase - motionMinPhase;
     const animate = (now: number) => {
-      const phase = initialPhase + ((now - startedAt) / 1000) * 0.72;
+      const progress = (startingProgress + ((now - startedAt) / 1000) * motionRate) % cycleSpan;
+      const phase = progress <= motionSpan
+        ? motionMinPhase + progress
+        : motionMaxPhase - (progress - motionSpan);
       setLayout(solveLayout(phase));
       frame = window.requestAnimationFrame(animate);
     };
@@ -89,7 +120,7 @@ export function MechanismPreview({ language }: { language: Language }) {
     <div className="mechanism-card" aria-label={labels.card}>
       <div className="card-head"><span>LINKAGE / LIVE PREVIEW</span><span>θ {degrees(layout.phase).toFixed(1)}°</span></div>
       <svg viewBox="-60 40 720 500" role="img" aria-label={labels.image}>
-        <path className="trajectory" d="M120 259 C196 135 364 99 505 178 C559 209 555 269 485 302 C348 366 181 341 120 259Z" />
+        <path className="trajectory" d={trajectoryPath} />
         <line className="ground" x1={groundA.x} y1={groundA.y} x2={groundB.x} y2={groundB.y} />
         <line className="link link-a" x1={groundA.x} y1={groundA.y} x2={layout.input.x} y2={layout.input.y} />
         <line className="link link-b" x1={layout.input.x} y1={layout.input.y} x2={layout.coupler.x} y2={layout.coupler.y} />

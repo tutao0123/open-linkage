@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  VARIABLE_LEG_SOLVER_PROFILES,
   advanceVariableLegProjectRevision,
   analyzeVariableLegBarSamples,
+  analyzeVariableLegMode,
   analyzeVariableLegProject,
   assessGuidedHardGate,
   assessVariableLegCandidate,
@@ -13,6 +15,7 @@ import {
   cloneVariableLegProject,
   createVariableLegDesignerTransfer,
   createDefaultAdjustment,
+  createSelfConsistentConditionRequirements,
   createDefaultVariableLegProject,
   createGuidedDesignRequest,
   evaluateVariableLegConstraints,
@@ -21,6 +24,7 @@ import {
   isVariableLegProject,
   materializeVariableLegMode,
   measureGaitClearance,
+  measurePathGroundSupportRatio,
   migrateVariableLegProject,
   restoreVariableLegStandardModes,
   previewVariableLegEditableParameter,
@@ -77,15 +81,51 @@ describe("variable geometry walking leg", () => {
     expect(assessVariableLegCandidate(broken, project.modes).level).toBe("continuous");
   });
 
-  it.each(["klann", "jansen"] as const)("keeps three offline %s guided baseline seeds", (topology) => {
+  it("records the real runtime and strict gate status of every legacy offline seed", () => {
+    const expectedGateStatus = {
+      "klann:cruise": { runtime: false, strict: true },
+      "klann:sprint": { runtime: false, strict: true },
+      "klann:obstacle": { runtime: false, strict: false },
+      "jansen:cruise": { runtime: true, strict: true },
+      "jansen:sprint": { runtime: false, strict: false },
+      "jansen:obstacle": { runtime: true, strict: true },
+    } as const;
     expect(guidedSafeBaselineMetadata().seedCount).toBe(6);
-    for (const scenario of ["cruise", "sprint", "obstacle"] as const) {
-      const baseline = createGuidedSafeBaseline(topology, scenario);
-      const gate = assessGuidedHardGate(analyzeVariableLegProject(baseline, 72, 90).metrics, scenario);
-      expect(gate.modeId).toBe(scenario);
-      expect(Number.isFinite(gate.validRatio)).toBe(true);
-      expect(baseline.activeModeId).toBe(scenario);
+    for (const topology of ["klann", "jansen"] as const) {
+      for (const scenario of ["cruise", "sprint", "obstacle"] as const) {
+        const baseline = createGuidedSafeBaseline(topology, scenario);
+        const mode = baseline.modes.find((item) => item.id === scenario)!;
+        for (const profileName of ["runtime", "strict"] as const) {
+          const profile = VARIABLE_LEG_SOLVER_PROFILES[profileName];
+          const metric = analyzeVariableLegMode(
+            baseline.baseProject,
+            baseline.adjustment,
+            mode,
+            profile.phaseSamples,
+            profile.iterations,
+          );
+          const gate = assessGuidedHardGate([metric], scenario);
+          expect(gate.modeId).toBe(scenario);
+          expect(Number.isFinite(gate.validRatio)).toBe(true);
+          expect(gate.passed).toBe(expectedGateStatus[`${topology}:${scenario}`][profileName]);
+          expect(gate.issues.length === 0).toBe(gate.passed);
+        }
+        expect(baseline.activeModeId).toBe(scenario);
+      }
     }
+  });
+
+  it("keeps runtime and strict solver profiles explicit", () => {
+    expect(VARIABLE_LEG_SOLVER_PROFILES.runtime).toEqual({ phaseSamples: 72, iterations: 90 });
+    expect(VARIABLE_LEG_SOLVER_PROFILES.strict).toEqual({ phaseSamples: 144, iterations: 200 });
+  });
+
+  it("measures stance ratio from the actual near-ground path", () => {
+    const path = Array.from({ length: 10 }, (_, index) => ({
+      x: index,
+      y: index < 6 ? 10 : 0,
+    }));
+    expect(measurePathGroundSupportRatio(path)).toBeCloseTo(0.6, 8);
   });
 
   it("keeps a moving pivot locked throughout the cycle", () => {
@@ -211,6 +251,37 @@ describe("variable geometry walking leg", () => {
     const fixedInputLandingSpeed = analyzeVariableLegProject(project, 18, 50).metrics
       .find((metric) => metric.modeId === primary.modeId)!.landingVerticalSpeed;
     expect(fixedInputLandingSpeed).toBeCloseTo(baselineLandingSpeed, 8);
+  });
+
+  it("builds self-consistent requirements from measured paths and keeps the primary enabled", () => {
+    const project = createDefaultVariableLegProject();
+    project.activeModeId = "obstacle";
+    const profile = VARIABLE_LEG_SOLVER_PROFILES.runtime;
+    const metrics = analyzeVariableLegProject(
+      project,
+      profile.phaseSamples,
+      profile.iterations,
+    ).metrics;
+    const requirements = createSelfConsistentConditionRequirements(
+      project.modes,
+      metrics,
+      project.activeModeId,
+      ["cruise"],
+    );
+    const primary = requirements.find((requirement) => requirement.role === "primary")!;
+    expect(primary.modeId).toBe(project.activeModeId);
+    expect(primary.enabled).toBe(true);
+    expect(requirements.find((requirement) => requirement.modeId === "cruise")?.enabled).toBe(true);
+    expect(requirements.find((requirement) => requirement.modeId === "sprint")?.enabled).toBe(false);
+    for (const requirement of requirements) {
+      const metric = metrics.find((item) => item.modeId === requirement.modeId)!;
+      expect(requirement.constraints.stepLength.target).toBeCloseTo(metric.stepLength, 8);
+      expect(requirement.constraints.stanceRatio.target).toBeCloseTo(metric.stanceRatio, 8);
+    }
+    const evaluation = evaluateVariableLegConstraints(metrics, requirements);
+    expect(evaluation.conditions.every((condition) => (
+      Object.values(condition.metrics).every((metric) => metric.passed)
+    ))).toBe(true);
   });
 
   it("treats landing speed by hard-soft level while safety gates stay hard for every enabled mode", () => {
@@ -492,7 +563,7 @@ describe("variable geometry walking leg", () => {
     project.deployment.mountSpan = 515;
     const request = createGuidedDesignRequest(project, "cruise");
     const preflight = preflightGuidedDesign(project, request);
-    expect(["current", "safe-baseline"]).toContain(preflight.source);
+    expect(["current", "offline-seed"]).toContain(preflight.source);
     const result = await synthesizeVariableLegGuidedDesign(project, request);
     expect(result.candidates.length).toBeLessThanOrEqual(3);
     expect(result.candidates.every((candidate) => candidate.topology === project.topology)).toBe(true);

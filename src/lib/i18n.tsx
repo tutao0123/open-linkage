@@ -149,6 +149,90 @@ const EN_OVERRIDES: Record<string, string> = {
   "机构与调节": "Mechanism & Adjustment",
   "生成比较": "Generate & Compare",
   "精修与定版": "Refine & Finalize",
+  "先让它走起来": "Start by Making It Walk",
+  "重新开始": "Start Over",
+  "暂停": "Pause",
+  "这个示例已经可以走": "This Example Is Ready to Walk",
+  "播放看看，也可以表达你想要的步子、抬脚和速度。拖动后会匹配最接近的已验证走法，并始终保留上一个可走参考。":
+    "Press play, or describe the step, clearance, and speed you want. The controls match the nearest verified gait while keeping the last working reference.",
+  "选择一种走法": "Choose a Gait",
+  "走法参考预设": "Verified Gait Presets",
+  "平稳走": "Smooth",
+  "快速走": "Quick",
+  "高抬脚": "High Step",
+  "步幅适中，先观察连续、稳定的足端运动。":
+    "A moderate stride for observing smooth, continuous foot motion.",
+  "提高节奏，用更快的完整周期观察运动。":
+    "A faster cadence that remains continuous over the full cycle.",
+  "增加摆动离地高度，更容易看清抬脚过程。":
+    "More swing clearance, making the lifting motion easier to see.",
+  "想走多远": "Desired Step",
+  "匹配最接近的已验证步幅": "Matches the nearest verified step length",
+  "想抬多高": "Desired Clearance",
+  "匹配最接近的已验证离地高度": "Matches the nearest verified foot clearance",
+  "想走多快": "Desired Speed",
+  "匹配最接近的已验证主轴速度": "Matches the nearest verified crank speed",
+  "mm 期望": "mm target",
+  "rpm 期望": "rpm target",
+  "步子大小": "Step Length",
+  "抬脚高度": "Foot Clearance",
+  "行走速度": "Walking Speed",
+  "可走参考已匹配": "Verified Reference Matched",
+  "继续使用上一个参考": "Keeping the Last Working Reference",
+  "按这个效果继续": "Continue with This Gait",
+  "我有明确目标": "I Have Specific Targets",
+  "专业设置": "Advanced Settings",
+  "采用后当前方案即可继续使用；生成新方案和工程细调都是可选步骤。":
+    "Once accepted, this gait is ready to use. Generating alternatives and engineering refinement are optional.",
+  "当前方案已经可用": "The Current Gait Is Ready",
+  "你可以继续播放和使用它。只有想寻找其他走法时，才需要生成并比较新方案。":
+    "Keep playing or use it as-is. Generate and compare alternatives only when you want a different gait.",
+  "已采用可走参考": "Verified Reference Accepted",
+  "下面的生成是可选优化，不会覆盖当前方案。":
+    "Generating alternatives below is optional and will not overwrite the current gait.",
+  "已验证参考": "Verified Reference",
+  "先播放一个完整周期，再试试左侧的三个控制":
+    "Play one full cycle, then try the three controls on the left",
+  "播放看看": "Play",
+  "当前效果": "Current Gait",
+  "这一版可以完整演示": "Ready for a Full-cycle Demo",
+  "参数来自本机预先验证的可走参考，不需要先解决工程警告。":
+    "These parameters come from a locally pre-verified walking reference, so no engineering warnings need to be resolved first.",
+  "实际步子": "Actual Step",
+  "实际抬脚": "Actual Clearance",
+  "运动连续性": "Motion Continuity",
+  "当前速度": "Current Speed",
+  "先看它动起来。闭环误差、奇异裕度和约束等级等工程指标，需要时再展开。":
+    "Start by watching it move. Expand closure error, singularity margin, and constraint levels only when needed.",
+  "查看工程细节": "View Engineering Details",
+  "工程细节": "Engineering Details",
+  "查看当前效果": "View Current Gait",
+  "已载入经过整周验证的平稳行走参考。":
+    "Loaded a smooth-walking reference verified over the full cycle.",
+  "已载入一个可完整运动的平稳行走参考；点击播放即可开始。":
+    "Loaded a smooth-walking reference that completes the full cycle. Press play to begin.",
+  "暂时无法载入该参考，画布已保留上一个可走方案。":
+    "This reference could not be loaded, so the canvas is keeping the last working gait.",
+  "没有找到更合适的参考，画布继续使用上一个可走方案。":
+    "No closer reference was found, so the canvas is keeping the last working gait.",
+  "当前可走参考已采用，可以继续播放和使用；生成新方案只是可选优化。":
+    "The verified reference is accepted and ready to use; generating alternatives is optional.",
+  "当前参考已作为起点保留；现在可以输入明确目标，不会重置已有工况。":
+    "The current reference remains the starting point while you enter specific targets; existing conditions will not be reset.",
+  "当前参考已作为起点保留；现在可以展开机构与调节设置。":
+    "The current reference remains the starting point while you open mechanism and adjustment settings.",
+  "自动保存数据无效，已保留可完整运动的平稳行走参考。":
+    "The autosave data was invalid, so the full-cycle smooth-walking reference was kept.",
+  "已恢复经过整周验证的平稳行走参考。":
+    "Restored the smooth-walking reference verified over the full cycle.",
+  "已切换到": "Switched to ",
+  "参考；这是经过整周验证的可走方案。":
+    " reference; this gait has been verified over the full cycle.",
+  "已匹配到最接近的可走参考：": "Matched the nearest verified reference: ",
+  "；实际约 ": "; actual ",
+  " mm 步幅、": " mm step, ",
+  " mm 抬脚、": " mm clearance, ",
+  " rpm。": " rpm.",
   "定义每个工况的目标": "Define Targets for Each Condition",
   "先选择一种工况": "Choose an Operating Condition",
   "其他参数稍后再设置。现在只需要告诉我们，这台腿最主要用来做什么。":

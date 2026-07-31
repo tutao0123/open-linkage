@@ -27,7 +27,6 @@ import {
   applyVariableLegRecommendedRange,
   cloneVariableLegProject,
   createDefaultAdjustment,
-  createDefaultVariableLegProject,
   createGaitPath,
   createVariableLegDesignerTransfer,
   getVariableLegTemplate,
@@ -49,6 +48,12 @@ import {
 } from "@/lib/variable-leg";
 import { getVariableLegBaselineBounds } from "@/lib/variable-leg-baselines";
 import { getVariableLegDynamicLengthEnvelope } from "@/lib/variable-leg-dynamic-envelopes";
+import {
+  createVariableLegReferenceProject,
+  listVariableLegReferencePresets,
+  matchVariableLegReference,
+  type ReferencePresetId,
+} from "@/lib/variable-leg-reference-library";
 import {
   analyzeVariableLegGait,
   appendVariableLegFootprints,
@@ -107,6 +112,14 @@ type CanvasMode = "inspect" | "draw" | "points";
 type ViewMode = "mechanism" | "deployment";
 type WorkspaceStep = 1 | 2 | 3 | 4 | 5;
 type LegSession = VariableLegSession<VariableLegProject, VariableLegCandidate, RefinementRequest | VariableLegGenerationRequest>;
+type QuickStartValues = {
+  stepLength: number;
+  liftHeight: number;
+  rpm: number;
+};
+type QuickMatchState =
+  | { kind: "matched"; message: string }
+  | { kind: "fallback"; message: string };
 
 const REQUIREMENT_METRICS: Array<{
   key: VariableLegConstraintMetric;
@@ -340,9 +353,46 @@ function removeUnsafeLegacyRecommendations(project: VariableLegProject) {
   return next;
 }
 
+function quickStartValuesFromProject(project: VariableLegProject): QuickStartValues {
+  const requirement = project.requirements.find((item) => item.role === "primary" && item.enabled)
+    ?? project.requirements.find((item) => item.enabled)
+    ?? project.requirements[0];
+  const mode = project.modes.find((item) => item.id === requirement?.modeId)
+    ?? project.modes.find((item) => item.id === project.activeModeId)
+    ?? project.modes[0];
+  return {
+    stepLength: Math.round(requirement?.constraints.stepLength.target ?? 220),
+    liftHeight: Math.round(requirement?.constraints.liftHeight.target ?? 60),
+    rpm: Math.round(requirement?.rpm ?? mode?.rpm ?? 42),
+  };
+}
+
+const QUICK_PRESET_COPY: Record<ReferencePresetId, {
+  eyebrow: string;
+  label: string;
+  description: string;
+}> = {
+  smooth: {
+    eyebrow: "SMOOTH",
+    label: "平稳走",
+    description: "步幅适中，先观察连续、稳定的足端运动。",
+  },
+  quick: {
+    eyebrow: "QUICK",
+    label: "快速走",
+    description: "提高节奏，用更快的完整周期观察运动。",
+  },
+  "high-step": {
+    eyebrow: "HIGH STEP",
+    label: "高抬脚",
+    description: "增加摆动离地高度，更容易看清抬脚过程。",
+  },
+};
+
 export function VariableGeometryLegLab() {
   const language = useLanguage();
-  const initialProject = useMemo(() => createDefaultVariableLegProject(), []);
+  const initialProject = useMemo(() => createVariableLegReferenceProject("smooth"), []);
+  const quickStartPresets = useMemo(() => listVariableLegReferencePresets(), []);
   const history = useSnapshotHistory(initialProject, cloneVariableLegProject);
   const {
     value: project,
@@ -363,6 +413,13 @@ export function VariableGeometryLegLab() {
   const [playing, setPlaying] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>("mechanism");
   const [workspaceStep, setWorkspaceStep] = useState<WorkspaceStep>(1);
+  const [quickStart, setQuickStart] = useState(true);
+  const [quickPresetId, setQuickPresetId] = useState<ReferencePresetId>("smooth");
+  const [quickValues, setQuickValues] = useState<QuickStartValues>(() => quickStartValuesFromProject(initialProject));
+  const [quickMatchState, setQuickMatchState] = useState<QuickMatchState>({
+    kind: "matched",
+    message: "已载入经过整周验证的平稳行走参考。",
+  });
   const [resultsOpen, setResultsOpen] = useState(false);
   const [seedSource, setSeedSource] = useState<"current" | "template">("current");
   const [bodyWorldX, setBodyWorldX] = useState(0);
@@ -370,7 +427,7 @@ export function VariableGeometryLegLab() {
   const [canvasMode, setCanvasMode] = useState<CanvasMode>("inspect");
   const [drawing, setDrawing] = useState(false);
   const [drawingPoints, setDrawingPoints] = useState<Point[]>([]);
-  const [message, setMessage] = useState("三个默认工况已就绪；调节值在每个周期内保持锁定。");
+  const [message, setMessage] = useState("已载入一个可完整运动的平稳行走参考；点击播放即可开始。");
   const [searching, setSearching] = useState(false);
   const [feasibility, setFeasibility] = useState<VariableLegAdjustmentFeasibility | null>(null);
   const [feasibilitySourceKey, setFeasibilitySourceKey] = useState<string | null>(null);
@@ -389,6 +446,7 @@ export function VariableGeometryLegLab() {
   const bodyWorldXRef = useRef(0);
   const footprintSequenceRef = useRef(0);
   const pointDragRef = useRef<{ pointerId: number; index: number } | null>(null);
+  const lastKnownGoodQuickProjectRef = useRef(cloneVariableLegProject(initialProject));
   const viewportBase = useMemo(() => ({ x: -560, y: -360, width: 1120, height: 760 }), []);
   const viewport = useSvgViewport(viewportBase, svgRef);
 
@@ -404,8 +462,8 @@ export function VariableGeometryLegLab() {
     () => sampleVariableLeg(displayProject.baseProject, displayProject.adjustment, activeMode.adjustmentValue, 72, 90),
     [activeMode.adjustmentValue, displayProject.adjustment, displayProject.baseProject],
   );
-  const analysis = useMemo(() => analyzeVariableLegProject(displayProject, 54, 70), [displayProject]);
-  const workingAnalysis = useMemo(() => analyzeVariableLegProject(project, 54, 70), [project]);
+  const analysis = useMemo(() => analyzeVariableLegProject(displayProject), [displayProject]);
+  const workingAnalysis = useMemo(() => analyzeVariableLegProject(project), [project]);
   const activeMetrics = analysis.metrics.find((metric) => metric.modeId === activeMode.id) ?? analysis.metrics[0];
   const advancedStaticBounds = useMemo(() => project.adjustment.kind === "telescopic-bar"
     ? getVariableLegBaselineBounds(project, { kind: "bar-length", targetId: project.adjustment.targetId })
@@ -468,7 +526,7 @@ export function VariableGeometryLegLab() {
     return previewMode ? analyzeVariableLegProject({ ...previewProject, activeModeId: previewMode.id }, 36, 60).metrics.find((metric) => metric.modeId === previewMode.id)?.path ?? [] : [];
   }, [activeMode.id, barLengthPreview]);
   const barPreviewEvaluation = useMemo(
-    () => barLengthPreview?.previewProject ? analyzeVariableLegProject(barLengthPreview.previewProject, 54, 70).evaluation : null,
+    () => barLengthPreview?.previewProject ? analyzeVariableLegProject(barLengthPreview.previewProject).evaluation : null,
     [barLengthPreview],
   );
   const latestRun = session.designRuns.at(-1) ?? null;
@@ -500,6 +558,91 @@ export function VariableGeometryLegLab() {
   }, []);
 
   const stopMotion = useCallback(() => setPlaying(false), []);
+
+  const installQuickReference = (
+    nextProject: VariableLegProject,
+    presetId: ReferencePresetId,
+    status: string,
+    preserveMotion = false,
+  ) => {
+    const safeProject = cloneVariableLegProject(nextProject);
+    lastKnownGoodQuickProjectRef.current = cloneVariableLegProject(safeProject);
+    if (!preserveMotion) stopMotion();
+    resetHistory(safeProject);
+    setSession(initializeLegSession(safeProject));
+    if (!preserveMotion) setMotionPhase(0);
+    resetGaitTrail();
+    setCanvasMode("inspect");
+    setQuickPresetId(presetId);
+    setQuickMatchState({ kind: "matched", message: status });
+    setMessage(status);
+  };
+
+  const selectQuickPreset = (presetId: ReferencePresetId) => {
+    try {
+      const referenceProject = createVariableLegReferenceProject(presetId);
+      setQuickValues(quickStartValuesFromProject(referenceProject));
+      installQuickReference(
+        referenceProject,
+        presetId,
+        `已切换到${QUICK_PRESET_COPY[presetId].label}参考；这是经过整周验证的可走方案。`,
+      );
+    } catch {
+      setQuickMatchState({
+        kind: "fallback",
+        message: "暂时无法载入该参考，画布已保留上一个可走方案。",
+      });
+      setMessage("暂时无法载入该参考，画布已保留上一个可走方案。");
+    }
+  };
+
+  const updateQuickValue = (key: keyof QuickStartValues, requestedValue: number) => {
+    if (!Number.isFinite(requestedValue)) return;
+    const nextValues = { ...quickValues, [key]: requestedValue };
+    setQuickValues(nextValues);
+    try {
+      const match = matchVariableLegReference({
+        stepLength: nextValues.stepLength,
+        liftHeight: nextValues.liftHeight,
+        rpm: nextValues.rpm,
+        topology: "jansen",
+      });
+      const matchMessage = `已匹配到最接近的可走参考：${QUICK_PRESET_COPY[match.presetId].label}；实际约 ${match.metadata.stepLength.toFixed(0)} mm 步幅、${match.metadata.liftHeight.toFixed(0)} mm 抬脚、${match.metadata.rpm.toFixed(0)} rpm。`;
+      if (match.presetId === quickPresetId) {
+        setQuickMatchState({ kind: "matched", message: matchMessage });
+        setMessage(matchMessage);
+        return;
+      }
+      installQuickReference(
+        match.project,
+        match.presetId,
+        matchMessage,
+        true,
+      );
+    } catch {
+      setQuickMatchState({
+        kind: "fallback",
+        message: "没有找到更合适的参考，画布继续使用上一个可走方案。",
+      });
+      setMessage("没有找到更合适的参考，画布继续使用上一个可走方案。");
+    }
+  };
+
+  const acceptQuickReference = (nextStep: WorkspaceStep, intent: "continue" | "goals" | "advanced") => {
+    const accepted = advanceVariableLegProjectRevision(cloneVariableLegProject(lastKnownGoodQuickProjectRef.current));
+    resetHistory(accepted);
+    setSession(initializeLegSession(accepted));
+    setRefinementModeIds(accepted.requirements.filter((item) => item.enabled).map((item) => item.modeId));
+    setQuickStart(false);
+    setWorkspaceStep(nextStep);
+    if (intent === "continue") {
+      setMessage("当前可走参考已采用，可以继续播放和使用；生成新方案只是可选优化。");
+    } else if (intent === "goals") {
+      setMessage("当前参考已作为起点保留；现在可以输入明确目标，不会重置已有工况。");
+    } else {
+      setMessage("当前参考已作为起点保留；现在可以展开机构与调节设置。");
+    }
+  };
 
   const synchronizeRestoredProject = useCallback((restored: VariableLegProject) => {
     setSession((current) => markDesignRunsStaleByRevision({
@@ -538,6 +681,8 @@ export function VariableGeometryLegLab() {
                 createSessionEvent("designer-return"),
               ));
               setMotionPhase(returned.project.inputPhase || 0);
+              setQuickStart(false);
+              setWorkspaceStep(3);
               setMessage("已接收自由设计器修改；工况和整机部署已保留，旧候选已清空。");
             } else {
               setMessage(`设计器返回失败：${returned.validation.reasons.join("；")}`);
@@ -563,25 +708,28 @@ export function VariableGeometryLegLab() {
         resetHistory(restoredSession.workingProject);
         setSession(restoredSession);
         setMotionPhase(migrated.inputPhase || 0);
+        setQuickStart(false);
+        setWorkspaceStep(2);
         const missingStandardModes = ["cruise", "sprint", "obstacle"].filter((id) => !restored.modes.some((mode) => mode.id === id));
         setMessage(missingStandardModes.length
           ? "已恢复旧本地项目；检测到标准工况缺失，可点击“补齐标准工况”恢复。"
           : "已恢复上次的可变几何步行腿项目。");
       } catch {
-        setMessage("自动保存数据无效，已保留默认工况。");
+        setMessage("自动保存数据无效，已保留可完整运动的平稳行走参考。");
       }
     }, 0);
     return () => window.clearTimeout(timer);
   }, [resetHistory, setMotionPhase]);
 
   useEffect(() => {
+    if (quickStart) return;
     const timer = window.setTimeout(() => {
       const saved = { ...project, inputPhase: phase };
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
       window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({ versionHistory: session.versionHistory }));
     }, 350);
     return () => window.clearTimeout(timer);
-  }, [phase, project, session.versionHistory]);
+  }, [phase, project, quickStart, session.versionHistory]);
 
   useEffect(() => {
     if (!playing) return;
@@ -913,14 +1061,18 @@ export function VariableGeometryLegLab() {
 
   const resetProject = () => {
     stopMotion();
-    const restored = createDefaultVariableLegProject();
+    const restored = createVariableLegReferenceProject("smooth");
     resetHistory(restored);
     setSession(initializeLegSession(restored));
+    lastKnownGoodQuickProjectRef.current = cloneVariableLegProject(restored);
+    setQuickPresetId("smooth");
+    setQuickValues(quickStartValuesFromProject(restored));
+    setQuickMatchState({ kind: "matched", message: "已载入经过整周验证的平稳行走参考。" });
     setMotionPhase(0);
     resetGaitTrail();
     setCanvasMode("inspect");
     viewport.resetView();
-    setMessage("已恢复克兰腿与三个默认工况。");
+    setMessage("已恢复经过整周验证的平稳行走参考。");
   };
 
   const restoreSelectedTemplateLength = () => {
@@ -1279,6 +1431,8 @@ export function VariableGeometryLegLab() {
       setSession(checkpointed);
       setMotionPhase(migrated.inputPhase || 0);
       resetGaitTrail();
+      setQuickStart(false);
+      setWorkspaceStep(2);
       setMessage(`已导入 ${file.name}；未通过新硬门槛的旧推荐已隐藏，原机构参数未改动。`);
     } catch {
       setMessage("导入失败：文件不是有效的可变几何步行腿项目。");
@@ -1497,7 +1651,7 @@ export function VariableGeometryLegLab() {
       </header>
       <p className={styles.srOnly} role="status" aria-live="polite">{message}</p>
 
-      {workspaceStep === 1 ? <section className={styles.conditionLanding}>
+      {!quickStart && workspaceStep === 1 ? <section className={styles.conditionLanding}>
         <div className={styles.conditionLandingIntro}>
           <span>VARIABLE GEOMETRY LEG</span>
           <h1>先选择一种工况</h1>
@@ -1519,16 +1673,100 @@ export function VariableGeometryLegLab() {
         </div>
         {missingStandardModeCount > 0 && <button className={styles.restoreConditions} type="button" onClick={restoreStandardModes}>恢复三个标准工况</button>}
         <small className={styles.conditionLandingHint}>下一步可以添加辅助工况，也可以调整步长、抬脚高度和转速。</small>
-      </section> : <div className={styles.layout}>
+      </section> : <div className={`${styles.layout} ${quickStart ? styles.quickStartLayout : ""}`}>
         <aside className={styles.panel}>
-          <div className={styles.panelTitle}><div><span>01</span><h1>目标驱动设计</h1></div><button type="button" onClick={resetProject}>恢复默认</button></div>
+          <div className={styles.panelTitle}>
+            <div><span>{quickStart ? "PLAY" : "01"}</span><h1>{quickStart ? "先让它走起来" : "目标驱动设计"}</h1></div>
+            <button type="button" onClick={resetProject}>{quickStart ? "重新开始" : "恢复默认"}</button>
+          </div>
 
-          {workspaceStep > 1 && <div className={styles.historyBar}>
+          {quickStart && <section className={styles.quickStartPanel} aria-labelledby="quick-start-heading">
+            <div className={styles.quickStartIntro}>
+              <span>VARIABLE GEOMETRY LEG</span>
+              <h2 id="quick-start-heading">这个示例已经可以走</h2>
+              <p>播放看看，也可以表达你想要的步子、抬脚和速度。拖动后会匹配最接近的已验证走法，并始终保留上一个可走参考。</p>
+            </div>
+
+            <fieldset className={styles.quickPresetPicker}>
+              <legend>选择一种走法</legend>
+              <div role="radiogroup" aria-label="走法参考预设">
+                {quickStartPresets.map((preset) => {
+                  const copy = QUICK_PRESET_COPY[preset.id];
+                  return <label key={preset.id} className={quickPresetId === preset.id ? styles.quickPresetActive : ""}>
+                    <input
+                      type="radio"
+                      name="quick-start-preset"
+                      value={preset.id}
+                      checked={quickPresetId === preset.id}
+                      onChange={() => selectQuickPreset(preset.id)}
+                    />
+                    <span><small>{copy.eyebrow}</small><b>{copy.label}</b><em>{copy.description}</em></span>
+                  </label>;
+                })}
+              </div>
+            </fieldset>
+
+            <div className={styles.quickControls}>
+              <label>
+                <span><b>想走多远</b><small>匹配最接近的已验证步幅</small></span>
+                <output>{quickValues.stepLength}<i>mm 期望</i></output>
+                <input
+                  aria-label="步子大小"
+                  type="range"
+                  min="100"
+                  max="420"
+                  step="1"
+                  value={quickValues.stepLength}
+                  onChange={(event) => updateQuickValue("stepLength", Number(event.target.value))}
+                />
+              </label>
+              <label>
+                <span><b>想抬多高</b><small>匹配最接近的已验证离地高度</small></span>
+                <output>{quickValues.liftHeight}<i>mm 期望</i></output>
+                <input
+                  aria-label="抬脚高度"
+                  type="range"
+                  min="20"
+                  max="140"
+                  step="1"
+                  value={quickValues.liftHeight}
+                  onChange={(event) => updateQuickValue("liftHeight", Number(event.target.value))}
+                />
+              </label>
+              <label>
+                <span><b>想走多快</b><small>匹配最接近的已验证主轴速度</small></span>
+                <output>{quickValues.rpm}<i>rpm 期望</i></output>
+                <input
+                  aria-label="行走速度"
+                  type="range"
+                  min="5"
+                  max="40"
+                  step="1"
+                  value={quickValues.rpm}
+                  onChange={(event) => updateQuickValue("rpm", Number(event.target.value))}
+                />
+              </label>
+            </div>
+
+            <div className={`${styles.quickMatchStatus} ${quickMatchState.kind === "fallback" ? styles.quickMatchFallback : ""}`} role="status" aria-live="polite">
+              <i aria-hidden="true" />
+              <span><b>{quickMatchState.kind === "matched" ? "可走参考已匹配" : "继续使用上一个参考"}</b><small>{quickMatchState.message}</small></span>
+            </div>
+
+            <button className={styles.quickContinueButton} type="button" onClick={() => acceptQuickReference(4, "continue")}>按这个效果继续</button>
+            <div className={styles.quickAdvancedLinks}>
+              <button type="button" onClick={() => acceptQuickReference(2, "goals")}>我有明确目标</button>
+              <button type="button" onClick={() => acceptQuickReference(3, "advanced")}>专业设置</button>
+            </div>
+            <small className={styles.quickStartFootnote}>采用后当前方案即可继续使用；生成新方案和工程细调都是可选步骤。</small>
+          </section>}
+
+          {!quickStart && workspaceStep > 1 && <div className={styles.historyBar}>
             <button type="button" disabled={!canUndo} onClick={() => { stopMotion(); const restored = undo(); if (restored) { synchronizeRestoredProject(restored); resetGaitTrail(); setMessage("已撤销一步。"); } }}>↶ 撤销</button>
             <button type="button" disabled={!canRedo} onClick={() => { stopMotion(); const restored = redo(); if (restored) { synchronizeRestoredProject(restored); resetGaitTrail(); setMessage("已重做一步。"); } }}>↷ 重做</button>
           </div>}
 
-          <div className={styles.workflowStepper} aria-label="目标驱动设计五步流程">
+          {!quickStart && <div className={styles.workflowStepper} aria-label="目标驱动设计五步流程">
             {WORKSPACE_STEPS.map((step) => <button
               type="button"
               key={step.id}
@@ -1536,7 +1774,7 @@ export function VariableGeometryLegLab() {
               aria-current={workspaceStep === step.id ? "step" : undefined}
               onClick={() => changeWorkspaceStep(step.id)}
             ><span>{step.id}</span><b>{step.label}</b></button>)}
-          </div>
+          </div>}
 
           {workspaceStep === 2 && <section className={styles.stepPanel}>
             <div className={styles.stepHeading}>
@@ -1752,9 +1990,10 @@ export function VariableGeometryLegLab() {
           {workspaceStep === 4 && <section className={`${styles.stepPanel} ${styles.searchBox}`}>
             <div className={styles.stepHeading}>
               <span>STEP 04</span>
-              <h2>生成并比较方案</h2>
-              <p>搜索会同时检查所有启用工况，只生成候选草稿，不会直接覆盖当前项目。</p>
+              <h2>当前方案已经可用</h2>
+              <p>你可以继续播放和使用它。只有想寻找其他走法时，才需要生成并比较新方案。</p>
             </div>
+            <div className={styles.acceptedReferenceNotice}><i aria-hidden="true" /><span><b>已采用可走参考</b><small>下面的生成是可选优化，不会覆盖当前方案。</small></span></div>
             <div className={styles.sourceChoice} role="radiogroup" aria-label="生成起点">
               <label><input type="radio" name="seed-source" checked={seedSource === "current"} onChange={() => setSeedSource("current")} /><span><b>克隆当前机构</b><br />保持当前拓扑与几何作为真实搜索起点</span></label>
               <label><input type="radio" name="seed-source" checked={seedSource === "template"} onChange={() => setSeedSource("template")} /><span><b>显式模板种子</b><br />当前机构不健康时由你主动选择</span></label>
@@ -1843,29 +2082,35 @@ export function VariableGeometryLegLab() {
             <input ref={fileInputRef} type="file" accept="application/json,.json" onChange={(event) => void importProject(event)} />
           </div>}
 
-          <div className={styles.stepNavigation}>
+          {!quickStart && <div className={styles.stepNavigation}>
             {workspaceStep > 1
               ? <button type="button" onClick={() => changeWorkspaceStep((workspaceStep - 1) as WorkspaceStep)}>← 上一步</button>
               : <span />}
             {workspaceStep < 5 && <button className={styles.nextStepButton} type="button" onClick={() => changeWorkspaceStep((workspaceStep + 1) as WorkspaceStep)}>
               继续：{WORKSPACE_STEPS[workspaceStep].label} →
             </button>}
-          </div>
+          </div>}
         </aside>
 
-        <section className={styles.stage}>
+        <section className={`${styles.stage} ${quickStart ? styles.quickStage : ""}`}>
           <div className={styles.stageHeader}>
-            <span className={activeConditionEvaluation?.hardPassed ? styles.solved : styles.invalid}>{activeConditionEvaluation?.hardPassed ? "硬约束通过" : "硬约束未通过"}</span>
-            <span>{topologyName(displayProject.topology)}</span><span>{adjustmentName(displayProject.adjustment.kind)} / {displayProject.adjustment.targetId}</span>
-            {previewCandidate && <><span className={styles.runBadge}>候选草稿 · {previewCandidate.label}{previewRun?.stale ? " · 已过期" : ""}</span><button type="button" onClick={discardCandidatePreview}>退出预览</button></>}
-            {barLengthPreview && <span className={barLengthPreview.requestedValid && barPreviewEvaluation?.hardPassed ? styles.draftValid : styles.draftInvalid}>{barLengthPreview.requestedValid && barPreviewEvaluation?.hardPassed ? "草稿可行" : "草稿未写入"}</span>}
-            <b>锁止 {activeMode.adjustmentValue.toFixed(1)}</b>
+            {quickStart ? <>
+              <span className={styles.referenceReady}>已验证参考</span>
+              <span>先播放一个完整周期，再试试左侧的三个控制</span>
+              <b>{QUICK_PRESET_COPY[quickPresetId].label}</b>
+            </> : <>
+              <span className={activeConditionEvaluation?.hardPassed ? styles.solved : styles.invalid}>{activeConditionEvaluation?.hardPassed ? "硬约束通过" : "硬约束未通过"}</span>
+              <span>{topologyName(displayProject.topology)}</span><span>{adjustmentName(displayProject.adjustment.kind)} / {displayProject.adjustment.targetId}</span>
+              {previewCandidate && <><span className={styles.runBadge}>候选草稿 · {previewCandidate.label}{previewRun?.stale ? " · 已过期" : ""}</span><button type="button" onClick={discardCandidatePreview}>退出预览</button></>}
+              {barLengthPreview && <span className={barLengthPreview.requestedValid && barPreviewEvaluation?.hardPassed ? styles.draftValid : styles.draftInvalid}>{barLengthPreview.requestedValid && barPreviewEvaluation?.hardPassed ? "草稿可行" : "草稿未写入"}</span>}
+              <b>锁止 {activeMode.adjustmentValue.toFixed(1)}</b>
+            </>}
           </div>
           <div className={styles.canvas}>
             <div className={styles.canvasActions} role="group" aria-label="画布显示与编辑工具">
               <button className={viewMode === "mechanism" ? styles.selectedTool : ""} type="button" onClick={() => setViewMode("mechanism")}>单腿机构</button>
               <button className={viewMode === "deployment" ? styles.selectedTool : ""} type="button" onClick={() => { setViewMode("deployment"); setCanvasMode("inspect"); }}>整机步态</button>
-              {viewMode === "mechanism" ? <>
+              {!quickStart && (viewMode === "mechanism" ? <>
                 <span className={styles.canvasActionDivider} />
                 <button className={canvasMode === "draw" ? styles.selectedTool : ""} type="button" onClick={() => setCanvasMode("draw")}>绘制轨迹</button>
                 <button className={canvasMode === "points" ? styles.selectedTool : ""} type="button" onClick={() => setCanvasMode("points")}>编辑控制点</button>
@@ -1875,7 +2120,7 @@ export function VariableGeometryLegLab() {
                 <span className={styles.canvasActionDivider} />
                 <button type="button" onClick={toggleFootprintVisibility}>{project.deployment.showFootprints ? "隐藏足迹" : "显示足迹"}</button>
                 <button type="button" onClick={resetGaitTrail}>清除足迹</button>
-              </>}
+              </>)}
             </div>
             <SvgViewportControls zoom={viewport.zoom} onZoomIn={viewport.zoomIn} onZoomOut={viewport.zoomOut} onReset={viewport.resetView} />
             <svg
@@ -1953,15 +2198,31 @@ export function VariableGeometryLegLab() {
               <span><i className={styles.legendStance} />支撑相</span><span><i className={styles.legendSwing} />摆动相</span><span>足迹 {footprints.length}/80</span>
             </>}
           </div>
-          <div className={styles.transport}>
-            <button type="button" onClick={() => setPlaying((current) => !current)} aria-label={playing ? "暂停可变几何腿动画" : "播放可变几何腿动画"}>{playing ? "Ⅱ" : "▶"}</button>
+          <div className={`${styles.transport} ${quickStart ? styles.quickTransport : ""}`}>
+            <button type="button" onClick={() => setPlaying((current) => !current)} aria-label={playing ? "暂停可变几何腿动画" : "播放可变几何腿动画"}>{quickStart ? playing ? "Ⅱ 暂停" : "▶ 播放看看" : playing ? "Ⅱ" : "▶"}</button>
             <input aria-label="主轴相位" type="range" min="0" max={Math.PI * 2} step="0.001" value={phase} onChange={(event) => { setPlaying(false); setMotionPhase(Number(event.target.value)); }} />
             <span>{(phase * 180 / Math.PI).toFixed(1)}°</span><b>{activeMode.rpm} rpm</b>
           </div>
         </section>
 
         <aside id="variable-leg-results" className={`${styles.panel} ${styles.analysisPanel} ${resultsOpen ? styles.analysisPanelOpen : ""}`} aria-label="候选与工程检查" onKeyDown={(event) => { if (event.key === "Escape" && resultsOpen) toggleResultsDrawer(); }}>
-          <div className={styles.panelTitle}><div><span>02</span><h2>候选与工程检查</h2></div><button ref={resultsCloseRef} type="button" onClick={toggleResultsDrawer}>关闭</button></div>
+          <div className={styles.panelTitle}><div><span>{quickStart ? "NOW" : "02"}</span><h2>{quickStart ? "当前效果" : "候选与工程检查"}</h2></div><button ref={resultsCloseRef} type="button" onClick={toggleResultsDrawer}>关闭</button></div>
+          {quickStart && <section className={styles.quickResultSummary}>
+            <div className={styles.quickResultLead}>
+              <i aria-hidden="true" />
+              <span><b>这一版可以完整演示</b><small>参数来自本机预先验证的可走参考，不需要先解决工程警告。</small></span>
+            </div>
+            <div className={styles.quickMetricGrid}>
+              <div><span>实际步子</span><strong>{activeMetrics.stepLength.toFixed(0)}<small>mm</small></strong></div>
+              <div><span>实际抬脚</span><strong>{activeMetrics.liftHeight.toFixed(0)}<small>mm</small></strong></div>
+              <div><span>运动连续性</span><strong>{(activeMetrics.validRatio * 100).toFixed(0)}<small>%</small></strong></div>
+              <div><span>当前速度</span><strong>{activeMode.rpm.toFixed(0)}<small>rpm</small></strong></div>
+            </div>
+            <p>先看它动起来。闭环误差、奇异裕度和约束等级等工程指标，需要时再展开。</p>
+          </section>}
+          <details className={`${styles.engineeringDetails} ${quickStart ? styles.quickEngineeringDetails : ""}`} open={!quickStart}>
+            <summary>{quickStart ? "查看工程细节" : "工程细节"}</summary>
+            <div className={styles.engineeringDetailsBody}>
           {latestApplicableCandidates.length && latestRun ? <div className={styles.candidateList}>
             {latestApplicableCandidates.slice(0, 5).map((candidate, index) => {
               const selectedMetric = candidate.metrics.find((metric) => metric.modeId === project.activeModeId) ?? candidate.metrics[0];
@@ -2098,8 +2359,10 @@ export function VariableGeometryLegLab() {
             {warnings.length ? <ul>{warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul> : <p>当前工况整周连续，未发现装配分支跳变或明显奇异位置。</p>}
           </div>
           <p className={styles.disclaimer}>这里的“高速、越障”仅代表目标足迹工况。当前版本不计算质量、地面接触力、弹簧储能、结构应力或整机稳定性。</p>
+            </div>
+          </details>
         </aside>
-        <button ref={resultsToggleRef} type="button" className={styles.resultDrawerButton} aria-controls="variable-leg-results" aria-expanded={resultsOpen} onClick={toggleResultsDrawer}>{resultsOpen ? "关闭结果" : latestApplicableCandidates.length ? `查看 ${latestApplicableCandidates.length} 个可应用方案` : "查看搜索结果"}</button>
+        <button ref={resultsToggleRef} type="button" className={styles.resultDrawerButton} aria-controls="variable-leg-results" aria-expanded={resultsOpen} onClick={toggleResultsDrawer}>{resultsOpen ? "关闭结果" : quickStart ? "查看当前效果" : latestApplicableCandidates.length ? `查看 ${latestApplicableCandidates.length} 个可应用方案` : "查看搜索结果"}</button>
       </div>}
     </main>
   ), language);

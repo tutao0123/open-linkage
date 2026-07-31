@@ -90,7 +90,7 @@ describe("variable-leg synthesis protocol", () => {
     expect(currentOnly.currentGate.passed).toBe(false);
     expect(currentOnly.source).toBe("current");
     expect(currentOnly.message).toContain("回退未启用");
-    expect(explicitFallback.source).toBe("safe-baseline");
+    expect(explicitFallback.source).toBe("offline-seed");
   });
 
   it("builds guided seeds from the current mechanism geometry", () => {

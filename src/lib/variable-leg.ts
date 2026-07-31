@@ -21,6 +21,16 @@ import {
 export type VariableLegTopology = "klann" | "jansen";
 export type VariableLegAdjustmentKind = "moving-pivot" | "telescopic-bar";
 
+export type VariableLegSolverProfile = {
+  phaseSamples: number;
+  iterations: number;
+};
+
+export const VARIABLE_LEG_SOLVER_PROFILES = {
+  runtime: { phaseSamples: 72, iterations: 90 },
+  strict: { phaseSamples: 144, iterations: 200 },
+} as const satisfies Record<"runtime" | "strict", VariableLegSolverProfile>;
+
 export type MovingPivotAdjustment = {
   kind: "moving-pivot";
   targetId: string;
@@ -64,6 +74,7 @@ export type VariableLegModeMetrics = {
   maxError: number;
   stepLength: number;
   liftHeight: number;
+  /** Fraction of the solved foot path inside the near-ground support band. */
   stanceRatio: number;
   stanceGroundY: number;
   stanceStraightness: number;
@@ -175,7 +186,7 @@ export type GuidedScenarioCompatibility = {
 };
 
 export type GuidedDesignPreflight = {
-  source: "current" | "safe-baseline";
+  source: "current" | "offline-seed";
   currentGate: GuidedHardGateResult;
   selectedGate: GuidedHardGateResult;
   zones: Record<keyof GuidedDesignTargets, { recommended: [number, number]; exploratory: [number, number] }>;
@@ -378,7 +389,13 @@ export function measureGaitClearance(path: Point[], stanceStart: number, stanceE
   return measureClearance(path, stanceStart, stanceEnd).clearance;
 }
 
-function measurePathStanceRatio(path: Point[]) {
+/**
+ * Measures the fraction of the actual foot path that remains near its lowest
+ * (ground-contact) height. This is intentionally independent of the requested
+ * stance phase window: the latter is an input, while this value describes the
+ * geometry that the mechanism really produced.
+ */
+export function measurePathGroundSupportRatio(path: Point[]) {
   if (path.length < 3) return 0;
   const ys = path.map((point) => point.y);
   const groundY = Math.max(...ys);
@@ -449,6 +466,81 @@ export function createDefaultConditionRequirements(
           tolerance: 0,
           level,
           weight: Math.max(0.1, mode.weight),
+        },
+      },
+    };
+  });
+}
+
+export function createSelfConsistentConditionRequirements(
+  modes: VariableLegMode[],
+  metrics: VariableLegModeMetrics[],
+  primaryModeId: string = modes[0]?.id ?? "",
+  enabledModeIds: readonly string[] = modes.map((mode) => mode.id),
+): ConditionRequirement[] {
+  const resolvedPrimaryModeId = modes.some((mode) => mode.id === primaryModeId)
+    ? primaryModeId
+    : modes[0]?.id ?? "";
+  const enabled = new Set(enabledModeIds.filter((modeId) => modes.some((mode) => mode.id === modeId)));
+  if (resolvedPrimaryModeId) enabled.add(resolvedPrimaryModeId);
+  const metricsByMode = new Map(metrics.map((metric) => [metric.modeId, metric]));
+
+  return modes.map((mode) => {
+    const metric = metricsByMode.get(mode.id);
+    if (!metric) throw new Error(`Missing measured metrics for variable-leg mode: ${mode.id}`);
+    if (metric.path.length < 3 || ![
+      metric.stepLength,
+      metric.liftHeight,
+      metric.stanceRatio,
+      metric.landingVerticalSpeed,
+    ].every(Number.isFinite)) {
+      throw new Error(`Variable-leg mode has no finite measured gait path: ${mode.id}`);
+    }
+    const measured = {
+      stepLength: Math.max(0, metric.stepLength),
+      liftHeight: Math.max(0, metric.liftHeight),
+      stanceRatio: clamp(metric.stanceRatio, 0, 1),
+      landingVerticalSpeed: Math.max(0, metric.landingVerticalSpeed),
+    };
+    const level: ConstraintLevel = mode.id === resolvedPrimaryModeId ? "hard" : "soft";
+    const weight = Math.max(0.1, mode.weight);
+    return {
+      modeId: mode.id,
+      enabled: enabled.has(mode.id),
+      role: mode.id === resolvedPrimaryModeId ? "primary" : "supporting",
+      rpm: mode.rpm,
+      constraints: {
+        stepLength: {
+          metric: "stepLength",
+          rule: "range",
+          target: measured.stepLength,
+          tolerance: Math.max(0.5, measured.stepLength * 0.03),
+          level,
+          weight,
+        },
+        liftHeight: {
+          metric: "liftHeight",
+          rule: "minimum",
+          target: Math.max(0, measured.liftHeight * 0.97 - 0.5),
+          tolerance: 0,
+          level,
+          weight,
+        },
+        stanceRatio: {
+          metric: "stanceRatio",
+          rule: "range",
+          target: measured.stanceRatio,
+          tolerance: Math.max(0.02, 2 / Math.max(VARIABLE_LEG_SOLVER_PROFILES.runtime.phaseSamples, metric.path.length)),
+          level,
+          weight,
+        },
+        landingVerticalSpeed: {
+          metric: "landingVerticalSpeed",
+          rule: "maximum",
+          target: measured.landingVerticalSpeed * 1.05 + 1,
+          tolerance: 0,
+          level,
+          weight,
         },
       },
     };
@@ -722,7 +814,7 @@ export function createGaitPath(
   stanceRatio: number,
   centerX = -210,
   groundY = 160,
-  sampleCount = 72,
+  sampleCount: number = VARIABLE_LEG_SOLVER_PROFILES.runtime.phaseSamples,
 ): Point[] {
   const stance = clamp(stanceRatio, 0.35, 0.82);
   return Array.from({ length: sampleCount }, (_, index) => {
@@ -1068,8 +1160,8 @@ function variableLegMetricsAreFeasible(metrics: VariableLegModeMetrics[], baseli
 
 export function validateVariableLegKinematics(
   project: VariableLegProject,
-  phaseSamples = 48,
-  iterations = 70,
+  phaseSamples: number = VARIABLE_LEG_SOLVER_PROFILES.runtime.phaseSamples,
+  iterations: number = VARIABLE_LEG_SOLVER_PROFILES.runtime.iterations,
   baselineProject?: VariableLegProject,
 ) {
   const metrics = project.modes.map((mode) => analyzeVariableLegMode(project.baseProject, project.adjustment, mode, phaseSamples, iterations));
@@ -1399,8 +1491,8 @@ export function sampleVariableLeg(
   baseProject: FreeMechanismProject,
   adjustment: VariableLegAdjustment,
   value: number,
-  sampleCount = 72,
-  iterations = 90,
+  sampleCount: number = VARIABLE_LEG_SOLVER_PROFILES.runtime.phaseSamples,
+  iterations: number = VARIABLE_LEG_SOLVER_PROFILES.runtime.iterations,
   startPhase = 0,
   includeEndpoint = false,
 ): VariableLegSample[] {
@@ -1461,8 +1553,8 @@ export function analyzeVariableLegMode(
   baseProject: FreeMechanismProject,
   adjustment: VariableLegAdjustment,
   mode: VariableLegMode,
-  sampleCount = 72,
-  iterations = 90,
+  sampleCount: number = VARIABLE_LEG_SOLVER_PROFILES.runtime.phaseSamples,
+  iterations: number = VARIABLE_LEG_SOLVER_PROFILES.runtime.iterations,
 ): VariableLegModeMetrics {
   const cycleSamples = sampleVariableLeg(
     baseProject,
@@ -1521,7 +1613,9 @@ export function analyzeVariableLegMode(
     maxError: match.maxError,
     stepLength: xs.length ? Math.max(...xs) - Math.min(...xs) : 0,
     liftHeight: clearance.clearance,
-    stanceRatio: measurePathStanceRatio(path),
+    // Historical field name retained for persisted projects. The metric is the
+    // actual near-ground support ratio, not the requested stance phase window.
+    stanceRatio: measurePathGroundSupportRatio(path),
     stanceGroundY: clearance.groundY,
     stanceStraightness,
     singularityMargin: Math.min(90, ...validSamples.map((sample) => sample.singularityMargin)),
@@ -1632,8 +1726,8 @@ export function analyzeVariableLegBar(
   project: VariableLegProject,
   mode: VariableLegMode,
   barId: string,
-  sampleCount = 72,
-  iterations = 90,
+  sampleCount: number = VARIABLE_LEG_SOLVER_PROFILES.runtime.phaseSamples,
+  iterations: number = VARIABLE_LEG_SOLVER_PROFILES.runtime.iterations,
 ) {
   const samples = sampleVariableLeg(project.baseProject, project.adjustment, mode.adjustmentValue, sampleCount, iterations);
   return analyzeVariableLegBarSamples(project.baseProject, project.adjustment, samples, barId);
@@ -1771,7 +1865,11 @@ export function scoreVariableLegFamily(metrics: VariableLegModeMetrics[], modes:
   return { score: clamp(100 * (1 - cost), 0, 100), cost, stroke };
 }
 
-export function analyzeVariableLegProject(project: VariableLegProject, sampleCount = 72, iterations = 90) {
+export function analyzeVariableLegProject(
+  project: VariableLegProject,
+  sampleCount: number = VARIABLE_LEG_SOLVER_PROFILES.runtime.phaseSamples,
+  iterations: number = VARIABLE_LEG_SOLVER_PROFILES.runtime.iterations,
+) {
   const requirementsByMode = new Map(project.requirements.map((requirement) => [requirement.modeId, requirement]));
   const metrics = project.modes.map((mode) => {
     const requirement = requirementsByMode.get(mode.id);

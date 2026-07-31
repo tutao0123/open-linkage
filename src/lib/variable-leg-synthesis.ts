@@ -1,5 +1,6 @@
 import {
   VARIABLE_LEG_OPTIONS,
+  VARIABLE_LEG_SOLVER_PROFILES,
   analyzeVariableLegMode,
   assessGuidedHardGate,
   buildGuidedDesignSeed,
@@ -30,7 +31,7 @@ import {
   type GuidedDesignRole,
   type VariableLegTopology,
 } from "./variable-leg";
-import { createGuidedSafeBaseline } from "./variable-leg-guided-baselines";
+import { createGuidedSafeBaseline as createLegacyGuidedBaselineSeed } from "./variable-leg-guided-baselines";
 import { cloneProject, createRigidBody, type FreeMechanismProject } from "./free-mechanism";
 
 export type VariableLegSynthesisProgress = {
@@ -66,7 +67,7 @@ export type VariableLegGenerationRequest = {
 
 export type VariableLegGuidedSynthesisOptions = {
   /**
-   * Offline baselines are never selected implicitly. The UI must expose and
+   * Offline seeds are never selected implicitly. The UI must expose and
    * explicitly send this choice.
    */
   allowOfflineBaselineFallback?: boolean;
@@ -270,8 +271,8 @@ function candidateFromSeed(
   seed: SearchSeed,
   id: string,
   label: string,
-  phaseSamples = 72,
-  iterations = 90,
+  phaseSamples: number = VARIABLE_LEG_SOLVER_PROFILES.runtime.phaseSamples,
+  iterations: number = VARIABLE_LEG_SOLVER_PROFILES.runtime.iterations,
 ): VariableLegCandidate {
   const result = evaluateSearchSeed(source, seed, phaseSamples, iterations);
   return {
@@ -614,8 +615,15 @@ function guidedPreflightMetrics(project: VariableLegProject, request: GuidedDesi
   if (!mode) return [];
   // Sparse phase steps can make the continuation solver jump branches and
   // falsely label the same mechanism unhealthy. Preflight and final
-  // verification therefore share the same 72 × 90 continuation resolution.
-  return [analyzeVariableLegMode(project.baseProject, project.adjustment, mode, 72, 90)];
+  // verification therefore share the runtime continuation profile.
+  const profile = VARIABLE_LEG_SOLVER_PROFILES.runtime;
+  return [analyzeVariableLegMode(
+    project.baseProject,
+    project.adjustment,
+    mode,
+    profile.phaseSamples,
+    profile.iterations,
+  )];
 }
 
 export function preflightGuidedDesign(
@@ -624,21 +632,21 @@ export function preflightGuidedDesign(
   options: VariableLegGuidedSynthesisOptions = {},
 ): GuidedDesignPreflight {
   const currentGate = assessGuidedHardGate(guidedPreflightMetrics(source, request), request.scenario);
-  const useOfflineBaseline = !currentGate.passed && options.allowOfflineBaselineFallback === true;
-  const selected = useOfflineBaseline
-    ? createGuidedSafeBaseline(source.topology, request.scenario)
+  const useOfflineSeed = !currentGate.passed && options.allowOfflineBaselineFallback === true;
+  const selected = useOfflineSeed
+    ? createLegacyGuidedBaselineSeed(source.topology, request.scenario)
     : source;
   const selectedGate = assessGuidedHardGate(guidedPreflightMetrics(selected, request), request.scenario);
   return {
-    source: useOfflineBaseline ? "safe-baseline" : "current",
+    source: useOfflineSeed ? "offline-seed" : "current",
     currentGate,
     selectedGate,
     zones: guidedDesignZones(request),
     message: currentGate.passed
       ? "当前机构通过快速健康检查，本次从当前机构继续搜索。"
-      : useOfflineBaseline && selectedGate.passed
-        ? "当前机构不可用，本次从同拓扑安全基线生成；不会覆盖当前项目。"
-        : useOfflineBaseline
+      : useOfflineSeed && selectedGate.passed
+        ? "当前机构不可用，本次从已通过快速门槛的同拓扑离线种子生成；不会覆盖当前项目。"
+        : useOfflineSeed
           ? "当前机构与显式选择的离线种子均未通过快速检查；只有最终通过完整硬门槛的候选才会返回。"
           : "当前机构未通过快速检查；离线种子回退未启用，将只从当前机构克隆继续搜索。",
   };
@@ -667,9 +675,10 @@ export async function synthesizeVariableLegGuidedDesign(
   options: VariableLegGuidedSynthesisOptions = {},
 ): Promise<GuidedDesignResult> {
   const sourceSnapshot = cloneVariableLegProject(source);
+  const runtimeProfile = VARIABLE_LEG_SOLVER_PROFILES.runtime;
   const preflight = preflightGuidedDesign(sourceSnapshot, request, options);
   const baseline = preflight.source === "current" ? cloneVariableLegProject(sourceSnapshot) : (() => {
-    const project = createGuidedSafeBaseline(sourceSnapshot.topology, request.scenario);
+    const project = createLegacyGuidedBaselineSeed(sourceSnapshot.topology, request.scenario);
     project.deployment = sourceSnapshot.deployment;
     return project;
   })();
@@ -686,14 +695,26 @@ export async function synthesizeVariableLegGuidedDesign(
     const seedMetrics: ReturnType<typeof analyzeVariableLegMode>[] = [];
     seed.modes = seed.modes.map((mode) => {
       let bestMode = { ...mode };
-      let bestMetric = analyzeVariableLegMode(seed.baseProject, seed.adjustment, mode, 72, 90);
+      let bestMetric = analyzeVariableLegMode(
+        seed.baseProject,
+        seed.adjustment,
+        mode,
+        runtimeProfile.phaseSamples,
+        runtimeProfile.iterations,
+      );
       let bestPenalty = continuityPenalty([bestMetric]);
       let bestCost = modeCost(bestMetric, mode);
       for (let sampleIndex = 0; sampleIndex < 11; sampleIndex += 1) {
         const adjustmentValue = seed.adjustment.minimum
           + (seed.adjustment.maximum - seed.adjustment.minimum) * sampleIndex / 10;
         const testMode = { ...mode, adjustmentValue };
-        const metric = analyzeVariableLegMode(seed.baseProject, seed.adjustment, testMode, 72, 90);
+        const metric = analyzeVariableLegMode(
+          seed.baseProject,
+          seed.adjustment,
+          testMode,
+          runtimeProfile.phaseSamples,
+          runtimeProfile.iterations,
+        );
         const penalty = continuityPenalty([metric]);
         const cost = modeCost(metric, testMode);
         if (penalty < bestPenalty - 1e-6 || (Math.abs(penalty - bestPenalty) <= 1e-6 && cost < bestCost)) {
@@ -742,7 +763,13 @@ export async function synthesizeVariableLegGuidedDesign(
       metrics: seedMetrics,
     } satisfies VariableLegCandidate;
     if (candidate) {
-      const finalMetrics = candidate.modes.map((mode) => analyzeVariableLegMode(candidate.baseProject, candidate.adjustment, mode, 72, 90));
+      const finalMetrics = candidate.modes.map((mode) => analyzeVariableLegMode(
+        candidate.baseProject,
+        candidate.adjustment,
+        mode,
+        runtimeProfile.phaseSamples,
+        runtimeProfile.iterations,
+      ));
       const hardGateResult = assessGuidedHardGate(finalMetrics, request.scenario);
       if (hardGateResult.passed) candidates.push({
       ...candidate,

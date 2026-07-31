@@ -27,6 +27,30 @@ describe("site localization", () => {
     expect(`${selected}${target}`).not.toMatch(/\p{Script=Han}/u);
   });
 
+  it("localizes the beginner quick-start flow and matched-reference status", () => {
+    const intro = translateText(
+      "播放看看，也可以表达你想要的步子、抬脚和速度。拖动后会匹配最接近的已验证走法，并始终保留上一个可走参考。",
+      "en",
+    );
+    const matched = translateText(
+      "已匹配到最接近的可走参考：平稳走；实际约 204 mm 步幅、69 mm 抬脚、14 rpm。",
+      "en",
+    );
+    const switched = translateText(
+      "已切换到高抬脚参考；这是经过整周验证的可走方案。",
+      "en",
+    );
+
+    expect(intro).toContain("nearest verified gait");
+    expect(matched).toBe(
+      "Matched the nearest verified reference: Smooth; actual 204 mm step, 69 mm clearance, 14 rpm.",
+    );
+    expect(switched).toBe(
+      "Switched to High Step reference; this gait has been verified over the full cycle.",
+    );
+    expect(`${intro}${matched}${switched}`).not.toMatch(/\p{Script=Han}/u);
+  });
+
   it("keeps every internal destination inside the active language", () => {
     expect(withLanguagePath("/variable-leg?transfer=designer", "en"))
       .toBe("/en/variable-leg?transfer=designer");

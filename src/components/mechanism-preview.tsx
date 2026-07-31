@@ -19,28 +19,17 @@ type MechanismLayout = {
 const groundA = { x: 126, y: 310 };
 const groundB = { x: 492, y: 310 };
 const groundC = { x: 610, y: 310 };
-const initialInput = { x: 230, y: 190 };
-const initialOutput = { x: 438, y: 150 };
-const initialSecondary = { x: 560, y: 95 };
+const initialInput = { x: 176, y: 223 };
+const initialOutput = { x: 380, y: 98 };
+const initialSecondary = { x: 560, y: 80 };
 const crankLength = Math.hypot(initialInput.x - groundA.x, initialInput.y - groundA.y);
 const couplerLength = Math.hypot(initialOutput.x - initialInput.x, initialOutput.y - initialInput.y);
 const rockerLength = Math.hypot(groundB.x - initialOutput.x, groundB.y - initialOutput.y);
 const secondaryCouplerLength = Math.hypot(initialSecondary.x - initialOutput.x, initialSecondary.y - initialOutput.y);
 const secondaryRockerLength = Math.hypot(groundC.x - initialSecondary.x, groundC.y - initialSecondary.y);
 const initialPhase = Math.atan2(initialInput.y - groundA.y, initialInput.x - groundA.x);
-const groundLength = Math.hypot(groundB.x - groundA.x, groundB.y - groundA.y);
-const phaseLimit = Math.acos(
-  Math.max(
-    -1,
-    Math.min(
-      1,
-      (groundLength ** 2 + crankLength ** 2 - (couplerLength + rockerLength) ** 2) /
-        (2 * groundLength * crankLength),
-    ),
-  ),
-);
-const motionMinPhase = -phaseLimit + 0.015;
-const motionMaxPhase = phaseLimit - 0.015;
+const motionMinPhase = 0;
+const motionMaxPhase = Math.PI * 2;
 
 function solveCirclePair(
   centerA: Point,
@@ -67,9 +56,9 @@ function solveCirclePair(
     x: base.x + height * perpendicular.x,
     y: base.y + height * perpendicular.y,
   };
-  return Math.hypot(upper.x - preferred.x, upper.y - preferred.y) <= Math.hypot(lower.x - preferred.x, lower.y - preferred.y)
-    ? upper
-    : lower;
+  const preferredSide = Math.sign(dx * (preferred.y - centerA.y) - dy * (preferred.x - centerA.x)) || 1;
+  const upperSide = Math.sign(dx * (upper.y - centerA.y) - dy * (upper.x - centerA.x)) || preferredSide;
+  return preferredSide * upperSide > 0 ? upper : lower;
 }
 
 function solveLayout(phase: number): MechanismLayout {
@@ -97,7 +86,7 @@ function solveLayout(phase: number): MechanismLayout {
 const initialLayout = solveLayout(initialPhase);
 
 function buildMotionPath(selectPoint: (layout: MechanismLayout) => Point) {
-  const samples = 96;
+  const samples = 160;
   return Array.from({ length: samples + 1 }, (_, index) => {
     const phase = motionMinPhase + ((motionMaxPhase - motionMinPhase) * index) / samples;
     const point = selectPoint(solveLayout(phase));
@@ -109,15 +98,9 @@ const trajectoryPath = buildMotionPath((layout) => layout.trace);
 const couplerTrajectoryPath = buildMotionPath((layout) => layout.coupler);
 const secondaryTrajectoryPath = buildMotionPath((layout) => layout.secondary);
 const driveSweepPath = (() => {
-  const start = {
-    x: groundA.x + crankLength * Math.cos(motionMinPhase),
-    y: groundA.y + crankLength * Math.sin(motionMinPhase),
-  };
-  const end = {
-    x: groundA.x + crankLength * Math.cos(motionMaxPhase),
-    y: groundA.y + crankLength * Math.sin(motionMaxPhase),
-  };
-  return `M ${start.x.toFixed(2)} ${start.y.toFixed(2)} A ${crankLength.toFixed(2)} ${crankLength.toFixed(2)} 0 0 1 ${end.x.toFixed(2)} ${end.y.toFixed(2)}`;
+  const right = { x: groundA.x + crankLength, y: groundA.y };
+  const left = { x: groundA.x - crankLength, y: groundA.y };
+  return `M ${right.x.toFixed(2)} ${right.y.toFixed(2)} A ${crankLength.toFixed(2)} ${crankLength.toFixed(2)} 0 1 1 ${left.x.toFixed(2)} ${left.y.toFixed(2)} A ${crankLength.toFixed(2)} ${crankLength.toFixed(2)} 0 1 1 ${right.x.toFixed(2)} ${right.y.toFixed(2)}`;
 })();
 
 function degrees(radians: number) {
@@ -132,15 +115,9 @@ export function MechanismPreview({ language }: { language: Language }) {
 
     let frame = 0;
     const startedAt = performance.now();
-    const motionSpan = motionMaxPhase - motionMinPhase;
-    const cycleSpan = motionSpan * 2;
-    const motionRate = 0.48;
-    const startingProgress = initialPhase - motionMinPhase;
+    const motionRate = 0.58;
     const animate = (now: number) => {
-      const progress = (startingProgress + ((now - startedAt) / 1000) * motionRate) % cycleSpan;
-      const phase = progress <= motionSpan
-        ? motionMinPhase + progress
-        : motionMaxPhase - (progress - motionSpan);
+      const phase = initialPhase + ((now - startedAt) / 1000) * motionRate;
       setLayout(solveLayout(phase));
       frame = window.requestAnimationFrame(animate);
     };

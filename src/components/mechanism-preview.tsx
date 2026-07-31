@@ -10,6 +10,7 @@ type MechanismLayout = {
   input: Point;
   coupler: Point;
   output: Point;
+  traceAnchor: Point;
   trace: Point;
   phase: number;
 };
@@ -63,26 +64,42 @@ function solveLayout(phase: number): MechanismLayout {
   const couplerVector = { x: output.x - input.x, y: output.y - input.y };
   const couplerDistance = Math.hypot(couplerVector.x, couplerVector.y);
   const normal = { x: -couplerVector.y / couplerDistance, y: couplerVector.x / couplerDistance };
+  const traceAnchor = {
+    x: input.x + couplerVector.x * 0.65,
+    y: input.y + couplerVector.y * 0.65,
+  };
   const trace = {
-    x: input.x + couplerVector.x * 0.65 + normal.x * 98,
-    y: input.y + couplerVector.y * 0.65 + normal.y * 98,
+    x: traceAnchor.x + normal.x * 98,
+    y: traceAnchor.y + normal.y * 98,
   };
 
-  return { input, coupler: output, output: groundB, trace, phase };
+  return { input, coupler: output, output: groundB, traceAnchor, trace, phase };
 }
 
 const initialLayout = solveLayout(initialPhase);
 
-function buildTrajectoryPath() {
+function buildMotionPath(selectPoint: (layout: MechanismLayout) => Point) {
   const samples = 96;
   return Array.from({ length: samples + 1 }, (_, index) => {
     const phase = motionMinPhase + ((motionMaxPhase - motionMinPhase) * index) / samples;
-    const point = solveLayout(phase).trace;
+    const point = selectPoint(solveLayout(phase));
     return `${index === 0 ? "M" : "L"} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`;
   }).join(" ");
 }
 
-const trajectoryPath = buildTrajectoryPath();
+const trajectoryPath = buildMotionPath((layout) => layout.trace);
+const couplerTrajectoryPath = buildMotionPath((layout) => layout.coupler);
+const driveSweepPath = (() => {
+  const start = {
+    x: groundA.x + crankLength * Math.cos(motionMinPhase),
+    y: groundA.y + crankLength * Math.sin(motionMinPhase),
+  };
+  const end = {
+    x: groundA.x + crankLength * Math.cos(motionMaxPhase),
+    y: groundA.y + crankLength * Math.sin(motionMaxPhase),
+  };
+  return `M ${start.x.toFixed(2)} ${start.y.toFixed(2)} A ${crankLength.toFixed(2)} ${crankLength.toFixed(2)} 0 0 1 ${end.x.toFixed(2)} ${end.y.toFixed(2)}`;
+})();
 
 function degrees(radians: number) {
   return ((radians * 180) / Math.PI + 360) % 360;
@@ -120,21 +137,31 @@ export function MechanismPreview({ language }: { language: Language }) {
     <div className="mechanism-card" aria-label={labels.card}>
       <div className="card-head"><span>LINKAGE / LIVE PREVIEW</span><span>θ {degrees(layout.phase).toFixed(1)}°</span></div>
       <svg viewBox="-60 40 720 500" role="img" aria-label={labels.image}>
+        <path className="drive-sweep" d={driveSweepPath} />
+        <path className="coupler-trajectory" d={couplerTrajectoryPath} />
         <path className="trajectory" d={trajectoryPath} />
         <line className="ground" x1={groundA.x} y1={groundA.y} x2={groundB.x} y2={groundB.y} />
         <line className="link link-a" x1={groundA.x} y1={groundA.y} x2={layout.input.x} y2={layout.input.y} />
         <line className="link link-b" x1={layout.input.x} y1={layout.input.y} x2={layout.coupler.x} y2={layout.coupler.y} />
         <line className="link link-c" x1={layout.coupler.x} y1={layout.coupler.y} x2={layout.output.x} y2={layout.output.y} />
         <line className="coupler" x1={layout.input.x} y1={layout.input.y} x2={layout.trace.x} y2={layout.trace.y} />
+        <line className="coupler-offset" x1={layout.coupler.x} y1={layout.coupler.y} x2={layout.trace.x} y2={layout.trace.y} />
+        <circle className="trace-anchor" cx={layout.traceAnchor.x} cy={layout.traceAnchor.y} r="4" />
         {[groundA, layout.input, layout.coupler, groundB].map((point, index) => (
           <g key={`${index}-${point.x.toFixed(2)}`}>
             <circle className="joint-ring" cx={point.x} cy={point.y} r="13" />
             <circle className="joint" cx={point.x} cy={point.y} r="5" />
           </g>
         ))}
+        <g className="joint-labels" aria-hidden="true">
+          <text x={groundA.x - 28} y={groundA.y + 28}>J1</text>
+          <text x={layout.input.x - 24} y={layout.input.y - 20}>J2</text>
+          <text x={layout.coupler.x + 14} y={layout.coupler.y - 16}>J3</text>
+          <text x={layout.trace.x + 12} y={layout.trace.y - 12}>P</text>
+        </g>
         <circle className="trace-point" cx={layout.trace.x} cy={layout.trace.y} r="7" />
       </svg>
-      <div className="card-stats"><span>PLANE <b>XY</b></span><span>DOF <b>1</b></span><span>SOLVER <b>READY</b></span></div>
+      <div className="card-stats"><span>PLANE <b>XY</b></span><span>LINKS <b>4</b></span><span>TRACE <b>P</b></span><span>SOLVER <b>READY</b></span></div>
     </div>
   );
 }

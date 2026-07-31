@@ -52,11 +52,6 @@ a { color:inherit; text-decoration:none; }
 .mechanism-card .walking-chassis rect { fill:#222825; stroke:#0b0f0e; stroke-width:4; }
 .mechanism-card .walking-chassis line { stroke:var(--acid); stroke-width:3; opacity:.72; }
 .mechanism-card .walking-chassis text { fill:#dce4d8; font:10px "Geist Mono","Cascadia Mono",Consolas,monospace; letter-spacing:.08em; text-anchor:middle; }
-.mechanism-card .walking-skeleton-spine { stroke:var(--acid); stroke-width:5; stroke-linecap:round; opacity:.82; }
-.mechanism-card .walking-skeleton-rod { stroke:#a9b6aa; stroke-width:4; stroke-linecap:round; stroke-linejoin:round; opacity:.82; }
-.mechanism-card .walking-skeleton-rib { stroke:#748279; stroke-width:3; stroke-linecap:round; opacity:.8; }
-.mechanism-card .walking-skeleton-joint { fill:#111515; stroke:#e7eee6; stroke-width:2; }
-.mechanism-card .walking-skeleton-head { fill:#111515; stroke:#a9b6aa; stroke-width:3; }
 .mechanism-card .walking-leg { transition:opacity .12s ease; }
 .mechanism-card .walking-leg-right { opacity:.48; }
 .mechanism-card .walking-leg-swing { opacity:.62; }

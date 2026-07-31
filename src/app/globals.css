@@ -47,6 +47,24 @@ a { color:inherit; text-decoration:none; }
 .mechanism-card .joint { fill:var(--acid); }
 .mechanism-card .trace-point { fill:var(--acid); stroke:#111515; stroke-width:3; filter:drop-shadow(0 0 5px rgb(199 255 56 / 60%)); }
 .mechanism-card .joint-labels { fill:#7c8880; font:9px "Geist Mono","Cascadia Mono",Consolas,monospace; letter-spacing:.08em; }
+.mechanism-card .walking-grid { fill:none; stroke:#29302c; stroke-width:1; opacity:.7; }
+.mechanism-card .walking-ground { stroke:#8c968e; stroke-width:5; }
+.mechanism-card .walking-chassis rect { fill:#222825; stroke:#0b0f0e; stroke-width:4; }
+.mechanism-card .walking-chassis line { stroke:var(--acid); stroke-width:3; opacity:.72; }
+.mechanism-card .walking-chassis text { fill:#dce4d8; font:10px "Geist Mono","Cascadia Mono",Consolas,monospace; letter-spacing:.08em; text-anchor:middle; }
+.mechanism-card .walking-leg { transition:opacity .12s ease; }
+.mechanism-card .walking-leg-right { opacity:.48; }
+.mechanism-card .walking-leg-swing { opacity:.62; }
+.mechanism-card .walking-leg-right.walking-leg-swing { opacity:.3; }
+.mechanism-card .walking-body { fill:rgb(163 189 98 / 16%); stroke:#68851f; stroke-width:4; stroke-linejoin:round; }
+.mechanism-card .walking-link { stroke:#eef0e8; stroke-width:9; stroke-linecap:round; }
+.mechanism-card .walking-leg-stance .walking-link { stroke:#151a17; }
+.mechanism-card .walking-leg-stance .walking-driver { stroke:var(--acid); }
+.mechanism-card .walking-joint circle:first-child { fill:#111515; stroke:#f1f2eb; stroke-width:4; }
+.mechanism-card .walking-joint circle:last-child { fill:var(--acid); }
+.mechanism-card .walking-foot { fill:var(--acid); stroke:#111515; stroke-width:3; filter:drop-shadow(0 0 4px rgb(199 255 56 / 45%)); }
+.mechanism-card .walking-leg-label { fill:#818d84; font:9px "Geist Mono","Cascadia Mono",Consolas,monospace; letter-spacing:.08em; }
+.mechanism-card .walking-footprints ellipse { fill:none; stroke:#667169; stroke-width:2; stroke-dasharray:6 7; opacity:.7; }
 .workbenches { padding:110px 0 120px; }
 .section-title { display:flex; justify-content:space-between; gap:40px; align-items:end; margin-bottom:55px; }
 .section-title>div>p { margin:0 0 12px; color:var(--muted); }

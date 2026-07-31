@@ -91,8 +91,7 @@ export function VariableLegDeploymentView({
       );
       const jointMap = new Map(sample.project.joints.map((joint) => [joint.id, joint]));
       const mountX = variableLegMountX(leg, deployment);
-      const sideOffsetX = leg.side === "right" ? 14 : 0;
-      const transform = `translate(${mountX + sideOffsetX} 0) translate(${anchor.x} ${anchor.y}) scale(${visualScale}) translate(${-anchor.x} ${-anchor.y})`;
+      const transform = `translate(${mountX} 0) translate(${anchor.x} ${anchor.y}) scale(${visualScale}) translate(${-anchor.x} ${-anchor.y})`;
       return <g key={leg.id}>
         <g
           transform={transform}
@@ -117,7 +116,7 @@ export function VariableLegDeploymentView({
         {sample.tracer && <circle cx={sample.tracer.x} cy={sample.tracer.y} r="10" className={styles.deployedFoot} />}
         </g>
         <text
-          x={mountX + anchor.x + sideOffsetX}
+          x={mountX + anchor.x}
           y={chassis.y - (leg.side === "right" ? 26 : 10)}
           className={styles.deployedLegLabel}
           textAnchor="middle"

@@ -17,6 +17,7 @@ import styles from "./home-mechanism-preview.module.css";
 
 const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
 const FRAME_INTERVAL = 1000 / 30;
+const MECHANISM_OFFSET_X = 105;
 
 export type HomeMechanismPreviewLabels = {
   sceneAriaLabel: string;
@@ -72,7 +73,19 @@ function pathData(points: HomeMechanismPoint[]) {
 
 function groupTransform(scene: HomeMechanismScene, mountX: number) {
   const [anchorX, anchorY] = scene.anchor;
-  return `translate(${mountX} 0) translate(${anchorX} ${anchorY}) scale(${scene.visualScale}) translate(${-anchorX} ${-anchorY})`;
+  return `translate(${MECHANISM_OFFSET_X + mountX} 0) translate(${anchorX} ${anchorY}) scale(${scene.visualScale}) translate(${-anchorX} ${-anchorY})`;
+}
+
+function scenePoint(
+  scene: HomeMechanismScene,
+  point: HomeMechanismPoint,
+  mountX = 0,
+): HomeMechanismPoint {
+  const [anchorX, anchorY] = scene.anchor;
+  return [
+    MECHANISM_OFFSET_X + mountX + anchorX + (point[0] - anchorX) * scene.visualScale,
+    anchorY + (point[1] - anchorY) * scene.visualScale,
+  ];
 }
 
 export function HomeMechanismPreview({
@@ -103,6 +116,14 @@ export function HomeMechanismPreview({
   const barCount = scene.topology.bars.length;
   const bodyCount = scene.topology.bodies.length;
   const jointCount = scene.topology.jointIds.length;
+  const primaryFixedJoint = scene.frames[0]?.joints[scene.topology.fixedJoints[0]] ?? scene.anchor;
+  const mountStations = [...new Set(scene.legs.map((leg) => leg.mountX))].sort((a, b) => a - b);
+  const datumPoints = mountStations.map((mountX) => scenePoint(scene, primaryFixedJoint, mountX));
+  const datumY = datumPoints[0]?.[1] ?? scene.anchor[1];
+  const canvasLeft = scene.viewBox[0];
+  const canvasTop = scene.viewBox[1];
+  const canvasRight = canvasLeft + scene.viewBox[2];
+  const dimensionX = Math.min((datumPoints.at(-1)?.[0] ?? scene.anchor[0]) + 16, canvasRight - 148);
 
   useEffect(() => {
     const root = rootRef.current;
@@ -252,6 +273,33 @@ export function HomeMechanismPreview({
           height={scene.viewBox[3]}
           fill={`url(#${gridId})`}
         />
+        <g className={styles.datumLayer} aria-hidden="true">
+          <line
+            className={styles.datumLine}
+            x1={canvasLeft + 8}
+            y1={datumY}
+            x2={canvasRight - 8}
+            y2={datumY}
+          />
+          {datumPoints.map(([x]) => (
+            <g key={`datum-${x}`}>
+              <line
+                className={styles.datumLine}
+                x1={x}
+                y1={canvasTop + 4}
+                x2={x}
+                y2={scene.groundY + 6}
+              />
+              <line
+                className={styles.datumTick}
+                x1={x}
+                y1={datumY - 27}
+                x2={x}
+                y2={datumY - 11}
+              />
+            </g>
+          ))}
+        </g>
         <line
           className={styles.ground}
           x1={scene.viewBox[0]}
@@ -337,25 +385,17 @@ export function HomeMechanismPreview({
           );
         })}
 
-        <g className={styles.chassis} aria-hidden="true">
-          <rect
-            x={scene.chassis.x}
-            y={scene.chassis.y}
-            width={scene.chassis.width}
-            height={scene.chassis.height}
-            rx="12"
-          />
-          <line
-            x1={scene.chassis.x + 28}
-            y1={scene.chassis.y + scene.chassis.height / 2}
-            x2={scene.chassis.x + scene.chassis.width - 28}
-            y2={scene.chassis.y + scene.chassis.height / 2}
-          />
-          <text
-            x={scene.chassis.x + scene.chassis.width / 2}
-            y={scene.chassis.y + 24}
-          >
-            OPENLINKAGE / 4-LEG WALK
+        <g
+          className={styles.pathDimension}
+          transform={`translate(${dimensionX} ${scene.groundY + 34})`}
+          aria-hidden="true"
+        >
+          <path d="M0 -4V4M0 0H13M13 -4V4" />
+          <text x="22" y="3">
+            {labels.trajectoryLabel}
+            <tspan className={styles.pathDimensionValue} dx="6">
+              {Math.round(scene.metrics.stepLength)} MM
+            </tspan>
           </text>
         </g>
       </svg>

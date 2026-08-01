@@ -23,7 +23,7 @@ npm run dev
 
 ## 许可证
 
-Apache-2.0
+MIT
 
 ## 在线体验
 

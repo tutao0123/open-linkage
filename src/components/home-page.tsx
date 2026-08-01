@@ -68,7 +68,6 @@ export function HomePage({ language }: { language: Language }) {
         <section
           id="top"
           className={styles.hero}
-          data-cinematic-hero
           aria-labelledby="home-hero-title"
         >
           <div className={styles.heroSticky}>

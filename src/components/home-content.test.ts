@@ -105,4 +105,13 @@ describe("homepage content", () => {
       });
     }
   });
+
+  it("keeps the public license copy aligned with MIT", () => {
+    for (const locale of locales) {
+      const content = getHomeContent(locale);
+      expect(content.facts.find(({ id }) => id === "license")?.detail).toBe("MIT");
+      expect(content.openSource.description).toMatch(/MIT/i);
+      expect(content.footer.licenseLabel).toMatch(/MIT/i);
+    }
+  });
 });

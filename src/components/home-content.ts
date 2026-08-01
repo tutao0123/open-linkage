@@ -169,7 +169,7 @@ export const HOME_CONTENT = {
     facts: [
       { id: "workbenches", label: "5 个工作台", detail: "分析、综合与自由搭建" },
       { id: "runtime", label: "浏览器端", detail: "无需本地安装" },
-      { id: "license", label: "开源", detail: "Apache-2.0" },
+      { id: "license", label: "开源", detail: "MIT" },
       { id: "synthesis", label: "多工况综合", detail: "一次比较多种运动目标" },
     ],
     workbenchSection: {
@@ -259,14 +259,14 @@ export const HOME_CONTENT = {
     openSource: {
       eyebrow: "OPEN ENGINEERING",
       title: "把机构设计留在可复现、可继续的工作流里。",
-      description: "OpenLinkage 以 Apache-2.0 开源。查看源码、复现实验，或基于现有工作台继续构建。",
+      description: "OpenLinkage 以 MIT 开源。查看源码、复现实验，或基于现有工作台继续构建。",
       cta: "在 GitHub 上查看 OpenLinkage",
       href: GITHUB_HREF,
       ariaLabel: "在 GitHub 查看 OpenLinkage 源码（新窗口）",
     },
     footer: {
       tagline: "面向学生与创客的平面机构设计工具。",
-      licenseLabel: "Apache-2.0 许可证",
+      licenseLabel: "MIT 许可证",
       githubLabel: "GitHub",
       githubAriaLabel: "在 GitHub 打开 OpenLinkage（新窗口）",
       githubHref: GITHUB_HREF,
@@ -332,7 +332,7 @@ export const HOME_CONTENT = {
     facts: [
       { id: "workbenches", label: "5 workbenches", detail: "Analysis, synthesis, and free-form building" },
       { id: "runtime", label: "In the browser", detail: "No local installation" },
-      { id: "license", label: "Open source", detail: "Apache-2.0" },
+      { id: "license", label: "Open source", detail: "MIT" },
       { id: "synthesis", label: "Multi-condition synthesis", detail: "Compare several motion targets together" },
     ],
     workbenchSection: {
@@ -422,14 +422,14 @@ export const HOME_CONTENT = {
     openSource: {
       eyebrow: "OPEN ENGINEERING",
       title: "Keep mechanism design reproducible and ready to continue.",
-      description: "OpenLinkage is available under Apache-2.0. Read the source, reproduce an experiment, or build on the existing workbenches.",
+      description: "OpenLinkage is available under the MIT License. Read the source, reproduce an experiment, or build on the existing workbenches.",
       cta: "View OpenLinkage on GitHub",
       href: GITHUB_HREF,
       ariaLabel: "View the OpenLinkage source on GitHub (new window)",
     },
     footer: {
       tagline: "Planar mechanism design tools for students and makers.",
-      licenseLabel: "Apache-2.0 license",
+      licenseLabel: "MIT license",
       githubLabel: "GitHub",
       githubAriaLabel: "Open OpenLinkage on GitHub (new window)",
       githubHref: GITHUB_HREF,

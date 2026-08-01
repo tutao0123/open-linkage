@@ -1,103 +1,225 @@
 import Link from "next/link";
 
-import { MechanismPreview } from "@/components/mechanism-preview";
-import { localizeReactTree, type Language } from "@/lib/i18n";
+import { getHomeContent } from "@/components/home-content";
+import { HomeMechanismPreview } from "@/components/home-mechanism-preview";
+import { createHomeMechanismScene } from "@/components/home-mechanism-scene";
+import { HomeMotionController } from "@/components/home-motion-controller";
+import { HomeWorkbenchPreview } from "@/components/home-workbench-preview";
+import { LanguageSwitcher } from "@/components/locale-shell";
+import { homeMono, homeSans } from "@/lib/home-fonts";
+import { withLanguagePath, type Language } from "@/lib/i18n";
 
-const workbenches = [
-  {
-    number: "01",
-    eyebrow: "FOUR-BAR DESIGN",
-    title: "四杆机构设计",
-    text: "分析曲柄摇杆、双曲柄和双摇杆机构，绘制目标轨迹并自动拟合四杆尺寸。",
-    href: "/lab",
-    action: "进入四杆设计",
-    status: "分析 · 轨迹拟合",
-  },
-  {
-    number: "02",
-    eyebrow: "SIX-BAR SYNTHESIS",
-    title: "六杆腿机构综合",
-    text: "面向步行与奔跑机构，绘制足端轨迹并生成多套兼顾精度和传动性能的六杆方案。",
-    href: "/leg",
-    action: "进入六杆腿设计",
-    status: "机械腿 · 多方案综合",
-  },
-  {
-    number: "03",
-    eyebrow: "VARIABLE GEOMETRY LEG",
-    title: "可变几何步行腿",
-    text: "以克兰腿和简森腿为原型，通过移动固定铰点或可锁止伸缩杆，让同一机构适配巡航、高速与越障轨迹。",
-    href: "/variable-leg",
-    action: "进入可变步行腿工作台",
-    status: "多工况 · 轨迹族综合",
-  },
-  {
-    number: "04",
-    eyebrow: "STRAIGHT-LINE MECHANISMS",
-    title: "经典直线机构",
-    text: "比较瓦特、彻比雪夫、霍肯和波塞利耶机构，自动识别最佳直线段并评价行程与误差。",
-    href: "/straight-line",
-    action: "进入直线机构工作台",
-    status: "经典机构 · 直线性能",
-  },
-  {
-    number: "05",
-    eyebrow: "FREE MECHANISM",
-    title: "自由机构设计器",
-    text: "像搭积木一样添加铰点与杆件，指定主动杆，实时观察任意平面机构的运动和轨迹。",
-    href: "/designer",
-    action: "开始自由搭建",
-    status: "N 杆 · 自由拓扑",
-  },
-] as const;
+import styles from "./home-page.module.css";
+
+const HOME_MECHANISM_SCENE = createHomeMechanismScene();
+
+function Brand({ label }: { label: string }) {
+  return (
+    <a className={styles.brand} href="#top" aria-label={label}>
+      <span className={styles.brandMark} aria-hidden="true" />
+      <span>OpenLinkage</span>
+    </a>
+  );
+}
 
 export function HomePage({ language }: { language: Language }) {
-  return localizeReactTree((
-    <main className="home-shell">
-      <nav className="home-nav">
-        <a className="brand" href="#top" aria-label="OpenLinkage 首页">
-          <span className="brand-mark" />
-          OpenLinkage
-        </a>
-        <span className="version">OPEN SOURCE · BROWSER CAD</span>
-      </nav>
+  const content = getHomeContent(language);
+  const featuredWorkbench = content.workbenches.find((workbench) => workbench.featured);
+  if (!featuredWorkbench) throw new Error("The homepage requires one featured workbench");
 
-      <section className="hero" id="top">
-        <div className="hero-copy">
-          <p className="eyebrow">PLANAR MECHANISM DESIGN, IN THE BROWSER</p>
-          <h1>从运动目标，<br />到机构方案。</h1>
-          <p className="intro">
-            一个开源、浏览器端的平面机构设计与自动综合平台。选择标准机构快速分析，
-            或从铰点和杆件开始自由搭建自己的机构。
-          </p>
-          <div className="actions">
-            <a className="primary" href="#workbenches">选择设计模块</a>
-            <a className="secondary" href="https://github.com/tutao0123/open-linkage" target="_blank" rel="noreferrer">查看 GitHub</a>
+  const orderedWorkbenches = [
+    featuredWorkbench,
+    ...content.workbenches.filter((workbench) => !workbench.featured),
+  ];
+
+  return (
+    <div
+      className={`${styles.page} ${homeSans.variable} ${homeMono.variable}`}
+      data-home-root
+      lang={language === "zh" ? "zh-CN" : "en"}
+    >
+      <a className={styles.skipLink} href="#main-content">{content.skipLabel}</a>
+
+      <header className={styles.header}>
+        <div className={styles.headerInner}>
+          <Brand label={content.nav.homeLabel} />
+          <nav className={styles.nav} aria-label={content.nav.ariaLabel}>
+            <a href="#workbenches" aria-label={content.nav.workbenchesAriaLabel}>
+              {content.nav.workbenchesLabel}
+            </a>
+            <a
+              href={content.nav.githubHref}
+              target="_blank"
+              rel="noreferrer"
+              aria-label={content.nav.githubAriaLabel}
+            >
+              {content.nav.githubLabel} ↗
+            </a>
+          </nav>
+          <LanguageSwitcher
+            language={language}
+            variant="inline"
+            className={styles.languageSwitcher}
+          />
+        </div>
+      </header>
+
+      <main id="main-content" className={styles.main} aria-label={content.aria.mainLabel}>
+        <section
+          id="top"
+          className={styles.hero}
+          data-cinematic-hero
+          aria-labelledby="home-hero-title"
+        >
+          <div className={styles.heroSticky}>
+            <div className={styles.progressLabel} aria-hidden="true">01 — 03</div>
+
+            <div className={styles.heroCopy}>
+              <p className={styles.eyebrow}>{content.hero.eyebrow}</p>
+              <h1 id="home-hero-title" className={styles.headline}>{content.hero.headline}</h1>
+              <p className={styles.intro}>{content.hero.intro}</p>
+              <div className={styles.heroActions}>
+                <a className={styles.primaryAction} href="#workbenches">
+                  {content.hero.primaryCta}<span aria-hidden="true">↓</span>
+                </a>
+                <Link
+                  className={styles.secondaryAction}
+                  href={withLanguagePath(featuredWorkbench.href, language)}
+                >
+                  {content.hero.secondaryCta}<span aria-hidden="true">↗</span>
+                </Link>
+              </div>
+            </div>
+
+            <div className={styles.sceneColumn}>
+              <div className={styles.sceneCode} aria-hidden="true">
+                <span>MODE <strong>SMOOTH</strong></span>
+                <span>SOLVER <strong>{Math.round(HOME_MECHANISM_SCENE.solver.validRatio * 100)}%</strong></span>
+              </div>
+              <div className={styles.sceneFrame}>
+                <HomeMechanismPreview
+                  scene={HOME_MECHANISM_SCENE}
+                  labels={content.hero.sceneLabels}
+                />
+              </div>
+            </div>
+
+            <ol className={styles.chapters} aria-label={content.aria.chaptersLabel}>
+              {content.chapters.map((chapter) => (
+                <li className={styles.chapter} key={chapter.id}>
+                  <span className={styles.chapterNumber}>{chapter.number}</span>
+                  <h2>{chapter.title}</h2>
+                  <p>{chapter.description}</p>
+                </li>
+              ))}
+            </ol>
           </div>
-        </div>
+        </section>
 
-        <MechanismPreview language={language} />
-      </section>
-
-      <section className="workbenches" id="workbenches">
-        <div className="section-title">
-          <div><p>DESIGN WORKBENCHES</p><h2>选择你的设计方式</h2></div>
-          <p className="section-note">标准机构快速求解，自由机构灵活探索。</p>
-        </div>
-        <div className="workbench-grid">
-          {workbenches.map((workbench) => (
-            <article className="workbench-card" key={workbench.number}>
-              <div className="workbench-meta"><span>{workbench.number}</span><span>{workbench.eyebrow}</span></div>
-              <h3>{workbench.title}</h3>
-              <p>{workbench.text}</p>
-              <span className="workbench-status">{workbench.status}</span>
-              <Link href={workbench.href}>{workbench.action}<span aria-hidden="true">↗</span></Link>
-            </article>
+        <section
+          className={styles.factRail}
+          aria-label={content.aria.factRailLabel}
+          data-home-reveal
+        >
+          {content.facts.map((fact) => (
+            <div className={styles.fact} key={fact.id}>
+              <strong className={styles.factValue}>{fact.label}</strong>
+              <span className={styles.factLabel}>{fact.detail}</span>
+            </div>
           ))}
-        </div>
-      </section>
+        </section>
 
-      <footer><span>Apache-2.0</span><span>GitHub + Vercel</span></footer>
-    </main>
-  ), language);
+        <section
+          id="workbenches"
+          className={styles.workbenches}
+          aria-labelledby="workbenches-title"
+        >
+          <div className={styles.sectionHeading} data-home-reveal>
+            <div>
+              <p className={styles.eyebrow}>{content.workbenchSection.eyebrow}</p>
+              <h2 id="workbenches-title">{content.workbenchSection.title}</h2>
+            </div>
+            <p className={styles.sectionIntro}>{content.workbenchSection.intro}</p>
+          </div>
+
+          <div className={styles.bento} aria-label={content.workbenchSection.ariaLabel}>
+            {orderedWorkbenches.map((workbench) => (
+              <article
+                className={`${styles.cardFrame} ${workbench.featured ? styles.cardFrameFeatured : ""}`}
+                key={workbench.id}
+                data-home-reveal
+              >
+                <Link
+                  className={`${styles.workbenchCard} ${workbench.featured ? `${styles.featuredCard}` : ""}`}
+                  href={withLanguagePath(workbench.href, language)}
+                  aria-label={workbench.ariaLabel}
+                >
+                  <div className={styles.cardMeta}>
+                    <span>{workbench.number}</span>
+                    <span>
+                      {workbench.featured ? `${content.workbenchSection.featuredLabel} · ` : ""}
+                      {workbench.eyebrow}
+                    </span>
+                  </div>
+
+                  <div className={styles.cardPreview}>
+                    <HomeWorkbenchPreview kind={workbench.previewKind} />
+                  </div>
+
+                  <h3>{workbench.title}</h3>
+                  <p className={styles.cardDescription}>{workbench.description}</p>
+                  <ul className={styles.cardCapabilities} aria-hidden="true">
+                    {workbench.capabilities.map((capability) => <li key={capability}>{capability}</li>)}
+                  </ul>
+                  <div className={styles.cardFooter}>
+                    <div>
+                      <span className={styles.cardStatus}>{workbench.status}</span>
+                      <span className={styles.cardAction}>{workbench.action}</span>
+                    </div>
+                    <span className={styles.cardArrow} aria-hidden="true">↗</span>
+                  </div>
+                </Link>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section
+          className={styles.openSource}
+          aria-labelledby="open-source-title"
+          data-home-reveal
+        >
+          <div>
+            <p className={styles.openSourceEyebrow}>{content.openSource.eyebrow}</p>
+            <h2 id="open-source-title">{content.openSource.title}</h2>
+            <p className={styles.openSourceDescription}>{content.openSource.description}</p>
+          </div>
+          <a
+            className={styles.openSourceCta}
+            href={content.openSource.href}
+            target="_blank"
+            rel="noreferrer"
+            aria-label={content.openSource.ariaLabel}
+          >
+            {content.openSource.cta}<span aria-hidden="true">↗</span>
+          </a>
+        </section>
+      </main>
+
+      <footer className={styles.footer} aria-label={content.aria.footerLabel}>
+        <span>{content.footer.tagline}</span>
+        <span>{content.footer.licenseLabel}</span>
+        <a
+          href={content.footer.githubHref}
+          target="_blank"
+          rel="noreferrer"
+          aria-label={content.footer.githubAriaLabel}
+        >
+          {content.footer.githubLabel} ↗
+        </a>
+      </footer>
+
+      <HomeMotionController />
+    </div>
+  );
 }

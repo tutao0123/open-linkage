@@ -1,0 +1,79 @@
+.preview {
+  display: block;
+  width: 100%;
+  height: auto;
+  color: var(--home-accent, #c9ff43);
+}
+
+.surface {
+  fill: #101411;
+}
+
+.grid {
+  fill: none;
+  stroke: rgb(221 231 219 / 7%);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.mechanism line,
+.mechanism circle,
+.mechanism path {
+  vector-effect: non-scaling-stroke;
+}
+
+.bar,
+.bodyEdge,
+.driver {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.bar {
+  stroke: #d8ddd3;
+  stroke-width: 3;
+}
+
+.bodyEdge {
+  stroke: #7d897d;
+  stroke-width: 3.5;
+}
+
+.driver {
+  stroke: currentColor;
+  stroke-width: 4.5;
+}
+
+.fixedMount {
+  fill: rgb(201 255 67 / 13%);
+  stroke: #899388;
+  stroke-width: 1.25;
+}
+
+.fixedJoint,
+.movableJoint {
+  stroke-width: 2;
+}
+
+.fixedJoint {
+  fill: #101411;
+  stroke: currentColor;
+}
+
+.movableJoint {
+  fill: #101411;
+  stroke: #f1f3eb;
+}
+
+.tracer circle:first-child {
+  fill: rgb(201 255 67 / 10%);
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-dasharray: 2.5 3;
+  vector-effect: non-scaling-stroke;
+}
+
+.tracer circle:last-child {
+  fill: currentColor;
+}

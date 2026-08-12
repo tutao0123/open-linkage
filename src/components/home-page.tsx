@@ -97,7 +97,7 @@ export function HomePage({ language }: { language: Language }) {
         </div>
       </section>
 
-      <footer><span>Apache-2.0</span><span>GitHub + Vercel</span></footer>
+      <footer><span>MIT License</span><span>GitHub + Vercel</span></footer>
     </main>
   ), language);
 }

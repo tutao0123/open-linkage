@@ -1,8 +1,16 @@
 # OpenLinkage
 
-OpenLinkage 是一个开源、浏览器端的平面机构设计与自动综合平台。
+[中文](README.md) | [English](README.en.md)
 
-项目将从四杆机构实验室开始，逐步支持目标轨迹拟合、六杆腿、可变几何机构和绳驱动手指。
+OpenLinkage 是一个开源、浏览器端的平面机构设计与自动综合平台。你可以快速分析经典机构，也可以从铰点和杆件开始搭建自己的平面机构。
+
+## 功能概览
+
+- 四杆机构参数编辑、运动分析、轨迹绘制与尺寸综合
+- 六杆腿足端轨迹绘制、多候选方案综合与传动性能评价
+- 克兰腿、简森腿等可变几何步行腿的多工况轨迹综合
+- 瓦特、彻比雪夫、霍肯、波塞利耶等经典直线机构对比
+- 支持任意平面拓扑的自由机构设计器
 
 ## 本地开发
 
@@ -11,23 +19,32 @@ npm install
 npm run dev
 ```
 
-打开 `http://localhost:3000`。
+打开 <http://localhost:3000>。
 
-## 路线图
+常用命令：
 
-- 0.1：四杆机构参数编辑、画布拖动、动画、轨迹、工程分析和项目 JSON（已上线）
-- 0.2：通用平面约束机构
-- 0.3：手绘闭合轨迹与浏览器端四杆自动拟合（基础版已上线）
-- 0.4：Watt 类六杆腿手绘轨迹、多候选全局优化、传动性能排名和项目 JSON（已上线）
-- 0.5：克兰/简森可变几何步行腿、多工况轨迹族综合、离散锁止位置与自由设计器传递（已上线）
-
-## 许可证
-
-Apache-2.0
+```bash
+npm run lint   # 检查代码
+npm test       # 运行测试
+npm run build  # 构建生产版本
+```
 
 ## 在线体验
 
-- 官网：https://linkage.wtt.autos
-- 四杆实验室：https://linkage.wtt.autos/lab
-- 六杆腿实验室：https://linkage.wtt.autos/leg
-- 可变几何步行腿：https://linkage.wtt.autos/variable-leg
+- 官网：<https://linkage.wtt.autos>
+- 四杆实验室：<https://linkage.wtt.autos/lab>
+- 六杆腿实验室：<https://linkage.wtt.autos/leg>
+- 可变几何步行腿：<https://linkage.wtt.autos/variable-leg>
+- 自由机构设计器：<https://linkage.wtt.autos/designer>
+
+## 路线图
+
+- 0.1：四杆机构基础设计与分析（已上线）
+- 0.2：通用平面约束机构
+- 0.3：手绘闭合轨迹与浏览器端四杆自动拟合（基础版已上线）
+- 0.4：Watt 类六杆腿轨迹综合与传动性能评价（已上线）
+- 0.5：克兰/简森可变几何步行腿、多工况轨迹族综合与自由设计器传递（已上线）
+
+## 许可证
+
+本项目采用 [MIT License](LICENSE) 开源。

@@ -12,9 +12,12 @@ body { margin:0; background:var(--paper); color:var(--ink); font-family:"Geist",
 a { color:inherit; text-decoration:none; }
 .home-shell { min-height:100vh; padding:0 4vw; }
 .home-nav { height:84px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid var(--line); }
+.home-nav-actions { display:flex; align-items:center; gap:22px; }
 .brand { display:flex; align-items:center; gap:11px; font-size:18px; font-weight:680; letter-spacing:-.03em; }
 .brand-mark { width:20px; height:20px; border:5px solid var(--ink); border-radius:50%; position:relative; }
 .brand-mark:after { content:""; position:absolute; width:24px; height:3px; background:var(--ink); left:10px; top:4px; transform:rotate(-28deg); transform-origin:left center; }
+.language-switch { appearance:none; border:1px solid var(--line); background:transparent; color:inherit; padding:8px 10px; cursor:pointer; font:inherit; font-size:11px; letter-spacing:.08em; }
+.language-switch:hover { border-color:var(--ink); background:var(--acid); }
 .version,.eyebrow,.section-title>div>p,.card-head,.card-stats,.workbench-meta,.workbench-status,footer { font-family:"Geist Mono","Cascadia Mono",Consolas,monospace; font-size:11px; letter-spacing:.08em; }
 .hero { min-height:690px; display:grid; grid-template-columns:.88fr 1.12fr; gap:6vw; align-items:center; border-bottom:1px solid var(--line); }
 .eyebrow { margin:0 0 30px; color:var(--muted); }

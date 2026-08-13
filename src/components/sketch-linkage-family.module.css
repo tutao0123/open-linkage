@@ -52,7 +52,7 @@
 .camMechanism circle {
   fill: #f4f3ed;
   stroke: #171b1a;
-  stroke-width: 2;
+  stroke-width: 2.5;
 }
 
 .xyMechanism rect,
@@ -79,27 +79,29 @@
   font-weight: 700 !important;
 }
 
-.inputShaft circle {
-  fill: #171b1a;
-  stroke: #171b1a;
-}
-
-.inputShaft line,
+.inputCrank line,
 .powerSplit,
 .syncShaft {
   fill: none;
+  stroke: #476a83;
+  stroke-width: 5;
+  stroke-linecap: round;
+}
+
+.inputCrank circle {
+  fill: #f4f3ed;
   stroke: #171b1a;
-  stroke-width: 3;
+  stroke-width: 2.5;
 }
 
 .xDrive circle,
 .xDrive rect {
-  stroke: #c7692d;
+  stroke: #171b1a;
 }
 
 .yDrive circle,
 .yDrive rect {
-  stroke: #3f7194;
+  stroke: #476a83;
 }
 
 .xDrive line,
@@ -112,12 +114,12 @@
 
 .xDrive line,
 .xDrive path {
-  stroke: #c7692d;
+  stroke: #171b1a;
 }
 
 .yDrive line,
 .yDrive path {
-  stroke: #3f7194;
+  stroke: #476a83;
 }
 
 .xPushrod,
@@ -129,12 +131,12 @@
 
 .xPushrod,
 .xCarriage {
-  stroke: #c7692d;
+  stroke: #171b1a;
 }
 
 .yPushrod,
 .yCarriage {
-  stroke: #3f7194;
+  stroke: #476a83;
 }
 
 .xCarriage,
@@ -159,6 +161,90 @@
   fill: #c7fb43 !important;
   stroke: #171b1a !important;
   stroke-width: 3 !important;
+}
+
+.groundBase {
+  fill: none;
+  stroke: #70766f;
+  stroke-width: 11;
+  stroke-linecap: round;
+}
+
+.groundPost {
+  fill: none;
+  stroke: #a0a59e;
+  stroke-width: 2;
+  stroke-dasharray: 5 4;
+}
+
+.jointMarker path {
+  fill: none;
+  stroke: #70766f !important;
+  stroke-width: 1.5 !important;
+}
+
+.jointMarker circle:first-of-type {
+  fill: #f4f3ed !important;
+  stroke: #171b1a !important;
+  stroke-width: 2.5 !important;
+}
+
+.jointMarker circle:nth-of-type(2) {
+  fill: #171b1a !important;
+  stroke: none !important;
+}
+
+.jointMarker text {
+  fill: #555c56 !important;
+  font-size: 7px !important;
+  font-weight: 500 !important;
+}
+
+.activeJoint circle:first-of-type {
+  fill: #c7fb43 !important;
+}
+
+.gearWheel {
+  fill: none !important;
+  stroke-dasharray: 3 2;
+}
+
+.eccentricPin {
+  fill: #c7fb43 !important;
+  stroke: #171b1a !important;
+}
+
+.harmonicLink {
+  stroke-width: 2.5 !important;
+  stroke-linecap: round;
+}
+
+.sliderBlock,
+.carriageBlock {
+  fill: #f4f3ed !important;
+  stroke: #171b1a !important;
+}
+
+.axisMotion {
+  stroke-width: 2 !important;
+}
+
+.camBase {
+  fill: none !important;
+  stroke: #a0a59e !important;
+  stroke-width: 1.5 !important;
+  stroke-dasharray: 5 4;
+}
+
+.camProfile {
+  fill: rgb(199 251 67 / 12%) !important;
+  stroke-width: 4 !important;
+}
+
+.linkBar {
+  stroke-width: 6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .operationChain {

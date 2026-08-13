@@ -176,6 +176,23 @@ function format(value: number, digits = 1) {
   return Number.isFinite(value) ? value.toFixed(digits) : "—";
 }
 
+function JointMarker({ x, y, label, fixed = false, active = false }: {
+  x: number;
+  y: number;
+  label: string;
+  fixed?: boolean;
+  active?: boolean;
+}) {
+  return (
+    <g className={`${familyStyles.jointMarker} ${fixed ? familyStyles.fixedJoint : ""} ${active ? familyStyles.activeJoint : ""}`}>
+      {fixed && <path d={`M${x - 13} ${y + 13}H${x + 13}M${x - 9} ${y + 13}l-5 7M${x} ${y + 13}l-5 7M${x + 9} ${y + 13}l-5 7`} />}
+      <circle cx={x} cy={y} r="7" />
+      <circle cx={x} cy={y} r="2.5" />
+      <text x={x + 10} y={y - 10}>{label}</text>
+    </g>
+  );
+}
+
 type FamilyMode = DemoMechanismFamily | "compare";
 
 function familyCode(family: DemoMechanismFamily, copy: typeof COPY.zh | typeof COPY.en) {
@@ -183,6 +200,10 @@ function familyCode(family: DemoMechanismFamily, copy: typeof COPY.zh | typeof C
   if (family === "geared-five-bar") return copy.gearedFiveBarCode;
   if (family === "gear-synchronized-xy") return copy.xyCode;
   return copy.camCode;
+}
+
+function defaultZoomFor(family?: DemoMechanismFamily) {
+  return family === "gear-synchronized-xy" || family === "dual-groove-cam" ? 0.8 : 1;
 }
 
 export function SketchLinkageLab() {
@@ -275,7 +296,7 @@ export function SketchLinkageLab() {
     setSelectedId(nextCandidates[0]?.id ?? null);
     setPlaying(false);
     setAngle(0);
-    setZoom(1);
+    setZoom(defaultZoomFor(nextCandidates[0]?.family));
     setPan({ x: 0, y: 0 });
   };
 
@@ -284,7 +305,7 @@ export function SketchLinkageLab() {
     setCandidates(nextCandidates);
     setSelectedId(nextCandidates[0]?.id ?? null);
     setAngle(0);
-    setZoom(1);
+    setZoom(defaultZoomFor(nextCandidates[0]?.family));
     setPan({ x: 0, y: 0 });
     setPlaying(nextCandidates.length > 0 && !window.matchMedia("(prefers-reduced-motion: reduce)").matches);
   };
@@ -294,7 +315,7 @@ export function SketchLinkageLab() {
   };
 
   const resetView = () => {
-    setZoom(1);
+    setZoom(defaultZoomFor(selected?.family));
     setPan({ x: 0, y: 0 });
   };
 
@@ -468,13 +489,13 @@ export function SketchLinkageLab() {
               )}
               {xyMechanism && selected?.family === "gear-synchronized-xy" && (
                 <g className={familyStyles.xyMechanism}>
-                  <g className={familyStyles.inputShaft} transform={`rotate(${xyMechanism.sharedInputShaft.rotationDegrees} 72 122)`}>
-                    <circle cx="72" cy="122" r="21" />
-                    <line x1="54" y1="122" x2="90" y2="122" />
-                    <line x1="72" y1="104" x2="72" y2="140" />
+                  <g className={familyStyles.inputCrank} transform={`rotate(${xyMechanism.sharedInputShaft.rotationDegrees} 72 122)`}>
+                    <line x1="72" y1="122" x2="93" y2="122" />
+                    <circle cx="93" cy="122" r="4" />
                   </g>
-                  <text x="43" y="91" className={familyStyles.mechanismLabel}>{copy.inputShaftLabel}</text>
-                  <path d="M94 122H112M103 122V151H112" className={familyStyles.powerSplit} />
+                  <JointMarker x={72} y={122} label="J1" fixed active />
+                  <text x="43" y="91" className={familyStyles.mechanismLabel}>INPUT θ</text>
+                  <path d="M94 122H108M102 122V158H108" className={familyStyles.powerSplit} />
                   {(["x", "y"] as const).map((axis, axisIndex) => {
                     const rowY = axisIndex === 0 ? 111 : 158;
                     const drives = xyMechanism.harmonicDrives.filter((drive) => drive.axis === axis && drive.harmonic <= 4);
@@ -488,51 +509,45 @@ export function SketchLinkageLab() {
                           const pinY = rowY + Math.sin(driveAngle) * 8;
                           return (
                             <g key={`${axis}-${drive.harmonic}`}>
-                              <circle cx={centerX} cy={rowY} r={13} />
+                              <circle cx={centerX} cy={rowY} r={13} className={familyStyles.gearWheel} />
                               <line x1={centerX} y1={rowY} x2={pinX} y2={pinY} />
-                              <circle cx={pinX} cy={pinY} r="3" />
-                              <line x1={pinX} y1={pinY} x2="294" y2={rowY} />
+                              <circle cx={pinX} cy={pinY} r="3" className={familyStyles.eccentricPin} />
+                              <line x1={pinX} y1={pinY} x2="294" y2={rowY} className={familyStyles.harmonicLink} />
                               <text x={centerX} y={rowY + 24} textAnchor="middle">{drive.harmonic}×</text>
                             </g>
                           );
                         })}
-                        <rect x="294" y={rowY - 13} width="18" height="26" />
-                        <path d={`M312 ${rowY}H330`} markerEnd="url(#sketch-motion-arrow)" />
+                        <rect x="286" y={rowY - 10} width="16" height="20" rx="2" className={familyStyles.sliderBlock} />
+                        <path d={`M302 ${rowY}H330`} markerEnd="url(#sketch-motion-arrow)" className={familyStyles.axisMotion} />
                       </g>
                     );
                   })}
-                  <text x="111" y="194" className={familyStyles.mechanismLabel}>{copy.harmonicBankLabel}</text>
                   <line x1={selected.parameters.targetBounds.minimum.x - 18} y1={xyMechanism.point.y} x2={selected.parameters.targetBounds.maximum.x + 18} y2={xyMechanism.point.y} className={familyStyles.yCarriage} />
                   <line x1={xyMechanism.point.x} y1={selected.parameters.targetBounds.minimum.y - 18} x2={xyMechanism.point.x} y2={selected.parameters.targetBounds.maximum.y + 18} className={familyStyles.xCarriage} />
                   <path d={`M330 111H${xyMechanism.point.x}V${xyMechanism.point.y}`} className={familyStyles.xPushrod} />
                   <path d={`M330 158V${xyMechanism.point.y}H${xyMechanism.point.x}`} className={familyStyles.yPushrod} />
-                  <rect x={xyMechanism.point.x - 13} y={xyMechanism.point.y - 13} width="26" height="26" />
-                  <text x={xyMechanism.point.x + 17} y={xyMechanism.point.y - 17} className={familyStyles.mechanismLabel}>{copy.crossSlideLabel}</text>
-                  <circle cx={xyMechanism.point.x} cy={xyMechanism.point.y} r="8" className={familyStyles.demoTracer} />
-                  <text x={xyMechanism.point.x + 13} y={xyMechanism.point.y + 25} className={familyStyles.penLabel}>{copy.penLabel}</text>
+                  <rect x={xyMechanism.point.x - 13} y={xyMechanism.point.y - 13} width="26" height="26" rx="2" className={familyStyles.carriageBlock} />
+                  <JointMarker x={xyMechanism.point.x} y={xyMechanism.point.y} label="P" active />
                 </g>
               )}
               {camMechanism && camDisplay && selected?.family === "dual-groove-cam" && (
                 <g className={familyStyles.camMechanism}>
-                  <text x="42" y="66" className={familyStyles.mechanismLabel}>{copy.camPairLabel}</text>
                   <path d="M105 72V83H245V72" className={familyStyles.syncShaft} />
                   {([camDisplay.x, camDisplay.y] as const).map((cam, camIndex) => (
                     <g key={camIndex} className={camIndex === 0 ? familyStyles.xDrive : familyStyles.yDrive}>
-                      <circle cx={cam.center.x} cy={cam.center.y} r={cam.baseRadius} />
-                      <path d={pointsPath(cam.groove)} />
-                      <circle cx={cam.center.x} cy={cam.center.y} r="5" />
-                      <circle cx={cam.contactPoint.x} cy={cam.contactPoint.y} r="8" className={familyStyles.followerRoller} />
+                      <circle cx={cam.center.x} cy={cam.center.y} r={cam.baseRadius} className={familyStyles.camBase} />
+                      <path d={pointsPath(cam.groove)} className={familyStyles.camProfile} />
+                      <JointMarker x={cam.center.x} y={cam.center.y} label={`J${camIndex + 1}`} fixed active={camIndex === 0} />
+                      <JointMarker x={cam.contactPoint.x} y={cam.contactPoint.y} label={`F${camIndex + 1}`} />
                       <text x={cam.center.x} y={cam.center.y + 73} textAnchor="middle">{camIndex === 0 ? "X CAM" : "Y CAM"}</text>
                     </g>
                   ))}
-                  <text x="310" y="88" className={familyStyles.mechanismLabel}>{copy.followerLabel}</text>
-                  <polyline points={`${camDisplay.x.contactPoint.x},${camDisplay.x.contactPoint.y} ${camMechanism.crossSlide.drawingPoint.x},${camDisplay.x.contactPoint.y} ${camMechanism.crossSlide.drawingPoint.x},${camMechanism.crossSlide.drawingPoint.y}`} className={familyStyles.xPushrod} markerEnd="url(#sketch-motion-arrow)" />
-                  <polyline points={`${camDisplay.y.contactPoint.x},${camDisplay.y.contactPoint.y} ${camDisplay.y.contactPoint.x},${camMechanism.crossSlide.drawingPoint.y} ${camMechanism.crossSlide.drawingPoint.x},${camMechanism.crossSlide.drawingPoint.y}`} className={familyStyles.yPushrod} markerEnd="url(#sketch-motion-arrow)" />
+                  <polyline points={`${camDisplay.x.contactPoint.x},${camDisplay.x.contactPoint.y} ${camMechanism.crossSlide.drawingPoint.x},${camDisplay.x.contactPoint.y} ${camMechanism.crossSlide.drawingPoint.x},${camMechanism.crossSlide.drawingPoint.y}`} className={`${familyStyles.xPushrod} ${familyStyles.linkBar}`} markerEnd="url(#sketch-motion-arrow)" />
+                  <polyline points={`${camDisplay.y.contactPoint.x},${camDisplay.y.contactPoint.y} ${camDisplay.y.contactPoint.x},${camMechanism.crossSlide.drawingPoint.y} ${camMechanism.crossSlide.drawingPoint.x},${camMechanism.crossSlide.drawingPoint.y}`} className={`${familyStyles.yPushrod} ${familyStyles.linkBar}`} markerEnd="url(#sketch-motion-arrow)" />
                   <line x1={selected.parameters.xLaw.minimum - 18} y1={camMechanism.crossSlide.drawingPoint.y} x2={selected.parameters.xLaw.maximum + 18} y2={camMechanism.crossSlide.drawingPoint.y} className={familyStyles.yCarriage} />
                   <line x1={camMechanism.crossSlide.drawingPoint.x} y1={selected.parameters.yLaw.minimum - 18} x2={camMechanism.crossSlide.drawingPoint.x} y2={selected.parameters.yLaw.maximum + 18} className={familyStyles.xCarriage} />
-                  <rect x={camMechanism.crossSlide.drawingPoint.x - 13} y={camMechanism.crossSlide.drawingPoint.y - 13} width="26" height="26" />
-                  <circle cx={camMechanism.crossSlide.drawingPoint.x} cy={camMechanism.crossSlide.drawingPoint.y} r="8" className={familyStyles.demoTracer} />
-                  <text x={camMechanism.crossSlide.drawingPoint.x + 13} y={camMechanism.crossSlide.drawingPoint.y + 25} className={familyStyles.penLabel}>{copy.penLabel}</text>
+                  <rect x={camMechanism.crossSlide.drawingPoint.x - 13} y={camMechanism.crossSlide.drawingPoint.y - 13} width="26" height="26" rx="2" className={familyStyles.carriageBlock} />
+                  <JointMarker x={camMechanism.crossSlide.drawingPoint.x} y={camMechanism.crossSlide.drawingPoint.y} label="P" active />
                 </g>
               )}
               {!selected && <text x="295" y="285" textAnchor="middle" className={styles.emptyCanvas}>CAT CURVE → SOLVE → ANIMATE</text>}
@@ -549,7 +564,7 @@ export function SketchLinkageLab() {
           {candidates.length === 0 ? <p className={styles.emptyResults}>{copy.empty}</p> : (
             <div className={styles.candidateList}>
               {candidates.map((candidate, index) => (
-                <button key={candidate.id} type="button" className={candidate.id === selected?.id ? styles.selectedCandidate : ""} onClick={() => { setSelectedId(candidate.id); setAngle(0); setZoom(1); setPan({ x: 0, y: 0 }); }}>
+                <button key={candidate.id} type="button" className={candidate.id === selected?.id ? styles.selectedCandidate : ""} onClick={() => { setSelectedId(candidate.id); setAngle(0); setZoom(defaultZoomFor(candidate.family)); setPan({ x: 0, y: 0 }); }}>
                   <span><b>{copy.candidate} {String(index + 1).padStart(2, "0")}</b><i>{familyCode(candidate.family, copy)}{("assemblyMode" in candidate) ? ` · ${candidate.assemblyMode.toUpperCase()}` : ""}</i></span>
                   <span><small>{copy.error}</small><strong>{format(candidate.normalizedRmse * 100, 2)}%</strong></span>
                 </button>

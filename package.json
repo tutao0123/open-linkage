@@ -2,7 +2,16 @@
   "name": "open-linkage",
   "version": "0.1.0",
   "private": true,
+  "description": "Browser-based planar linkage design, kinematic simulation, and mechanism synthesis.",
   "license": "MIT",
+  "homepage": "https://linkage.wtt.autos",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tutao0123/open-linkage.git"
+  },
+  "bugs": {
+    "url": "https://github.com/tutao0123/open-linkage/issues"
+  },
   "scripts": {
     "dev": "next dev --turbopack",
     "build": "next build",
@@ -15,19 +24,21 @@
     "reference-library": "vite-node scripts/generate_variable_leg_reference_library.ts"
   },
   "dependencies": {
-    "next": "16.2.10",
+    "@supabase/ssr": "0.12.4",
+    "@supabase/supabase-js": "2.112.3",
+    "next": "16.2.12",
     "react": "19.2.4",
     "react-dom": "19.2.4"
   },
   "devDependencies": {
+    "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "16.2.10",
-    "vitest": "^3.2.4",
+    "eslint-config-next": "16.2.12",
     "tailwindcss": "^4",
-    "@tailwindcss/postcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^3.2.4"
   }
 }

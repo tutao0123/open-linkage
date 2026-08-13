@@ -70,6 +70,17 @@ import {
   type VariableLegGaitPreset,
 } from "@/lib/variable-leg-gait";
 import { resampleClosedPath } from "@/lib/path-synthesis";
+import { consumeVariableLegUsage, usageMessage } from "@/lib/variable-leg-entitlements";
+import {
+  getLastSyncedVariableLegRevision,
+  isVariableLegProjectCloudSyncEnabled,
+  loadVariableLegCloudSnapshot,
+  prepareVariableLegCloudIdentity,
+  rememberSyncedVariableLegRevision,
+  resolveVariableLegCloudBootstrap,
+  saveVariableLegCloudSnapshot,
+  type VariableLegCloudStatus,
+} from "@/lib/variable-leg-cloud";
 import {
   variableLegBarLengthParameterId,
   variableLegJointParameterId,
@@ -169,7 +180,24 @@ function createSessionEvent(prefix: string) {
   };
 }
 
-function initializeLegSession(project: VariableLegProject, persisted: unknown = null): LegSession {
+function restoreCloudDesignRuns(values: unknown[], revisionId: string): LegSession["designRuns"] {
+  return values.flatMap((value) => {
+    if (!value || typeof value !== "object") return [];
+    const run = value as Record<string, unknown>;
+    if (typeof run.runId !== "string"
+      || typeof run.sourceRevisionId !== "string"
+      || (run.kind !== "generation" && run.kind !== "refinement" && run.kind !== "legacy")
+      || (run.status !== "pending" && run.status !== "running" && run.status !== "completed" && run.status !== "failed" && run.status !== "cancelled")
+      || !Array.isArray(run.candidates)
+      || typeof run.createdAt !== "number") return [];
+    return [{
+      ...run,
+      stale: Boolean(run.stale) || run.sourceRevisionId !== revisionId,
+    } as LegSession["designRuns"][number]];
+  });
+}
+
+function initializeLegSession(project: VariableLegProject, persisted: unknown = null, remoteDesignRuns: unknown[] = []): LegSession {
   const workingProject = cloneVariableLegProject(project);
   const legacyCandidates = workingProject.candidates ?? [];
   workingProject.candidates = [];
@@ -206,7 +234,7 @@ function initializeLegSession(project: VariableLegProject, persisted: unknown = 
     ...session,
     revisionId: workingProject.revisionId,
     workingProject,
-    designRuns: legacyCandidates.length ? [{
+    designRuns: remoteDesignRuns.length ? restoreCloudDesignRuns(remoteDesignRuns, workingProject.revisionId) : legacyCandidates.length ? [{
       runId: "legacy-candidates",
       sourceRevisionId: "legacy-unvalidated",
       kind: "legacy",
@@ -353,6 +381,34 @@ function removeUnsafeLegacyRecommendations(project: VariableLegProject) {
   return next;
 }
 
+function createPersistedCheckpoint(
+  session: LegSession,
+  name: string,
+  event: ReturnType<typeof createSessionEvent>,
+) {
+  const checkpointed = createMajorCheckpoint(session, name, event);
+  const checkpoint = checkpointed.versionHistory.at(-1);
+  const workingProject = advanceVariableLegProjectRevision(
+    cloneVariableLegProject(checkpointed.workingProject),
+  );
+  workingProject.currentVersionId = checkpoint?.checkpointId ?? workingProject.currentVersionId;
+  const next = {
+    ...checkpointed,
+    revisionId: workingProject.revisionId,
+    workingProject,
+    versionHistory: checkpointed.versionHistory.map((item, index) => (
+      index === checkpointed.versionHistory.length - 1
+        ? {
+          ...item,
+          revisionId: workingProject.revisionId,
+          project: cloneVariableLegProject(workingProject),
+        }
+        : item
+    )),
+  };
+  return markDesignRunsStaleByRevision(next, workingProject.revisionId);
+}
+
 function quickStartValuesFromProject(project: VariableLegProject): QuickStartValues {
   const requirement = project.requirements.find((item) => item.role === "primary" && item.enabled)
     ?? project.requirements.find((item) => item.enabled)
@@ -387,6 +443,15 @@ const QUICK_PRESET_COPY: Record<ReferencePresetId, {
     label: "高抬脚",
     description: "增加摆动离地高度，更容易看清抬脚过程。",
   },
+};
+
+const CLOUD_STATUS_COPY: Record<VariableLegCloudStatus, string> = {
+  "local-only": "本地保存",
+  connecting: "正在连接云端",
+  synced: "云端已同步",
+  saving: "正在同步云端",
+  conflict: "云端版本待处理",
+  unavailable: "云端暂不可用",
 };
 
 export function VariableGeometryLegLab() {
@@ -436,6 +501,8 @@ export function VariableGeometryLegLab() {
   const [allowedRefinementIds, setAllowedRefinementIds] = useState<VariableLegRefinementParameterId[]>([]);
   const [refinementModeIds, setRefinementModeIds] = useState<string[]>(() => initialProject.requirements.filter((item) => item.enabled).map((item) => item.modeId));
   const [searchProgress, setSearchProgress] = useState<VariableLegSynthesisProgress>({ progress: 0, stage: "scan", message: "等待开始" });
+  const [localHydrated, setLocalHydrated] = useState(false);
+  const [cloudStatus, setCloudStatus] = useState<VariableLegCloudStatus>("local-only");
   const svgRef = useRef<SVGSVGElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const resultsToggleRef = useRef<HTMLButtonElement>(null);
@@ -447,6 +514,13 @@ export function VariableGeometryLegLab() {
   const footprintSequenceRef = useRef(0);
   const pointDragRef = useRef<{ pointerId: number; index: number } | null>(null);
   const lastKnownGoodQuickProjectRef = useRef(cloneVariableLegProject(initialProject));
+  const cloudBootstrapStartedRef = useRef(false);
+  const cloudProjectIdRef = useRef<string | null>(null);
+  const cloudRevisionIdRef = useRef<string | null>(null);
+  const cloudConflictRef = useRef(false);
+  const cloudBootstrapCompleteRef = useRef(false);
+  const cloudSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const pendingCloudSessionRef = useRef<LegSession | null>(null);
   const viewportBase = useMemo(() => ({ x: -560, y: -360, width: 1120, height: 760 }), []);
   const viewport = useSvgViewport(viewportBase, svgRef);
 
@@ -630,8 +704,10 @@ export function VariableGeometryLegLab() {
 
   const acceptQuickReference = (nextStep: WorkspaceStep, intent: "continue" | "goals" | "advanced") => {
     const accepted = advanceVariableLegProjectRevision(cloneVariableLegProject(lastKnownGoodQuickProjectRef.current));
+    const acceptedSession = initializeLegSession(accepted);
     resetHistory(accepted);
-    setSession(initializeLegSession(accepted));
+    setSession(acceptedSession);
+    queueCloudSave(acceptedSession);
     setRefinementModeIds(accepted.requirements.filter((item) => item.enabled).map((item) => item.modeId));
     setQuickStart(false);
     setWorkspaceStep(nextStep);
@@ -660,6 +736,89 @@ export function VariableGeometryLegLab() {
     setBarLengthPreview((current) => current?.barId === barId ? current : null);
   }, []);
 
+  const queueCloudSave = useCallback((nextSession: LegSession, announce = false) => {
+    if (!isVariableLegProjectCloudSyncEnabled()) return;
+    const snapshot = structuredClone(withSessionProjectMetadata(nextSession));
+    const projectId = cloudProjectIdRef.current;
+    if (!projectId || !cloudBootstrapCompleteRef.current) {
+      pendingCloudSessionRef.current = snapshot;
+      return;
+    }
+
+    cloudSaveQueueRef.current = cloudSaveQueueRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        if (cloudConflictRef.current) {
+          pendingCloudSessionRef.current = snapshot;
+          setCloudStatus("conflict");
+          return;
+        }
+        setCloudStatus("saving");
+        const saved = await saveVariableLegCloudSnapshot({
+          projectId,
+          expectedRevisionId: cloudRevisionIdRef.current,
+          project: snapshot.workingProject,
+          versionHistory: snapshot.versionHistory,
+          designRuns: snapshot.designRuns,
+        });
+        cloudRevisionIdRef.current = saved.revisionId;
+        cloudConflictRef.current = false;
+        rememberSyncedVariableLegRevision(window.sessionStorage, saved.revisionId);
+        setCloudStatus("synced");
+        if (announce) setMessage("已保存当前版本，并同步到云端。");
+      })
+      .catch((error: unknown) => {
+        const detail = error instanceof Error ? error.message : String(error);
+        const conflict = detail.includes("cloud_revision_conflict") || detail.includes("cloud_version_conflict");
+        if (conflict) {
+          cloudConflictRef.current = true;
+          pendingCloudSessionRef.current = snapshot;
+        }
+        setCloudStatus(conflict ? "conflict" : "unavailable");
+        setMessage(conflict
+          ? "检测到另一个页面保存了不同版本；已保留当前本地项目，未覆盖云端。"
+          : "本地项目已保存，但云端同步暂时不可用；恢复连接后可再次保存。" );
+      });
+  }, []);
+
+  const adoptRemoteCloudVersion = useCallback(async () => {
+    const projectId = cloudProjectIdRef.current;
+    if (!projectId) return;
+    setCloudStatus("connecting");
+    try {
+      const remote = await loadVariableLegCloudSnapshot(projectId);
+      if (!remote) throw new Error("cloud_project_missing");
+      const migrated = migrateVariableLegProject(remote.document);
+      if (!migrated) throw new Error("invalid_cloud_project");
+      const restored = removeUnsafeLegacyRecommendations(migrated);
+      const restoredSession = initializeLegSession(restored, { versionHistory: remote.versionHistory }, remote.designRuns);
+      cloudRevisionIdRef.current = remote.revisionId;
+      cloudConflictRef.current = false;
+      rememberSyncedVariableLegRevision(window.sessionStorage, remote.revisionId);
+      resetHistory(restoredSession.workingProject);
+      setSession(restoredSession);
+      setMotionPhase(restored.inputPhase || 0);
+      setQuickStart(false);
+      setWorkspaceStep(2);
+      setCloudStatus("synced");
+      setMessage("已明确采用云端版本；本地项目已保留在浏览器历史中。");
+      pendingCloudSessionRef.current = null;
+    } catch (error) {
+      setCloudStatus("unavailable");
+      setMessage(error instanceof Error ? `云端版本读取失败：${error.message}` : "云端版本读取失败；本地项目未改变。" );
+    }
+  }, [resetHistory, setMotionPhase]);
+
+  const keepLocalAndSyncCloud = () => {
+    if (!cloudRevisionIdRef.current) {
+      setMessage("当前没有可覆盖的云端版本；请稍后重试云端连接。" );
+      return;
+    }
+    cloudConflictRef.current = false;
+    setCloudStatus("saving");
+    queueCloudSave(sessionRef.current, true);
+  };
+
   useEffect(() => {
     sessionRef.current = session;
   }, [session]);
@@ -674,12 +833,14 @@ export function VariableGeometryLegLab() {
             const returned = applyVariableLegDesignerReturn(transfer);
             window.sessionStorage.removeItem(TRANSFER_KEY);
             if (returned.validation.valid) {
-              resetHistory(returned.project);
-              setSession(createMajorCheckpoint(
+              const returnedSession = createPersistedCheckpoint(
                 initializeLegSession(returned.project),
                 "自由设计器返回",
                 createSessionEvent("designer-return"),
-              ));
+              );
+              resetHistory(returnedSession.workingProject);
+              setSession(returnedSession);
+              pendingCloudSessionRef.current = returnedSession;
               setMotionPhase(returned.project.inputPhase || 0);
               setQuickStart(false);
               setWorkspaceStep(3);
@@ -688,6 +849,7 @@ export function VariableGeometryLegLab() {
               setMessage(`设计器返回失败：${returned.validation.reasons.join("；")}`);
             }
             window.history.replaceState(null, "", "/variable-leg");
+            setLocalHydrated(true);
             return;
           }
         } catch {
@@ -697,7 +859,10 @@ export function VariableGeometryLegLab() {
       const saved = window.localStorage.getItem(STORAGE_KEY)
         ?? window.localStorage.getItem(V2_STORAGE_KEY)
         ?? window.localStorage.getItem(LEGACY_STORAGE_KEY);
-      if (!saved) return;
+      if (!saved) {
+        setLocalHydrated(true);
+        return;
+      }
       try {
         const parsed = JSON.parse(saved) as unknown;
         const migrated = migrateVariableLegProject(parsed);
@@ -716,6 +881,8 @@ export function VariableGeometryLegLab() {
           : "已恢复上次的可变几何步行腿项目。");
       } catch {
         setMessage("自动保存数据无效，已保留可完整运动的平稳行走参考。");
+      } finally {
+        setLocalHydrated(true);
       }
     }, 0);
     return () => window.clearTimeout(timer);
@@ -730,6 +897,98 @@ export function VariableGeometryLegLab() {
     }, 350);
     return () => window.clearTimeout(timer);
   }, [phase, project, quickStart, session.versionHistory]);
+
+  useEffect(() => {
+    if (!localHydrated || cloudBootstrapStartedRef.current) return;
+    cloudBootstrapStartedRef.current = true;
+    if (!isVariableLegProjectCloudSyncEnabled()) return;
+    let cancelled = false;
+
+    const bootstrapCloud = async () => {
+      setCloudStatus("connecting");
+      try {
+        const identity = await prepareVariableLegCloudIdentity(window.localStorage);
+        const projectId = identity.projectId;
+        cloudProjectIdRef.current = projectId;
+        const lastSyncedRevisionId = getLastSyncedVariableLegRevision(window.sessionStorage);
+        const remote = await loadVariableLegCloudSnapshot(projectId);
+        if (cancelled) return;
+
+        const localSession = structuredClone(pendingCloudSessionRef.current ?? sessionRef.current);
+        pendingCloudSessionRef.current = null;
+        const action = resolveVariableLegCloudBootstrap(
+          localSession.revisionId,
+          lastSyncedRevisionId,
+          remote?.revisionId ?? null,
+        );
+
+        if (action === "conflict") {
+          cloudRevisionIdRef.current = remote?.revisionId ?? null;
+          cloudConflictRef.current = true;
+          pendingCloudSessionRef.current = localSession;
+          cloudBootstrapCompleteRef.current = true;
+          setCloudStatus("conflict");
+          setMessage("本地与云端都存在不同修改；已保留当前本地项目，不会自动覆盖任一版本。");
+          return;
+        }
+
+        if (action === "load-remote" && remote) {
+          const migrated = migrateVariableLegProject(remote.document);
+          if (!migrated) throw new Error("invalid_cloud_project");
+          const restored = removeUnsafeLegacyRecommendations(migrated);
+          const restoredSession = initializeLegSession(restored, {
+            versionHistory: remote.versionHistory,
+          }, remote.designRuns);
+          cloudRevisionIdRef.current = remote.revisionId;
+          cloudConflictRef.current = false;
+          rememberSyncedVariableLegRevision(window.sessionStorage, remote.revisionId);
+          resetHistory(restoredSession.workingProject);
+          setSession(restoredSession);
+          setMotionPhase(restored.inputPhase || 0);
+          setQuickStart(false);
+          setWorkspaceStep(2);
+          setCloudStatus("synced");
+          setMessage("已从云端恢复上次保存的可变几何步行腿项目。");
+        } else if (action === "aligned" && remote) {
+          cloudRevisionIdRef.current = remote.revisionId;
+          cloudConflictRef.current = false;
+          rememberSyncedVariableLegRevision(window.sessionStorage, remote.revisionId);
+          setCloudStatus("synced");
+        } else {
+          cloudRevisionIdRef.current = remote?.revisionId ?? null;
+          const cloudSession = withSessionProjectMetadata(localSession);
+          const saved = await saveVariableLegCloudSnapshot({
+            projectId,
+            expectedRevisionId: remote?.revisionId ?? null,
+            project: cloudSession.workingProject,
+            versionHistory: cloudSession.versionHistory,
+            designRuns: cloudSession.designRuns,
+          });
+          if (cancelled) return;
+          cloudRevisionIdRef.current = saved.revisionId;
+          cloudConflictRef.current = false;
+          rememberSyncedVariableLegRevision(window.sessionStorage, saved.revisionId);
+          setCloudStatus("synced");
+        }
+
+        cloudBootstrapCompleteRef.current = true;
+        const pending = pendingCloudSessionRef.current;
+        pendingCloudSessionRef.current = null;
+        if (pending) queueCloudSave(pending);
+      } catch {
+        if (!cancelled) {
+          cloudBootstrapCompleteRef.current = true;
+          setCloudStatus("unavailable");
+          setMessage("本地功能可正常使用；云端同步暂时不可用，将继续保留本地项目。");
+        }
+      }
+    };
+
+    void bootstrapCloud();
+    return () => {
+      cancelled = true;
+    };
+  }, [localHydrated, queueCloudSave, resetHistory, setMotionPhase]);
 
   useEffect(() => {
     if (!playing) return;
@@ -790,21 +1049,38 @@ export function VariableGeometryLegLab() {
 
   useEffect(() => () => workerRef.current?.terminate(), []);
 
-  const updateProject = (updater: (current: VariableLegProject) => VariableLegProject, status?: string) => {
+  const updateProject = (
+    updater: (current: VariableLegProject) => VariableLegProject,
+    status?: string,
+    persist = false,
+  ) => {
     stopMotion();
     resetGaitTrail();
-    const revised = advanceVariableLegProjectRevision(updater(cloneVariableLegProject(projectRef.current)));
-    revised.candidates = [];
-    revised.selectedCandidateId = null;
-    commit(revised);
-    setSession((current) => markDesignRunsStaleByRevision({
-      ...current,
+    const updated = updater(cloneVariableLegProject(projectRef.current));
+    updated.candidates = [];
+    updated.selectedCandidateId = null;
+    const revised = persist
+      ? cloneVariableLegProject(updated)
+      : advanceVariableLegProjectRevision(updated);
+    const baseSession = {
+      ...sessionRef.current,
       revisionId: revised.revisionId,
       workingProject: cloneVariableLegProject(revised),
       draftProject: null,
       draftSource: null,
-    }, revised.revisionId));
+    };
+    const nextSession = persist
+      ? createPersistedCheckpoint(
+        baseSession,
+        status ?? "应用项目修改",
+        createSessionEvent("cloud-save"),
+      )
+      : markDesignRunsStaleByRevision(baseSession, revised.revisionId);
+    commit(cloneVariableLegProject(nextSession.workingProject));
+    setSession(nextSession);
+    if (persist) queueCloudSave(nextSession);
     if (status) setMessage(status);
+    return nextSession;
   };
 
   const updateActiveMode = (updater: (mode: VariableLegMode) => VariableLegMode, status?: string) => {
@@ -1082,11 +1358,26 @@ export function VariableGeometryLegLab() {
     runBarLengthPreview(selectedBar.id, templateBar.length);
   };
 
-  const runSynthesis = (scope: VariableLegSynthesisScope = "global") => {
+  const runSynthesis = async (scope: VariableLegSynthesisScope = "global") => {
     if (searching || project.modes.some((mode) => enabledModeIds.has(mode.id) && mode.targetPath.length < 12)) return;
     if (scope === "current-target" && (!selectedBarId || allowedRefinementIds.length === 0)) {
       setMessage("请先在画布中选择杆件，并明确至少一个允许修改的参数。");
       return;
+    }
+    const usageFeature = scope === "current-target" ? "refinement" : "generation";
+    setSearching(true);
+    try {
+      const decision = await consumeVariableLegUsage(usageFeature);
+      if (!decision.allowed) {
+        setSearching(false);
+        setMessage(usageMessage(usageFeature, decision));
+        return;
+      }
+      setMessage(usageMessage(usageFeature, decision));
+    } catch {
+      // Local/offline builds keep working; production has the same anonymous
+      // Supabase identity available for strict server-side quota checks.
+      setMessage("额度服务暂不可用，已保留本地试用；恢复网络后会继续按免费额度计量。" );
     }
     workerRef.current?.terminate();
     const worker = new Worker(new URL("../workers/variable-leg-synthesis.worker.ts", import.meta.url), { type: "module" });
@@ -1252,7 +1543,11 @@ export function VariableGeometryLegLab() {
       return;
     }
     const preview = cloneVariableLegProject(barLengthPreview.previewProject);
-    updateProject(() => preview, `已应用 ${barLengthPreview.barId} = ${barLengthPreview.nearestFeasibleLength.toFixed(2)} mm；全部工况检查已通过。`);
+    updateProject(
+      () => preview,
+      `已应用 ${barLengthPreview.barId} = ${barLengthPreview.nearestFeasibleLength.toFixed(2)} mm；全部工况检查已通过。`,
+      true,
+    );
     setBarLengthPreview(null);
     setFeasibility(null);
   };
@@ -1294,7 +1589,7 @@ export function VariableGeometryLegLab() {
   const applyRecommendedRange = () => {
     if (!visibleFeasibility?.recommendedInterval) return;
     const result = applyVariableLegRecommendedRange(projectRef.current, visibleFeasibility);
-    updateProject(() => result.project);
+    updateProject(() => result.project, undefined, true);
     setFeasibility(null);
     setFeasibilitySourceKey(null);
     const names = result.clampedModeIds.map((id) => project.modes.find((mode) => mode.id === id)?.name ?? id);
@@ -1344,6 +1639,7 @@ export function VariableGeometryLegLab() {
       ));
       commit(cloneVariableLegProject(next.workingProject));
       setSession(next);
+      queueCloudSave(next);
       resetGaitTrail();
       setWorkspaceStep(4);
       setMessage(`已应用${selected.label}并创建版本检查点；其余候选因源版本变化已标记为过期。`);
@@ -1370,22 +1666,15 @@ export function VariableGeometryLegLab() {
 
   const createVersionCheckpoint = () => {
     const event = createSessionEvent("checkpoint");
-    const checkpointed = createMajorCheckpoint(sessionRef.current, `手动定版 ${sessionRef.current.versionHistory.length + 1}`, event);
-    const checkpoint = checkpointed.versionHistory.at(-1);
-    const workingProject = {
-      ...cloneVariableLegProject(checkpointed.workingProject),
-      currentVersionId: checkpoint?.checkpointId ?? checkpointed.workingProject.currentVersionId,
-    };
-    const next = {
-      ...checkpointed,
-      workingProject,
-      versionHistory: checkpointed.versionHistory.map((item, index) => index === checkpointed.versionHistory.length - 1
-        ? { ...item, project: cloneVariableLegProject(workingProject) }
-        : item),
-    };
-    replace(workingProject);
+    const next = createPersistedCheckpoint(
+      sessionRef.current,
+      `手动定版 ${sessionRef.current.versionHistory.length + 1}`,
+      event,
+    );
+    replace(next.workingProject);
     setSession(next);
-    setMessage("已保存持久化版本检查点。");
+    queueCloudSave(next, true);
+    setMessage("已保存持久化版本检查点，正在同步云端。");
   };
 
   const restoreVersionCheckpoint = (checkpointId: string) => {
@@ -1398,6 +1687,7 @@ export function VariableGeometryLegLab() {
       ));
       commit(cloneVariableLegProject(next.workingProject));
       setSession(next);
+      queueCloudSave(next);
       resetGaitTrail();
       setMessage("已恢复所选版本，并将恢复结果保存为新的检查点。");
     } catch (error) {
@@ -1426,9 +1716,14 @@ export function VariableGeometryLegLab() {
       if (!migrated) throw new Error("invalid");
       const restored = removeUnsafeLegacyRecommendations(migrated);
       const importedSession = initializeLegSession(restored);
-      const checkpointed = createMajorCheckpoint(importedSession, `导入：${file.name}`, createSessionEvent("import"));
+      const checkpointed = createPersistedCheckpoint(
+        importedSession,
+        `导入：${file.name}`,
+        createSessionEvent("import"),
+      );
       resetHistory(checkpointed.workingProject);
       setSession(checkpointed);
+      queueCloudSave(checkpointed);
       setMotionPhase(migrated.inputPhase || 0);
       resetGaitTrail();
       setQuickStart(false);
@@ -1451,7 +1746,11 @@ export function VariableGeometryLegLab() {
   };
 
   const setDeploymentPreset = (preset: Exclude<VariableLegGaitPreset, "custom">) => {
-    updateProject((current) => ({ ...current, deployment: changeVariableLegPreset(current.deployment, preset) }), "已应用步态预设并重新分配各腿相位。" );
+    updateProject(
+      (current) => ({ ...current, deployment: changeVariableLegPreset(current.deployment, preset) }),
+      "已应用步态预设并重新分配各腿相位。",
+      true,
+    );
     setViewMode("deployment");
   };
 
@@ -1639,6 +1938,18 @@ export function VariableGeometryLegLab() {
     activeMode.adjustmentValue < displayProject.adjustment.minimum || activeMode.adjustmentValue > displayProject.adjustment.maximum ? "锁止值超出调节范围。" : null,
     ...gaitWarnings,
   ].filter((warning): warning is string => Boolean(warning));
+
+  if (!localHydrated) {
+    return localizeReactTree((
+      <main className={styles.workspace} aria-busy="true">
+        <section className={styles.hydrationState} role="status" aria-live="polite">
+          <span className={styles.referenceReady}>OPENLINKAGE</span>
+          <h1>正在恢复本地项目</h1>
+          <p>稍等一下，先确保当前项目已恢复，再开放编辑操作。</p>
+        </section>
+      </main>
+    ), language);
+  }
 
   return localizeReactTree((
     <main className={styles.workspace}>
@@ -1998,7 +2309,7 @@ export function VariableGeometryLegLab() {
               <label><input type="radio" name="seed-source" checked={seedSource === "current"} onChange={() => setSeedSource("current")} /><span><b>克隆当前机构</b><br />保持当前拓扑与几何作为真实搜索起点</span></label>
               <label><input type="radio" name="seed-source" checked={seedSource === "template"} onChange={() => setSeedSource("template")} /><span><b>显式模板种子</b><br />当前机构不健康时由你主动选择</span></label>
             </div>
-            <button className={styles.primaryButton} type="button" onClick={() => runSynthesis("global")} disabled={searching}>{searching ? `${Math.round(searchProgress.progress * 100)}% · ${searchProgress.stage}` : "生成并比较候选"}</button>
+            <button className={styles.primaryButton} type="button" onClick={() => void runSynthesis("global")} disabled={searching}>{searching ? `${Math.round(searchProgress.progress * 100)}% · ${searchProgress.stage}` : "生成并比较候选"}</button>
             {searching && <button className={styles.cancelButton} type="button" onClick={cancelSynthesis}>取消搜索</button>}
             <div className={styles.progress}><i style={{ width: `${searchProgress.progress * 100}%` }} /></div>
             <small role="status" aria-live="polite">{searching ? searchProgress.message : message}</small>
@@ -2061,7 +2372,7 @@ export function VariableGeometryLegLab() {
                 </div>
               </fieldset>
             </div>
-            <button className={styles.primaryButton} type="button" onClick={() => runSynthesis("current-target")} disabled={searching || !selectedBarId || allowedRefinementIds.length === 0}>{selectedBarId ? `精修当前杆件 ${selectedBarId}` : "请先在画布选择杆件"}</button>
+            <button className={styles.primaryButton} type="button" onClick={() => void runSynthesis("current-target")} disabled={searching || !selectedBarId || allowedRefinementIds.length === 0}>{selectedBarId ? `精修当前杆件 ${selectedBarId}` : "请先在画布选择杆件"}</button>
             {searching && <button className={styles.cancelButton} type="button" onClick={cancelSynthesis}>取消精修</button>}
             <div className={styles.progress}><i style={{ width: `${searchProgress.progress * 100}%` }} /></div>
             <small role="status" aria-live="polite">{searching ? searchProgress.message : message}</small>
@@ -2105,6 +2416,11 @@ export function VariableGeometryLegLab() {
               {barLengthPreview && <span className={barLengthPreview.requestedValid && barPreviewEvaluation?.hardPassed ? styles.draftValid : styles.draftInvalid}>{barLengthPreview.requestedValid && barPreviewEvaluation?.hardPassed ? "草稿可行" : "草稿未写入"}</span>}
               <b>锁止 {activeMode.adjustmentValue.toFixed(1)}</b>
             </>}
+            <span className={styles.runBadge} role="status" aria-live="polite">{CLOUD_STATUS_COPY[cloudStatus]}</span>
+            {cloudStatus === "conflict" && <span className={styles.cloudConflictActions} role="group" aria-label="本地与云端版本冲突处理">
+              <button type="button" onClick={() => void adoptRemoteCloudVersion()}>采用云端</button>
+              <button type="button" onClick={keepLocalAndSyncCloud}>保留本地并覆盖云端</button>
+            </span>}
           </div>
           <div className={styles.canvas}>
             <div className={styles.canvasActions} role="group" aria-label="画布显示与编辑工具">

@@ -35,16 +35,6 @@ export const PAGE_METADATA = {
       description: "Enter link lengths and analyze the motion, trajectory, and engineering performance of planar four-bar mechanisms in real time.",
     },
   },
-  sketchMechanism: {
-    zh: {
-      title: "草图生成四杆机构 · OpenLinkage",
-      description: "从猫轮廓闭合曲线出发，基于经典四杆运动学搜索相似的连杆轨迹并播放机构动画。",
-    },
-    en: {
-      title: "Sketch to Four-bar Mechanism · OpenLinkage",
-      description: "Synthesize a classic four-bar coupler curve from a closed cat outline and animate the resulting mechanism.",
-    },
-  },
   leg: {
     zh: {
       title: "六杆机械腿轨迹综合 · OpenLinkage",
@@ -97,11 +87,6 @@ const EN_OVERRIDES: Record<string, string> = {
   "选择你的设计方式": "Choose how you want to design",
   "标准机构快速求解，自由机构灵活探索。": "Solve standard mechanisms quickly or explore freely.",
   "进入四杆设计": "Open Four-bar Design",
-  "草图生成四杆机构": "Sketch to Four-bar Mechanism",
-  "给定猫轮廓闭合曲线，从经典闭环方程出发搜索完整可转的四杆机构，让连杆绘图点描出相似轨迹。":
-    "Given a closed cat outline, search the classic loop-closure equations for a full-cycle four-bar whose coupler point traces a similar curve.",
-  "打开草图生成机构": "Open Sketch Synthesis",
-  "猫轮廓 · 四杆综合": "Cat Outline · Four-bar Synthesis",
   "进入六杆腿设计": "Open Six-bar Leg Design",
   "进入可变步行腿工作台": "Open Variable-leg Workbench",
   "进入直线机构工作台": "Open Straight-line Workbench",

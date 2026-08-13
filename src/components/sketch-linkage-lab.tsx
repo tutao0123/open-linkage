@@ -14,6 +14,7 @@ import {
 } from "@/lib/sketch-linkage-demo";
 import { createXYDrawingMechanismGeometry } from "@/lib/xy-drawing-mechanism";
 import { solveDualGrooveCam } from "@/lib/dual-groove-cam";
+import { panSketchCanvas } from "@/lib/sketch-canvas-view";
 import type { Point } from "@/lib/four-bar";
 import { useLanguage } from "./locale-shell";
 import styles from "./sketch-linkage-lab.module.css";
@@ -84,6 +85,13 @@ const COPY = {
     zoomOut: "缩小画布",
     resetZoom: "适应画布",
     zoomIn: "放大画布",
+    panHint: "按住鼠标中键拖动画布",
+    inputShaftLabel: "① 共同输入轴",
+    harmonicBankLabel: "② 整数倍频 + 偏心合成",
+    crossSlideLabel: "③ X/Y 十字滑台",
+    camPairLabel: "① 同步 X/Y 槽凸轮",
+    followerLabel: "② 滚子从动件 + 推杆",
+    penLabel: "④ 绘图笔",
   },
   en: {
     back: "OpenLinkage",
@@ -149,6 +157,13 @@ const COPY = {
     zoomOut: "Zoom out",
     resetZoom: "Fit canvas",
     zoomIn: "Zoom in",
+    panHint: "Hold the middle mouse button to pan",
+    inputShaftLabel: "① Shared input shaft",
+    harmonicBankLabel: "② Integer gears + eccentric summing",
+    crossSlideLabel: "③ X/Y cross slide",
+    camPairLabel: "① Synchronized X/Y groove cams",
+    followerLabel: "② Roller followers + pushrods",
+    penLabel: "④ Drawing pen",
   },
 } as const;
 
@@ -175,11 +190,14 @@ export function SketchLinkageLab() {
   const copy = COPY[language];
   const frameRef = useRef<number | null>(null);
   const previousTimeRef = useRef<number | null>(null);
+  const panDragRef = useRef<{ pointerId: number; x: number; y: number } | null>(null);
   const [candidates, setCandidates] = useState<SketchDemoCandidate[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
   const [angle, setAngle] = useState(0);
   const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState<Point>({ x: 0, y: 0 });
+  const [panning, setPanning] = useState(false);
   const [familyMode, setFamilyMode] = useState<FamilyMode>("compare");
 
   const selected = candidates.find((candidate) => candidate.id === selectedId) ?? candidates[0] ?? null;
@@ -192,13 +210,37 @@ export function SketchLinkageLab() {
   const camMechanism = useMemo(() => selected?.family === "dual-groove-cam"
     ? solveDualGrooveCam(selected.parameters, angle)
     : null, [angle, selected]);
+  const camDisplay = useMemo(() => {
+    if (!camMechanism || selected?.family !== "dual-groove-cam") return null;
+    const mapCam = (
+      cam: typeof camMechanism.cams.x,
+      law: typeof selected.parameters.xLaw,
+      center: Point,
+    ) => {
+      const scale = 54 / Math.max(1, law.baseRadius + law.lift);
+      const mapPoint = (point: Point) => ({
+        x: center.x + (point.x - cam.center.x) * scale,
+        y: center.y + (point.y - cam.center.y) * scale,
+      });
+      return {
+        center,
+        baseRadius: cam.baseCircleRadius * scale,
+        groove: cam.groove.map(mapPoint),
+        contactPoint: mapPoint(cam.contactPoint),
+      };
+    };
+    return {
+      x: mapCam(camMechanism.cams.x, selected.parameters.xLaw, { x: 105, y: 130 }),
+      y: mapCam(camMechanism.cams.y, selected.parameters.yLaw, { x: 245, y: 130 }),
+    };
+  }, [camMechanism, selected]);
   const targetPath = useMemo(() => pointsPath(CAT_TARGET_CURVE), []);
   const tracePath = useMemo(() => selected ? pointsPath(selected.trajectory) : "", [selected]);
   const canvasViewBox = useMemo(() => {
     const width = 540 / zoom;
     const height = 450 / zoom;
-    return `${295 - width / 2} ${275 - height / 2} ${width} ${height}`;
-  }, [zoom]);
+    return `${295 + pan.x - width / 2} ${275 + pan.y - height / 2} ${width} ${height}`;
+  }, [pan, zoom]);
 
   useEffect(() => () => {
     if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
@@ -234,6 +276,7 @@ export function SketchLinkageLab() {
     setPlaying(false);
     setAngle(0);
     setZoom(1);
+    setPan({ x: 0, y: 0 });
   };
 
   const loadDemo = () => {
@@ -242,11 +285,25 @@ export function SketchLinkageLab() {
     setSelectedId(nextCandidates[0]?.id ?? null);
     setAngle(0);
     setZoom(1);
+    setPan({ x: 0, y: 0 });
     setPlaying(nextCandidates.length > 0 && !window.matchMedia("(prefers-reduced-motion: reduce)").matches);
   };
 
   const changeZoom = (delta: number) => {
     setZoom((current) => Math.round(Math.min(2, Math.max(0.6, current + delta)) * 10) / 10);
+  };
+
+  const resetView = () => {
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+  };
+
+  const stopPanning = (target?: SVGSVGElement, pointerId?: number) => {
+    if (target && pointerId !== undefined && target.hasPointerCapture(pointerId)) {
+      target.releasePointerCapture(pointerId);
+    }
+    panDragRef.current = null;
+    setPanning(false);
   };
 
   const status = candidates.length > 0 ? copy.ready : copy.waiting;
@@ -325,14 +382,51 @@ export function SketchLinkageLab() {
           <div className={`${styles.canvas} ${familyStyles.zoomCanvas}`}>
             <div className={familyStyles.zoomControls} role="group" aria-label={copy.resetZoom}>
               <button type="button" aria-label={copy.zoomOut} disabled={zoom <= 0.6} onClick={() => changeZoom(-0.2)}>−</button>
-              <button type="button" aria-label={copy.resetZoom} onClick={() => setZoom(1)}>{Math.round(zoom * 100)}%</button>
+              <button type="button" aria-label={copy.resetZoom} onClick={resetView}>{Math.round(zoom * 100)}%</button>
               <button type="button" aria-label={copy.zoomIn} disabled={zoom >= 2} onClick={() => changeZoom(0.2)}>+</button>
             </div>
-            <svg viewBox={canvasViewBox} role="img" aria-label={copy.canvas}>
+            <span className={familyStyles.panHint}>{copy.panHint}</span>
+            <svg
+              viewBox={canvasViewBox}
+              role="img"
+              aria-label={copy.canvas}
+              className={panning ? familyStyles.panning : undefined}
+              onPointerDown={(event) => {
+                if (event.button !== 1) return;
+                event.preventDefault();
+                event.currentTarget.setPointerCapture(event.pointerId);
+                panDragRef.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
+                setPanning(true);
+              }}
+              onPointerMove={(event) => {
+                const drag = panDragRef.current;
+                if (!drag || drag.pointerId !== event.pointerId) return;
+                const bounds = event.currentTarget.getBoundingClientRect();
+                const deltaX = event.clientX - drag.x;
+                const deltaY = event.clientY - drag.y;
+                panDragRef.current = { ...drag, x: event.clientX, y: event.clientY };
+                setPan((current) => panSketchCanvas(
+                  current,
+                  { x: deltaX, y: deltaY },
+                  { width: bounds.width, height: bounds.height },
+                  zoom,
+                ));
+              }}
+              onPointerUp={(event) => stopPanning(event.currentTarget, event.pointerId)}
+              onPointerCancel={(event) => stopPanning(event.currentTarget, event.pointerId)}
+              onLostPointerCapture={() => stopPanning()}
+              onAuxClick={(event) => {
+                if (event.button === 1) event.preventDefault();
+              }}
+              onMouseDown={(event) => {
+                if (event.button === 1) event.preventDefault();
+              }}
+            >
               <defs>
                 <pattern id="sketch-grid" width="25" height="25" patternUnits="userSpaceOnUse"><path d="M25 0H0V25" /></pattern>
+                <marker id="sketch-motion-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0L8 4L0 8Z" /></marker>
               </defs>
-              <rect x="25" y="50" width="540" height="450" className={styles.grid} />
+              <rect x="-2000" y="-2000" width="4000" height="4000" className={styles.grid} />
               <path d={targetPath} className={styles.targetCurve} />
               {selected && <path d={tracePath} className={styles.fittedCurve} />}
               {linkageMechanism && (
@@ -372,37 +466,73 @@ export function SketchLinkageLab() {
                   <circle cx={linkageMechanism.couplerPoint.x} cy={linkageMechanism.couplerPoint.y} r="8" className={styles.tracerPoint} />
                 </g>
               )}
-              {xyMechanism && (
+              {xyMechanism && selected?.family === "gear-synchronized-xy" && (
                 <g className={familyStyles.xyMechanism}>
-                  <line x1={xyMechanism.xGuide.start.x} y1={xyMechanism.xGuide.start.y} x2={xyMechanism.xGuide.end.x} y2={xyMechanism.xGuide.end.y} />
-                  <line x1={xyMechanism.yGuide.start.x} y1={xyMechanism.yGuide.start.y} x2={xyMechanism.yGuide.end.x} y2={xyMechanism.yGuide.end.y} />
-                  <line x1={xyMechanism.xSlider.x} y1={xyMechanism.xSlider.y} x2={xyMechanism.point.x} y2={xyMechanism.point.y} />
-                  <line x1={xyMechanism.ySlider.x} y1={xyMechanism.ySlider.y} x2={xyMechanism.point.x} y2={xyMechanism.point.y} />
-                  <g transform="translate(80 95)">
-                    {xyMechanism.harmonicDrives.filter((drive) => drive.harmonic <= 5).map((drive) => (
-                      <g key={`${drive.axis}-${drive.harmonic}`}>
-                        <circle cx={drive.gearCenter.x} cy={drive.gearCenter.y} r={drive.pitchRadius} />
-                        <line x1={drive.gearCenter.x} y1={drive.gearCenter.y} x2={drive.eccentricPin.x} y2={drive.eccentricPin.y} />
-                        <circle cx={drive.eccentricPin.x} cy={drive.eccentricPin.y} r="3" />
-                      </g>
-                    ))}
+                  <g className={familyStyles.inputShaft} transform={`rotate(${xyMechanism.sharedInputShaft.rotationDegrees} 72 122)`}>
+                    <circle cx="72" cy="122" r="21" />
+                    <line x1="54" y1="122" x2="90" y2="122" />
+                    <line x1="72" y1="104" x2="72" y2="140" />
                   </g>
-                  <rect x={xyMechanism.xSlider.x - 9} y={xyMechanism.xSlider.y - 7} width="18" height="14" />
-                  <rect x={xyMechanism.ySlider.x - 7} y={xyMechanism.ySlider.y - 9} width="14" height="18" />
+                  <text x="43" y="91" className={familyStyles.mechanismLabel}>{copy.inputShaftLabel}</text>
+                  <path d="M94 122H112M103 122V151H112" className={familyStyles.powerSplit} />
+                  {(["x", "y"] as const).map((axis, axisIndex) => {
+                    const rowY = axisIndex === 0 ? 111 : 158;
+                    const drives = xyMechanism.harmonicDrives.filter((drive) => drive.axis === axis && drive.harmonic <= 4);
+                    return (
+                      <g key={axis} className={axis === "x" ? familyStyles.xDrive : familyStyles.yDrive}>
+                        <text x="111" y={rowY - 19}>{axis.toUpperCase()} 1×–10×</text>
+                        {drives.map((drive, driveIndex) => {
+                          const centerX = 126 + driveIndex * 39;
+                          const driveAngle = drive.rotationDegrees * Math.PI / 180;
+                          const pinX = centerX + Math.cos(driveAngle) * 8;
+                          const pinY = rowY + Math.sin(driveAngle) * 8;
+                          return (
+                            <g key={`${axis}-${drive.harmonic}`}>
+                              <circle cx={centerX} cy={rowY} r={13} />
+                              <line x1={centerX} y1={rowY} x2={pinX} y2={pinY} />
+                              <circle cx={pinX} cy={pinY} r="3" />
+                              <line x1={pinX} y1={pinY} x2="294" y2={rowY} />
+                              <text x={centerX} y={rowY + 24} textAnchor="middle">{drive.harmonic}×</text>
+                            </g>
+                          );
+                        })}
+                        <rect x="294" y={rowY - 13} width="18" height="26" />
+                        <path d={`M312 ${rowY}H330`} markerEnd="url(#sketch-motion-arrow)" />
+                      </g>
+                    );
+                  })}
+                  <text x="111" y="194" className={familyStyles.mechanismLabel}>{copy.harmonicBankLabel}</text>
+                  <line x1={selected.parameters.targetBounds.minimum.x - 18} y1={xyMechanism.point.y} x2={selected.parameters.targetBounds.maximum.x + 18} y2={xyMechanism.point.y} className={familyStyles.yCarriage} />
+                  <line x1={xyMechanism.point.x} y1={selected.parameters.targetBounds.minimum.y - 18} x2={xyMechanism.point.x} y2={selected.parameters.targetBounds.maximum.y + 18} className={familyStyles.xCarriage} />
+                  <path d={`M330 111H${xyMechanism.point.x}V${xyMechanism.point.y}`} className={familyStyles.xPushrod} />
+                  <path d={`M330 158V${xyMechanism.point.y}H${xyMechanism.point.x}`} className={familyStyles.yPushrod} />
+                  <rect x={xyMechanism.point.x - 13} y={xyMechanism.point.y - 13} width="26" height="26" />
+                  <text x={xyMechanism.point.x + 17} y={xyMechanism.point.y - 17} className={familyStyles.mechanismLabel}>{copy.crossSlideLabel}</text>
                   <circle cx={xyMechanism.point.x} cy={xyMechanism.point.y} r="8" className={familyStyles.demoTracer} />
+                  <text x={xyMechanism.point.x + 13} y={xyMechanism.point.y + 25} className={familyStyles.penLabel}>{copy.penLabel}</text>
                 </g>
               )}
-              {camMechanism && selected?.family === "dual-groove-cam" && (
+              {camMechanism && camDisplay && selected?.family === "dual-groove-cam" && (
                 <g className={familyStyles.camMechanism}>
-                  <g transform="translate(118 142) scale(.18)">
-                    <circle cx={camMechanism.cams.x.center.x} cy={camMechanism.cams.x.center.y} r={camMechanism.cams.x.baseCircleRadius} />
-                    <path d={pointsPath(camMechanism.cams.x.groove)} />
-                    <circle cx={camMechanism.cams.y.center.x} cy={camMechanism.cams.y.center.y} r={camMechanism.cams.y.baseCircleRadius} />
-                    <path d={pointsPath(camMechanism.cams.y.groove)} />
-                  </g>
-                  <line x1={selected.parameters.xLaw.minimum - 18} y1={camMechanism.crossSlide.drawingPoint.y} x2={selected.parameters.xLaw.maximum + 18} y2={camMechanism.crossSlide.drawingPoint.y} />
-                  <line x1={camMechanism.crossSlide.drawingPoint.x} y1={selected.parameters.yLaw.minimum - 18} x2={camMechanism.crossSlide.drawingPoint.x} y2={selected.parameters.yLaw.maximum + 18} />
+                  <text x="42" y="66" className={familyStyles.mechanismLabel}>{copy.camPairLabel}</text>
+                  <path d="M105 72V83H245V72" className={familyStyles.syncShaft} />
+                  {([camDisplay.x, camDisplay.y] as const).map((cam, camIndex) => (
+                    <g key={camIndex} className={camIndex === 0 ? familyStyles.xDrive : familyStyles.yDrive}>
+                      <circle cx={cam.center.x} cy={cam.center.y} r={cam.baseRadius} />
+                      <path d={pointsPath(cam.groove)} />
+                      <circle cx={cam.center.x} cy={cam.center.y} r="5" />
+                      <circle cx={cam.contactPoint.x} cy={cam.contactPoint.y} r="8" className={familyStyles.followerRoller} />
+                      <text x={cam.center.x} y={cam.center.y + 73} textAnchor="middle">{camIndex === 0 ? "X CAM" : "Y CAM"}</text>
+                    </g>
+                  ))}
+                  <text x="310" y="88" className={familyStyles.mechanismLabel}>{copy.followerLabel}</text>
+                  <polyline points={`${camDisplay.x.contactPoint.x},${camDisplay.x.contactPoint.y} ${camMechanism.crossSlide.drawingPoint.x},${camDisplay.x.contactPoint.y} ${camMechanism.crossSlide.drawingPoint.x},${camMechanism.crossSlide.drawingPoint.y}`} className={familyStyles.xPushrod} markerEnd="url(#sketch-motion-arrow)" />
+                  <polyline points={`${camDisplay.y.contactPoint.x},${camDisplay.y.contactPoint.y} ${camDisplay.y.contactPoint.x},${camMechanism.crossSlide.drawingPoint.y} ${camMechanism.crossSlide.drawingPoint.x},${camMechanism.crossSlide.drawingPoint.y}`} className={familyStyles.yPushrod} markerEnd="url(#sketch-motion-arrow)" />
+                  <line x1={selected.parameters.xLaw.minimum - 18} y1={camMechanism.crossSlide.drawingPoint.y} x2={selected.parameters.xLaw.maximum + 18} y2={camMechanism.crossSlide.drawingPoint.y} className={familyStyles.yCarriage} />
+                  <line x1={camMechanism.crossSlide.drawingPoint.x} y1={selected.parameters.yLaw.minimum - 18} x2={camMechanism.crossSlide.drawingPoint.x} y2={selected.parameters.yLaw.maximum + 18} className={familyStyles.xCarriage} />
+                  <rect x={camMechanism.crossSlide.drawingPoint.x - 13} y={camMechanism.crossSlide.drawingPoint.y - 13} width="26" height="26" />
                   <circle cx={camMechanism.crossSlide.drawingPoint.x} cy={camMechanism.crossSlide.drawingPoint.y} r="8" className={familyStyles.demoTracer} />
+                  <text x={camMechanism.crossSlide.drawingPoint.x + 13} y={camMechanism.crossSlide.drawingPoint.y + 25} className={familyStyles.penLabel}>{copy.penLabel}</text>
                 </g>
               )}
               {!selected && <text x="295" y="285" textAnchor="middle" className={styles.emptyCanvas}>CAT CURVE → SOLVE → ANIMATE</text>}
@@ -419,7 +549,7 @@ export function SketchLinkageLab() {
           {candidates.length === 0 ? <p className={styles.emptyResults}>{copy.empty}</p> : (
             <div className={styles.candidateList}>
               {candidates.map((candidate, index) => (
-                <button key={candidate.id} type="button" className={candidate.id === selected?.id ? styles.selectedCandidate : ""} onClick={() => { setSelectedId(candidate.id); setAngle(0); }}>
+                <button key={candidate.id} type="button" className={candidate.id === selected?.id ? styles.selectedCandidate : ""} onClick={() => { setSelectedId(candidate.id); setAngle(0); setZoom(1); setPan({ x: 0, y: 0 }); }}>
                   <span><b>{copy.candidate} {String(index + 1).padStart(2, "0")}</b><i>{familyCode(candidate.family, copy)}{("assemblyMode" in candidate) ? ` · ${candidate.assemblyMode.toUpperCase()}` : ""}</i></span>
                   <span><small>{copy.error}</small><strong>{format(candidate.normalizedRmse * 100, 2)}%</strong></span>
                 </button>
@@ -435,6 +565,14 @@ export function SketchLinkageLab() {
                 {selected.family === "gear-synchronized-xy" && <div><span>{copy.harmonics}</span><strong>{selected.parameters.harmonicCount}<small>×2</small></strong></div>}
                 {selected.family === "dual-groove-cam" && <div><span>{copy.complexity}</span><strong>{copy.kinematicExact}</strong></div>}
               </section>
+              {(selected.family === "gear-synchronized-xy" || selected.family === "dual-groove-cam") && (
+                <section className={familyStyles.operationChain} aria-label={copy.principleTitle}>
+                  {(selected.family === "gear-synchronized-xy"
+                    ? [copy.inputShaftLabel, copy.harmonicBankLabel, copy.crossSlideLabel, copy.penLabel]
+                    : [copy.camPairLabel, copy.followerLabel, copy.crossSlideLabel, copy.penLabel]
+                  ).map((step) => <span key={step}>{step}</span>)}
+                </section>
+              )}
               <section className={styles.parameters}>
                 <h3>{copy.parameters}</h3>
                 {selected.family === "four-bar" && ([

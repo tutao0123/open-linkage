@@ -5,15 +5,6 @@ import { localizeReactTree, type Language } from "@/lib/i18n";
 
 const workbenches = [
   {
-    number: "NEW",
-    eyebrow: "SKETCH \u2192 MECHANISM",
-    title: "\u8349\u56fe\u751f\u6210\u8fde\u6746\u673a\u6784",
-    text: "\u7ed9\u5b9a\u732b\u8f6e\u5ed3\u95ed\u5408\u66f2\u7ebf\uff0c\u5bf9\u6bd4\u7ecf\u5178\u56db\u6746\u4e0e\u9f7f\u8f6e\u540c\u6b65\u4e94\u6746\u673a\u6784\uff0c\u8ba9\u8fde\u6746\u7ed8\u56fe\u70b9\u63cf\u51fa\u76f8\u4f3c\u8f68\u8ff9\u3002",
-    href: "/sketch-mechanism",
-    action: "\u6253\u5f00\u8349\u56fe\u751f\u6210\u673a\u6784",
-    status: "\u732b\u8f6e\u5ed3 \u00b7 \u56db\u6746 / \u9f7f\u8f6e\u4e94\u6746",
-  },
-  {
     number: "01",
     eyebrow: "FOUR-BAR DESIGN",
     title: "四杆机构设计",

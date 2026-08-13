@@ -78,4 +78,12 @@ The focused mechanism views show the same J/F/P joint-marker construction and fi
 
 - P3: if the canvas later gains a teaching mode, transient motion arrows can be shown only during playback to reduce static density further.
 
+## Hidden development entry
+
+- Requested target: merge the experiment into the product code without exposing it from the public homepage or regular workbench navigation.
+- Development-page evidence: `C:/Users/39007/.codex/visualizations/2026/07/23/019f8d9b-1c31-7a52-9efa-6f82fea26e23/sketch-mechanism-dev-entry/hidden-dev-page.png`
+- The dedicated localized route `/zh/dev` / `/en/dev` follows the existing OpenLink technical typography, warm canvas, lime experiment badge, square borders, and sparse workbench layout.
+- Browser verification found zero `/dev` or `/sketch-mechanism` links on the homepage. The development page links correctly to the localized experiment and emits `noindex, nofollow` metadata.
+- The regular four-bar navigation no longer exposes the experiment. No actionable P0/P1/P2 visual or discoverability issue remains.
+
 final result: passed

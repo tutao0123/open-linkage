@@ -1,0 +1,502 @@
+.familyPicker {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-top: 14px;
+}
+
+.familyPicker strong {
+  grid-column: 1 / -1;
+  margin-bottom: 2px;
+  font-size: 11px;
+}
+
+.familyPicker button {
+  padding: 9px 7px;
+  border: 1px solid #c9cbc3;
+  background: #e8e9e2;
+  color: #5f655f;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.familyPicker button:first-of-type {
+  grid-column: 1 / -1;
+}
+
+.familyPicker .activeFamily {
+  border-color: #151918;
+  background: #dfff91;
+  color: #151918;
+  font-weight: 700;
+}
+
+.familyPicker button:focus-visible {
+  outline: 3px solid #8ebd22;
+  outline-offset: 2px;
+}
+
+.gear circle {
+  fill: none !important;
+  stroke: #788078 !important;
+  stroke-width: 2 !important;
+  stroke-dasharray: 4 3;
+}
+
+.gear line {
+  stroke: #9aa099 !important;
+  stroke-width: 1.5 !important;
+}
+
+.xyMechanism circle,
+.camMechanism circle {
+  fill: #f4f3ed;
+  stroke: #171b1a;
+  stroke-width: 2.5;
+}
+
+.xyMechanism rect,
+.camMechanism rect {
+  fill: #dfff91;
+  stroke: #171b1a;
+  stroke-width: 2;
+}
+
+.xyMechanism text,
+.camMechanism text {
+  fill: #4e554f;
+  font: 8px "Cascadia Mono", Consolas, monospace;
+  letter-spacing: .04em;
+}
+
+.mechanismLabel {
+  fill: #171b1a !important;
+  font-weight: 700 !important;
+}
+
+.penLabel {
+  fill: #66851d !important;
+  font-weight: 700 !important;
+}
+
+.inputCrank line,
+.powerSplit,
+.syncShaft {
+  fill: none;
+  stroke: #476a83;
+  stroke-width: 5;
+  stroke-linecap: round;
+}
+
+.inputCrank circle {
+  fill: #f4f3ed;
+  stroke: #171b1a;
+  stroke-width: 2.5;
+}
+
+.xDrive circle,
+.xDrive rect {
+  stroke: #171b1a;
+}
+
+.yDrive circle,
+.yDrive rect {
+  stroke: #476a83;
+}
+
+.xDrive line,
+.xDrive path,
+.yDrive line,
+.yDrive path {
+  fill: none;
+  stroke-width: 1.8;
+}
+
+.xDrive line,
+.xDrive path {
+  stroke: #171b1a;
+}
+
+.yDrive line,
+.yDrive path {
+  stroke: #476a83;
+}
+
+.xPushrod,
+.yPushrod {
+  fill: none;
+  stroke-width: 3;
+  stroke-linejoin: round;
+}
+
+.xPushrod,
+.xCarriage {
+  stroke: #171b1a;
+}
+
+.yPushrod,
+.yCarriage {
+  stroke: #476a83;
+}
+
+.xCarriage,
+.yCarriage {
+  stroke-width: 4;
+  stroke-dasharray: 6 4;
+}
+
+.camMechanism .xDrive > path,
+.camMechanism .yDrive > path {
+  fill: rgb(223 255 145 / 28%);
+  stroke-width: 3;
+  vector-effect: non-scaling-stroke;
+}
+
+.followerRoller {
+  fill: #dfff91 !important;
+  stroke-width: 3 !important;
+}
+
+.demoTracer {
+  fill: #c7fb43 !important;
+  stroke: #171b1a !important;
+  stroke-width: 3 !important;
+}
+
+.groundBase {
+  fill: none;
+  stroke: #70766f;
+  stroke-width: 11;
+  stroke-linecap: round;
+}
+
+.groundPost {
+  fill: none;
+  stroke: #a0a59e;
+  stroke-width: 2;
+  stroke-dasharray: 5 4;
+}
+
+.jointMarker path {
+  fill: none;
+  stroke: #70766f !important;
+  stroke-width: 1.5 !important;
+}
+
+.jointMarker circle:first-of-type {
+  fill: #f4f3ed !important;
+  stroke: #171b1a !important;
+  stroke-width: 2.5 !important;
+}
+
+.jointMarker circle:nth-of-type(2) {
+  fill: #171b1a !important;
+  stroke: none !important;
+}
+
+.jointMarker text {
+  fill: #555c56 !important;
+  font-size: 7px !important;
+  font-weight: 500 !important;
+}
+
+.activeJoint circle:first-of-type {
+  fill: #c7fb43 !important;
+}
+
+.gearWheel {
+  fill: none !important;
+  stroke-dasharray: 3 2;
+}
+
+.flatGear .flatGearTeeth {
+  fill: none !important;
+  stroke-width: 2.4 !important;
+  stroke-dasharray: 2 1.5;
+}
+
+.flatGear circle:nth-of-type(2) {
+  fill: #eef0e8 !important;
+  stroke-width: 1.8 !important;
+}
+
+.flatGear line {
+  stroke-width: 1.25 !important;
+  stroke-linecap: round;
+}
+
+.flatGear circle:last-of-type {
+  fill: #f4f3ed !important;
+  stroke-width: 1.6 !important;
+}
+
+.flatGearX circle,
+.flatGearX line {
+  stroke: #171b1a !important;
+}
+
+.flatGearY circle,
+.flatGearY line {
+  stroke: #476a83 !important;
+}
+
+.commonGearShaft {
+  stroke-width: 4 !important;
+  stroke-linecap: round;
+  opacity: .75;
+}
+
+.axisBankLabel {
+  font-size: 10px !important;
+  font-weight: 800 !important;
+}
+
+.eccentricArm {
+  stroke-width: 2 !important;
+  stroke-linecap: round;
+}
+
+.eccentricPin {
+  fill: #c7fb43 !important;
+  stroke: #171b1a !important;
+}
+
+.harmonicLink {
+  fill: none;
+  stroke-width: 2.5 !important;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.sliderBlock,
+.carriageBlock {
+  fill: #f4f3ed !important;
+  stroke: #171b1a !important;
+}
+
+.axisMotion {
+  stroke-width: 2 !important;
+}
+
+.summingRail {
+  stroke-width: 1.4 !important;
+  stroke-dasharray: 4 3;
+  opacity: .65;
+}
+
+.camBase {
+  fill: none !important;
+  stroke: #a0a59e !important;
+  stroke-width: 1.5 !important;
+  stroke-dasharray: 5 4;
+}
+
+.camProfile {
+  fill: rgb(199 251 67 / 12%) !important;
+  stroke-width: 4 !important;
+}
+
+.linkBar {
+  stroke-width: 6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.operationChain {
+  display: grid;
+  gap: 5px;
+  margin-top: 12px;
+  padding: 11px;
+  border: 1px solid #cfd2ca;
+  background: #e8e9e2;
+}
+
+.operationChain span {
+  padding: 6px 8px;
+  border-left: 3px solid #9ccb31;
+  background: #f4f3ed;
+  color: #4f564f;
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.zoomCanvas {
+  position: relative;
+}
+
+.gearViewToggle {
+  position: absolute;
+  z-index: 3;
+  top: 24px;
+  left: 24px;
+  display: flex;
+  border: 1px solid #bfc2ba;
+  background: #f4f3ed;
+  box-shadow: 0 5px 18px rgb(20 24 23 / 10%);
+}
+
+.gearViewToggle button {
+  min-height: 34px;
+  padding: 0 12px;
+  border: 0;
+  border-right: 1px solid #c9cbc3;
+  background: #f4f3ed;
+  color: #555c56;
+  font: 10px "Cascadia Mono", Consolas, monospace;
+  cursor: pointer;
+}
+
+.gearViewToggle button:last-child {
+  border-right: 0;
+}
+
+.gearViewToggle button[aria-pressed="true"] {
+  background: #171b1a;
+  color: #d4ff57;
+}
+
+.gearViewToggle button:focus-visible {
+  position: relative;
+  z-index: 1;
+  outline: 3px solid #8ebd22;
+  outline-offset: -3px;
+}
+
+.directViewNote {
+  position: absolute;
+  z-index: 2;
+  top: 67px;
+  left: 24px;
+  padding: 5px 8px;
+  border-left: 3px solid #99cc2c;
+  background: rgb(244 243 237 / 90%);
+  color: #626962;
+  font: 9px "Cascadia Mono", Consolas, monospace;
+  pointer-events: none;
+}
+
+.serialInputLink {
+  fill: none;
+  stroke-width: 1.35 !important;
+  stroke-dasharray: 3 3;
+  opacity: .55;
+}
+
+.serialChain {
+  fill: none;
+  stroke-width: 3 !important;
+  stroke-linecap: round;
+}
+
+.serialStageBlock {
+  fill: #f4f3ed !important;
+  stroke-width: 1.7 !important;
+}
+
+.serialStageLabel {
+  fill: #687068 !important;
+  font-size: 6px !important;
+  font-weight: 600 !important;
+}
+
+.serialOutput {
+  stroke-width: 3.5 !important;
+}
+
+.directGearView .eccentricPin {
+  fill: #c7fb43 !important;
+}
+
+.zoomCanvas > svg {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.zoomCanvas > svg.panning {
+  cursor: grabbing;
+}
+
+.panHint {
+  position: absolute;
+  z-index: 2;
+  top: 66px;
+  right: 24px;
+  padding: 5px 8px;
+  border: 1px solid #c9cbc3;
+  background: rgb(244 243 237 / 88%);
+  color: #687068;
+  font: 9px "Cascadia Mono", Consolas, monospace;
+  pointer-events: none;
+}
+
+.zoomControls {
+  position: absolute;
+  z-index: 2;
+  top: 24px;
+  right: 24px;
+  display: flex;
+  align-items: center;
+  border: 1px solid #bfc2ba;
+  background: #f4f3ed;
+  box-shadow: 0 5px 18px rgb(20 24 23 / 10%);
+}
+
+.zoomControls button {
+  min-width: 36px;
+  height: 34px;
+  padding: 0 9px;
+  border: 0;
+  border-right: 1px solid #c9cbc3;
+  background: #f4f3ed;
+  color: #171b1a;
+  font: 12px "Cascadia Mono", Consolas, monospace;
+  cursor: pointer;
+}
+
+.zoomControls button:nth-child(2) {
+  min-width: 58px;
+  font-size: 10px;
+}
+
+.zoomControls button:last-child {
+  border-right: 0;
+}
+
+.zoomControls button:hover:not(:disabled) {
+  background: #dfff91;
+}
+
+.zoomControls button:disabled {
+  color: #a4a8a2;
+  cursor: not-allowed;
+}
+
+.zoomControls button:focus-visible {
+  position: relative;
+  z-index: 1;
+  outline: 3px solid #8ebd22;
+  outline-offset: -3px;
+}
+
+@media (max-width: 820px) {
+  .gearViewToggle {
+    top: 12px;
+    left: 12px;
+  }
+
+  .directViewNote {
+    top: 55px;
+    left: 12px;
+  }
+
+  .zoomControls {
+    top: 12px;
+    right: 12px;
+  }
+
+  .panHint {
+    top: 54px;
+    right: 12px;
+  }
+}

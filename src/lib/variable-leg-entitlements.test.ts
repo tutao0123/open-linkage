@@ -2,11 +2,16 @@ import { describe, expect, it } from "vitest";
 
 import {
   DEFAULT_VARIABLE_LEG_LIMITS,
+  isVariableLegUsageLimitsEnabled,
   usageMessage,
   type VariableLegUsageDecision,
 } from "./variable-leg-entitlements";
 
 describe("variable leg entitlements", () => {
+  it("keeps plan-based usage limits disabled by default", () => {
+    expect(isVariableLegUsageLimitsEnabled()).toBe(false);
+  });
+
   it("starts with small free-tier daily limits", () => {
     expect(DEFAULT_VARIABLE_LEG_LIMITS).toEqual({ generation: 3, refinement: 1 });
   });

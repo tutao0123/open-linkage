@@ -70,7 +70,11 @@ import {
   type VariableLegGaitPreset,
 } from "@/lib/variable-leg-gait";
 import { resampleClosedPath } from "@/lib/path-synthesis";
-import { consumeVariableLegUsage, usageMessage } from "@/lib/variable-leg-entitlements";
+import {
+  consumeVariableLegUsage,
+  isVariableLegUsageLimitsEnabled,
+  usageMessage,
+} from "@/lib/variable-leg-entitlements";
 import {
   getLastSyncedVariableLegRevision,
   isVariableLegProjectCloudSyncEnabled,
@@ -1366,18 +1370,21 @@ export function VariableGeometryLegLab() {
     }
     const usageFeature = scope === "current-target" ? "refinement" : "generation";
     setSearching(true);
-    try {
-      const decision = await consumeVariableLegUsage(usageFeature);
-      if (!decision.allowed) {
-        setSearching(false);
+    if (isVariableLegUsageLimitsEnabled()) {
+      try {
+        const decision = await consumeVariableLegUsage(usageFeature);
+        if (!decision.allowed) {
+          setSearching(false);
+          setMessage(usageMessage(usageFeature, decision));
+          return;
+        }
         setMessage(usageMessage(usageFeature, decision));
-        return;
+      } catch {
+        // Local/offline builds keep working; production has the same anonymous
+        // Supabase identity available when strict server-side quota checks are
+        // enabled again.
+        setMessage("额度服务暂不可用，已保留本地试用；恢复网络后会继续按免费额度计量。" );
       }
-      setMessage(usageMessage(usageFeature, decision));
-    } catch {
-      // Local/offline builds keep working; production has the same anonymous
-      // Supabase identity available for strict server-side quota checks.
-      setMessage("额度服务暂不可用，已保留本地试用；恢复网络后会继续按免费额度计量。" );
     }
     workerRef.current?.terminate();
     const worker = new Worker(new URL("../workers/variable-leg-synthesis.worker.ts", import.meta.url), { type: "module" });

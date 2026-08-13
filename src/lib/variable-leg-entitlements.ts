@@ -16,6 +16,15 @@ export const DEFAULT_VARIABLE_LEG_LIMITS: Record<VariableLegUsageFeature, number
   refinement: 1,
 };
 
+/**
+ * Plan-based usage limits are intentionally dormant for the current public
+ * release. Keeping this as an explicit flag lets us restore metering later
+ * without changing the design workflow again.
+ */
+export function isVariableLegUsageLimitsEnabled() {
+  return process.env.NEXT_PUBLIC_ENABLE_VARIABLE_LEG_USAGE_LIMITS === "true";
+}
+
 export function usageMessage(
   feature: VariableLegUsageFeature,
   decision: VariableLegUsageDecision,

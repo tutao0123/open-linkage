@@ -3,14 +3,13 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import type { SketchLinkageWorkerResponse } from "@/workers/sketch-linkage.worker";
 import {
   CAT_TARGET_CURVE,
   sampleCandidateMechanism,
   type MechanismFamily,
   type SketchLinkageCandidate,
-  type SketchLinkageProgress,
 } from "@/lib/sketch-linkage";
+import { precomputedCandidatesFor } from "@/lib/sketch-linkage-demo";
 import type { Point } from "@/lib/four-bar";
 import { useLanguage } from "./locale-shell";
 import styles from "./sketch-linkage-lab.module.css";
@@ -25,14 +24,13 @@ const COPY = {
     target: "目标曲线",
     targetName: "猫轮廓 · 固定示例",
     targetNote: "第一阶段只解决这一条闭合曲线，不尝试通用草图识别。",
-    solve: "开始求解机构",
-    solveAgain: "重新搜索",
-    cancel: "停止搜索",
+    solve: "加载预计算演示",
+    solveAgain: "重新载入演示",
     global: "全局探索",
     refine: "局部精修",
     verify: "完整转动验证",
-    waiting: "等待开始",
-    ready: "候选已生成",
+    waiting: "演示结果待载入",
+    ready: "预计算候选已载入",
     failed: "求解失败，请重试",
     canvas: "机构动画与轨迹比较",
     targetLegend: "猫目标",
@@ -61,7 +59,7 @@ const COPY = {
     offset: "法向偏移",
     normalized: "杆长以机架 100 mm 归一化；整体等比例缩放不会改变轨迹形状。",
     principleTitle: "当前 Solver 做了什么",
-    principle: "四杆使用单闭环方程；齿轮五杆用外啮合传动比同步两根曲柄，再求中央二元杆组。所有候选必须完整转过 360°，轨迹对齐后统一计算 RMSE。",
+    principle: "候选已在本地用完整 Solver 预计算并通过 360° 验证。页面只重放四杆闭环与齿轮同步五杆运动学，因此点击后可以立即展示和播放。",
     limitationTitle: "第一阶段边界",
     limitation: "当前只开放两个明确机构族。6–10 杆会按 Watt、Stephenson 和串联多环逐族加入，不把任意拓扑搜索伪装成已经可用。",
     familyTitle: "参与搜索的机构族",
@@ -79,14 +77,13 @@ const COPY = {
     target: "Target curve",
     targetName: "Cat outline · fixed example",
     targetNote: "Phase one solves this single closed curve; it does not attempt general sketch recognition.",
-    solve: "Solve mechanisms",
-    solveAgain: "Search again",
-    cancel: "Stop search",
+    solve: "Load precomputed demo",
+    solveAgain: "Reload demo",
     global: "Global exploration",
     refine: "Local refinement",
     verify: "Full-cycle verification",
-    waiting: "Ready to start",
-    ready: "Candidates ready",
+    waiting: "Demo results ready to load",
+    ready: "Precomputed candidates loaded",
     failed: "Solver failed. Please retry.",
     canvas: "Mechanism animation and curve comparison",
     targetLegend: "Cat target",
@@ -115,7 +112,7 @@ const COPY = {
     offset: "Normal offset",
     normalized: "Lengths are normalized to a 100 mm ground link. Uniform scaling preserves the curve shape.",
     principleTitle: "What the solver does",
-    principle: "The four-bar uses one loop-closure equation. The geared five-bar synchronizes two cranks with an external gear ratio, then solves its central dyad. Every candidate must complete 360° before aligned RMSE is calculated.",
+    principle: "Candidates were precomputed locally with the full solver and verified over 360°. The page only replays four-bar and gear-synchronized five-bar kinematics, so results appear immediately.",
     limitationTitle: "Phase-one boundary",
     limitation: "Only two explicit mechanism families are enabled. Watt, Stephenson, and serial multi-loop families will add 6–10 links incrementally; arbitrary topology search is not presented as solved.",
     familyTitle: "Mechanism families to search",
@@ -138,26 +135,13 @@ function format(value: number, digits = 1) {
 
 type FamilyMode = MechanismFamily | "compare";
 
-const EMPTY_PROGRESS: SketchLinkageProgress = {
-  progress: 0,
-  stage: "global",
-  family: "four-bar",
-  bestNormalizedRmse: null,
-};
-
 export function SketchLinkageLab() {
   const language = useLanguage();
   const copy = COPY[language];
-  const workerRef = useRef<Worker | null>(null);
   const frameRef = useRef<number | null>(null);
   const previousTimeRef = useRef<number | null>(null);
-  const requestIdRef = useRef<string | null>(null);
-  const requestSequenceRef = useRef(0);
   const [candidates, setCandidates] = useState<SketchLinkageCandidate[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [progress, setProgress] = useState<SketchLinkageProgress>(EMPTY_PROGRESS);
-  const [solving, setSolving] = useState(false);
-  const [failed, setFailed] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [angle, setAngle] = useState(0);
   const [familyMode, setFamilyMode] = useState<FamilyMode>("compare");
@@ -168,7 +152,6 @@ export function SketchLinkageLab() {
   const tracePath = useMemo(() => selected ? pointsPath(selected.trajectory) : "", [selected]);
 
   useEffect(() => () => {
-    workerRef.current?.terminate();
     if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
   }, []);
 
@@ -194,73 +177,24 @@ export function SketchLinkageLab() {
     };
   }, [playing, selected]);
 
-  const stopSolver = () => {
-    workerRef.current?.terminate();
-    workerRef.current = null;
-    requestIdRef.current = null;
-    setSolving(false);
-  };
-
   const chooseFamilyMode = (mode: FamilyMode) => {
-    stopSolver();
     setFamilyMode(mode);
-    setCandidates([]);
-    setSelectedId(null);
+    const nextCandidates = candidates.length > 0 ? precomputedCandidatesFor(mode) : [];
+    setCandidates(nextCandidates);
+    setSelectedId(nextCandidates[0]?.id ?? null);
     setPlaying(false);
-    setProgress(EMPTY_PROGRESS);
-    setFailed(false);
+    setAngle(0);
   };
 
-  const runSolver = () => {
-    stopSolver();
-    setFailed(false);
-    setSolving(true);
-    setPlaying(false);
-    setProgress(EMPTY_PROGRESS);
-    requestSequenceRef.current += 1;
-    const requestId = `cat-${requestSequenceRef.current}`;
-    requestIdRef.current = requestId;
-    const worker = new Worker(new URL("../workers/sketch-linkage.worker.ts", import.meta.url), { type: "module" });
-    workerRef.current = worker;
-    worker.onmessage = (event: MessageEvent<SketchLinkageWorkerResponse>) => {
-      const response = event.data;
-      if (response.requestId !== requestIdRef.current) return;
-      if (response.type === "progress") {
-        setProgress(response.progress);
-        return;
-      }
-      setSolving(false);
-      worker.terminate();
-      workerRef.current = null;
-      requestIdRef.current = null;
-      if (response.type === "result") {
-        setCandidates(response.candidates);
-        setSelectedId(response.candidates[0]?.id ?? null);
-        setProgress({
-          progress: 1,
-          stage: "verify",
-          family: response.candidates[0]?.family ?? "four-bar",
-          bestNormalizedRmse: response.candidates[0]?.normalizedRmse ?? null,
-        });
-        setAngle(0);
-        setPlaying(response.candidates.length > 0 && !window.matchMedia("(prefers-reduced-motion: reduce)").matches);
-      } else {
-        setFailed(true);
-      }
-    };
-    worker.onerror = () => {
-      stopSolver();
-      setFailed(true);
-    };
-    const families: MechanismFamily[] = familyMode === "compare"
-      ? ["four-bar", "geared-five-bar"]
-      : [familyMode];
-    worker.postMessage({ requestId, target: CAT_TARGET_CURVE, families, iterations: familyMode === "compare" ? 6400 : 3800 });
+  const loadDemo = () => {
+    const nextCandidates = precomputedCandidatesFor(familyMode);
+    setCandidates(nextCandidates);
+    setSelectedId(nextCandidates[0]?.id ?? null);
+    setAngle(0);
+    setPlaying(nextCandidates.length > 0 && !window.matchMedia("(prefers-reduced-motion: reduce)").matches);
   };
 
-  const stageLabel = progress.stage === "global" ? copy.global : progress.stage === "refine" ? copy.refine : copy.verify;
-  const progressFamily = progress.family === "four-bar" ? copy.fourBarCode : copy.gearedFiveBarCode;
-  const status = failed ? copy.failed : solving ? `${progressFamily} · ${stageLabel} · ${Math.round(progress.progress * 100)}%` : candidates.length > 0 ? copy.ready : copy.waiting;
+  const status = candidates.length > 0 ? copy.ready : copy.waiting;
 
   return (
     <main className={styles.page}>
@@ -306,10 +240,10 @@ export function SketchLinkageLab() {
               >{label}</button>
             ))}
           </section>
-          <button className={styles.solveButton} type="button" onClick={solving ? stopSolver : runSolver}>
-            {solving ? copy.cancel : candidates.length ? copy.solveAgain : copy.solve}
+          <button className={styles.solveButton} type="button" onClick={loadDemo}>
+            {candidates.length ? copy.solveAgain : copy.solve}
           </button>
-          <div className={styles.progressTrack} aria-hidden="true"><span style={{ width: `${progress.progress * 100}%` }} /></div>
+          <div className={styles.progressTrack} aria-hidden="true"><span style={{ width: candidates.length ? "100%" : "0%" }} /></div>
           <p className={styles.liveStatus} aria-live="polite">{status}</p>
 
           <div className={styles.explainer}>

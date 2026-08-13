@@ -325,6 +325,7 @@ export function FourBarLab() {
           OpenLinkage
         </Link>
         <div className={styles.headerMeta}>
+          <Link href="/sketch-mechanism">草图生成机构</Link>
           <Link href="/straight-line">直线机构</Link>
           <Link href="/leg">六杆腿设计</Link>
           <Link href="/variable-leg">可变步行腿</Link>

@@ -94,8 +94,8 @@ const COPY = {
     penLabel: "④ 绘图笔",
     compactGears: "简化合成",
     expandedGears: "完整齿轮组",
-    directGears: "直连绘图点",
-    directGearsNote: "运动分量示意 · 非刚性装配",
+    directGears: "逐级串联",
+    directGearsNote: "运动链路示意 · X/Y 逐级相加",
   },
   en: {
     back: "OpenLinkage",
@@ -170,8 +170,8 @@ const COPY = {
     penLabel: "④ Drawing pen",
     compactGears: "Summed output",
     expandedGears: "Full gear bank",
-    directGears: "Direct to pen",
-    directGearsNote: "Motion contributions · not a rigid assembly",
+    directGears: "Serial chain",
+    directGearsNote: "Motion path · staged X/Y summation",
   },
 } as const;
 
@@ -544,30 +544,58 @@ export function SketchLinkageLab() {
                   {xyDisplayMode !== "direct" && <path d="M94 122H105V75M105 122V144" className={familyStyles.powerSplit} />}
                   {xyDisplayMode === "direct" ? (
                     <g className={familyStyles.directGearView}>
+                      <path d="M94 122H102V68H105M94 122H82V102" className={familyStyles.powerSplit} />
                       {(["x", "y"] as const).flatMap((axis) => {
                         const drives = xyMechanism.harmonicDrives.filter((drive) => drive.axis === axis);
+                        const axisSpan = axis === "x"
+                          ? selected.parameters.targetBounds.maximum.x - selected.parameters.targetBounds.minimum.x
+                          : selected.parameters.targetBounds.maximum.y - selected.parameters.targetBounds.minimum.y;
+                        let cumulativeContribution = 0;
+                        let previousNode: Point | null = null;
                         return drives.map((drive, index) => {
-                          const centerX = axis === "x" ? 112 + index * 24 : 88;
-                          const centerY = axis === "x" ? 68 : 112 + index * 24;
+                          const centerX = axis === "x" ? 112 + index * 20 : 88;
+                          const centerY = axis === "x" ? 68 : 112 + index * 20;
                           const gearRadius = 7;
                           const driveAngle = drive.rotationDegrees * Math.PI / 180;
                           const pinX = centerX + Math.cos(driveAngle) * 4.4;
                           const pinY = centerY + Math.sin(driveAngle) * 4.4;
+                          cumulativeContribution += drive.eccentricity * Math.cos(driveAngle);
+                          const displayOffset = Math.max(-7, Math.min(7, cumulativeContribution / Math.max(1, axisSpan) * 18));
+                          const sumNode = axis === "x"
+                            ? { x: centerX + displayOffset, y: 105 }
+                            : { x: 125, y: centerY + displayOffset };
+                          const incomingNode = previousNode;
+                          previousNode = sumNode;
                           return (
                             <g key={`direct-${axis}-${drive.harmonic}`} className={axis === "x" ? familyStyles.xDrive : familyStyles.yDrive}>
                               <FlatGear x={centerX} y={centerY} radius={gearRadius} rotation={drive.rotationDegrees} axis={axis} />
                               <line x1={centerX} y1={centerY} x2={pinX} y2={pinY} className={familyStyles.eccentricArm} />
                               <circle cx={pinX} cy={pinY} r="2.5" className={familyStyles.eccentricPin} />
-                              <line x1={pinX} y1={pinY} x2={xyMechanism.point.x} y2={xyMechanism.point.y} className={familyStyles.directContribution} />
+                              {incomingNode && (
+                                <line x1={incomingNode.x} y1={incomingNode.y} x2={sumNode.x} y2={sumNode.y} className={familyStyles.serialChain} />
+                              )}
+                              <line x1={pinX} y1={pinY} x2={sumNode.x} y2={sumNode.y} className={familyStyles.serialInputLink} />
+                              <rect x={sumNode.x - 4} y={sumNode.y - 4} width="8" height="8" rx="1" className={familyStyles.serialStageBlock} />
                               <text
                                 x={axis === "x" ? centerX : centerX - 13}
                                 y={axis === "x" ? centerY - 13 : centerY + 3}
                                 textAnchor={axis === "x" ? "middle" : "end"}
                               >{axis.toUpperCase()}{drive.harmonic}</text>
+                              <text
+                                x={axis === "x" ? sumNode.x : sumNode.x + 9}
+                                y={axis === "x" ? sumNode.y + 13 : sumNode.y + 2}
+                                textAnchor={axis === "x" ? "middle" : "start"}
+                                className={familyStyles.serialStageLabel}
+                              >Σ{drive.harmonic}</text>
                             </g>
                           );
                         });
                       })}
+                      <path d={`M${292 + Math.max(-7, Math.min(7, (xyMechanism.point.x - selected.parameters.x.offset) / Math.max(1, selected.parameters.targetBounds.maximum.x - selected.parameters.targetBounds.minimum.x) * 18))} 105H${xyMechanism.point.x}V${xyMechanism.point.y}`} className={`${familyStyles.xPushrod} ${familyStyles.serialOutput}`} />
+                      <path d={`M125 ${292 + Math.max(-7, Math.min(7, (xyMechanism.point.y - selected.parameters.y.offset) / Math.max(1, selected.parameters.targetBounds.maximum.y - selected.parameters.targetBounds.minimum.y) * 18))}V${xyMechanism.point.y}H${xyMechanism.point.x}`} className={`${familyStyles.yPushrod} ${familyStyles.serialOutput}`} />
+                      <line x1={selected.parameters.targetBounds.minimum.x - 18} y1={xyMechanism.point.y} x2={selected.parameters.targetBounds.maximum.x + 18} y2={xyMechanism.point.y} className={familyStyles.yCarriage} />
+                      <line x1={xyMechanism.point.x} y1={selected.parameters.targetBounds.minimum.y - 18} x2={xyMechanism.point.x} y2={selected.parameters.targetBounds.maximum.y + 18} className={familyStyles.xCarriage} />
+                      <rect x={xyMechanism.point.x - 13} y={xyMechanism.point.y - 13} width="26" height="26" rx="2" className={familyStyles.carriageBlock} />
                       <JointMarker x={xyMechanism.point.x} y={xyMechanism.point.y} label="P" active />
                     </g>
                   ) : (["x", "y"] as const).map((axis, axisIndex) => {

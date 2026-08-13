@@ -375,11 +375,32 @@
   pointer-events: none;
 }
 
-.directContribution {
+.serialInputLink {
   fill: none;
-  stroke-width: 1.15 !important;
-  stroke-dasharray: 4 3;
-  opacity: .28;
+  stroke-width: 1.35 !important;
+  stroke-dasharray: 3 3;
+  opacity: .55;
+}
+
+.serialChain {
+  fill: none;
+  stroke-width: 3 !important;
+  stroke-linecap: round;
+}
+
+.serialStageBlock {
+  fill: #f4f3ed !important;
+  stroke-width: 1.7 !important;
+}
+
+.serialStageLabel {
+  fill: #687068 !important;
+  font-size: 6px !important;
+  font-weight: 600 !important;
+}
+
+.serialOutput {
+  stroke-width: 3.5 !important;
 }
 
 .directGearView .eccentricPin {

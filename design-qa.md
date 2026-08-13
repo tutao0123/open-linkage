@@ -65,6 +65,15 @@ The focused mechanism views show the same J/F/P joint-marker construction and fi
 - The canvas explicitly labels this as `运动分量示意 · 非刚性装配`, because twenty physical rigid links meeting at one point would be overconstrained. The compact and full gear-bank views remain available as the mechanism-oriented representations.
 - The three-way view switch is keyboard focusable and announces its selected state. No actionable P0/P1/P2 visual issue remains.
 
+## Serial summing-chain refinement
+
+- Requested target: replace the twenty simultaneous contribution lines with a connection path that can be followed one stage at a time.
+- Before: `C:/Users/39007/.codex/visualizations/2026/07/23/019f8d9b-1c31-7a52-9efa-6f82fea26e23/sketch-mechanism-direct-gears/direct-to-pen.png`
+- After: `C:/Users/39007/.codex/visualizations/2026/07/23/019f8d9b-1c31-7a52-9efa-6f82fea26e23/sketch-mechanism-serial-gears/serial-summing-chain.png`
+- X1-X10 now feed numbered summing blocks in a left-to-right serial chain; Y1-Y10 feed a top-to-bottom serial chain. Only each chain's final output connects to the X/Y cross-slide and drawing point P.
+- The cumulative nodes move with their harmonic contributions, playback advances through the full chain, and the control is now labelled `逐级串联` / `Serial chain`. The canvas states that this is a staged X/Y motion-path representation.
+- The new chain removes the previous P1 conceptual ambiguity of twenty lines appearing to act as twenty rigid links attached to one joint. No actionable P0/P1/P2 visual issue remains.
+
 ## Follow-up polish
 
 - P3: if the canvas later gains a teaching mode, transient motion arrows can be shown only during playback to reduce static density further.

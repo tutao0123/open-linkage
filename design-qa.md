@@ -39,6 +39,14 @@ The focused mechanism views show the same J/F/P joint-marker construction and fi
 - A clean browser session reports no console errors.
 - The existing middle-button pan mapping remains covered by its unit tests.
 
+## Flat gear-bank refinement
+
+- Requested target: replace the abstract harmonic circles with directly visible, horizontally arranged gear pairs.
+- Before: `C:/Users/39007/.codex/visualizations/2026/07/23/019f8d9b-1c31-7a52-9efa-6f82fea26e23/sketch-mechanism-style-match/implementation-xy-final-1440.png`
+- After: `C:/Users/39007/.codex/visualizations/2026/07/23/019f8d9b-1c31-7a52-9efa-6f82fea26e23/sketch-mechanism-flat-gears/flat-gears-labeled-1440.png`
+- The final X and Y rows expose four meshing input/output gear pairs, their `1×–4×` ratios, eccentric pins, summing links, output blocks, and the shared J1 input. The previous P2 ambiguity—circles that could be read as abstract harmonic nodes rather than gears—is resolved.
+- Playback was verified from 0° to approximately 30° with no browser console errors; the flat gears, eccentric pins, linkage summation, cross-slide, and drawing point remain synchronized.
+
 ## Follow-up polish
 
 - P3: if the canvas later gains a teaching mode, transient motion arrows can be shown only during playback to reduce static density further.

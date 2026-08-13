@@ -209,14 +209,63 @@
   stroke-dasharray: 3 2;
 }
 
+.flatGear .flatGearTeeth {
+  fill: none !important;
+  stroke-width: 2.4 !important;
+  stroke-dasharray: 2 1.5;
+}
+
+.flatGear circle:nth-of-type(2) {
+  fill: #eef0e8 !important;
+  stroke-width: 1.8 !important;
+}
+
+.flatGear line {
+  stroke-width: 1.25 !important;
+  stroke-linecap: round;
+}
+
+.flatGear circle:last-of-type {
+  fill: #f4f3ed !important;
+  stroke-width: 1.6 !important;
+}
+
+.flatGearX circle,
+.flatGearX line {
+  stroke: #171b1a !important;
+}
+
+.flatGearY circle,
+.flatGearY line {
+  stroke: #476a83 !important;
+}
+
+.commonGearShaft {
+  stroke-width: 4 !important;
+  stroke-linecap: round;
+  opacity: .75;
+}
+
+.axisBankLabel {
+  font-size: 10px !important;
+  font-weight: 800 !important;
+}
+
+.eccentricArm {
+  stroke-width: 2 !important;
+  stroke-linecap: round;
+}
+
 .eccentricPin {
   fill: #c7fb43 !important;
   stroke: #171b1a !important;
 }
 
 .harmonicLink {
+  fill: none;
   stroke-width: 2.5 !important;
   stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .sliderBlock,

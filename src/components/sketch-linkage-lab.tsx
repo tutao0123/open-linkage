@@ -193,6 +193,33 @@ function JointMarker({ x, y, label, fixed = false, active = false }: {
   );
 }
 
+function FlatGear({
+  x,
+  y,
+  radius,
+  rotation,
+  axis,
+}: {
+  x: number;
+  y: number;
+  radius: number;
+  rotation: number;
+  axis: "x" | "y";
+}) {
+  return (
+    <g
+      className={`${familyStyles.flatGear} ${axis === "x" ? familyStyles.flatGearX : familyStyles.flatGearY}`}
+      transform={`rotate(${rotation} ${x} ${y})`}
+    >
+      <circle cx={x} cy={y} r={radius + 2.5} className={familyStyles.flatGearTeeth} />
+      <circle cx={x} cy={y} r={radius} />
+      <line x1={x - radius * 0.68} y1={y} x2={x + radius * 0.68} y2={y} />
+      <line x1={x} y1={y - radius * 0.68} x2={x} y2={y + radius * 0.68} />
+      <circle cx={x} cy={y} r={Math.max(2.3, radius * 0.2)} />
+    </g>
+  );
+}
+
 type FamilyMode = DemoMechanismFamily | "compare";
 
 function familyCode(family: DemoMechanismFamily, copy: typeof COPY.zh | typeof COPY.en) {
@@ -495,37 +522,56 @@ export function SketchLinkageLab() {
                   </g>
                   <JointMarker x={72} y={122} label="J1" fixed active />
                   <text x="43" y="91" className={familyStyles.mechanismLabel}>INPUT θ</text>
-                  <path d="M94 122H108M102 122V158H108" className={familyStyles.powerSplit} />
+                  <path d="M94 122H105V75M105 122V144" className={familyStyles.powerSplit} />
                   {(["x", "y"] as const).map((axis, axisIndex) => {
-                    const rowY = axisIndex === 0 ? 111 : 158;
+                    const driverY = axisIndex === 0 ? 75 : 144;
+                    const exitY = axisIndex === 0 ? 119 : 188;
                     const drives = xyMechanism.harmonicDrives.filter((drive) => drive.axis === axis && drive.harmonic <= 4);
                     return (
                       <g key={axis} className={axis === "x" ? familyStyles.xDrive : familyStyles.yDrive}>
-                        <text x="111" y={rowY - 19}>{axis.toUpperCase()} 1×–10×</text>
+                        <text x="109" y={driverY + 3} className={familyStyles.axisBankLabel}>{axis.toUpperCase()}</text>
+                        <line x1="105" y1={driverY} x2="269" y2={driverY} className={familyStyles.commonGearShaft} />
                         {drives.map((drive, driveIndex) => {
-                          const centerX = 126 + driveIndex * 39;
+                          const centerX = 128 + driveIndex * 45;
+                          const driverRadius = 11;
+                          const outputRadius = Math.max(4, driverRadius / drive.harmonic);
+                          const outputY = driverY + driverRadius + outputRadius;
                           const driveAngle = drive.rotationDegrees * Math.PI / 180;
-                          const pinX = centerX + Math.cos(driveAngle) * 8;
-                          const pinY = rowY + Math.sin(driveAngle) * 8;
+                          const pinRadius = Math.max(2.5, outputRadius * 0.64);
+                          const pinX = centerX + Math.cos(driveAngle) * pinRadius;
+                          const pinY = outputY + Math.sin(driveAngle) * pinRadius;
                           return (
                             <g key={`${axis}-${drive.harmonic}`}>
-                              <circle cx={centerX} cy={rowY} r={13} className={familyStyles.gearWheel} />
-                              <line x1={centerX} y1={rowY} x2={pinX} y2={pinY} />
+                              <FlatGear
+                                x={centerX}
+                                y={driverY}
+                                radius={driverRadius}
+                                rotation={xyMechanism.sharedInputShaft.rotationDegrees}
+                                axis={axis}
+                              />
+                              <FlatGear
+                                x={centerX}
+                                y={outputY}
+                                radius={outputRadius}
+                                rotation={drive.rotationDegrees}
+                                axis={axis}
+                              />
+                              <line x1={centerX} y1={outputY} x2={pinX} y2={pinY} className={familyStyles.eccentricArm} />
                               <circle cx={pinX} cy={pinY} r="3" className={familyStyles.eccentricPin} />
-                              <line x1={pinX} y1={pinY} x2="294" y2={rowY} className={familyStyles.harmonicLink} />
-                              <text x={centerX} y={rowY + 24} textAnchor="middle">{drive.harmonic}×</text>
+                              <polyline points={`${pinX},${pinY} ${centerX},${exitY} 284,${exitY}`} className={familyStyles.harmonicLink} />
+                              <text x={centerX} y={driverY - 18} textAnchor="middle">{drive.harmonic}×</text>
                             </g>
                           );
                         })}
-                        <rect x="286" y={rowY - 10} width="16" height="20" rx="2" className={familyStyles.sliderBlock} />
-                        <path d={`M302 ${rowY}H330`} markerEnd="url(#sketch-motion-arrow)" className={familyStyles.axisMotion} />
+                        <rect x="284" y={exitY - 9} width="16" height="18" rx="2" className={familyStyles.sliderBlock} />
+                        <path d={`M300 ${exitY}H320`} markerEnd="url(#sketch-motion-arrow)" className={familyStyles.axisMotion} />
                       </g>
                     );
                   })}
                   <line x1={selected.parameters.targetBounds.minimum.x - 18} y1={xyMechanism.point.y} x2={selected.parameters.targetBounds.maximum.x + 18} y2={xyMechanism.point.y} className={familyStyles.yCarriage} />
                   <line x1={xyMechanism.point.x} y1={selected.parameters.targetBounds.minimum.y - 18} x2={xyMechanism.point.x} y2={selected.parameters.targetBounds.maximum.y + 18} className={familyStyles.xCarriage} />
-                  <path d={`M330 111H${xyMechanism.point.x}V${xyMechanism.point.y}`} className={familyStyles.xPushrod} />
-                  <path d={`M330 158V${xyMechanism.point.y}H${xyMechanism.point.x}`} className={familyStyles.yPushrod} />
+                  <path d={`M320 119H${xyMechanism.point.x}V${xyMechanism.point.y}`} className={familyStyles.xPushrod} />
+                  <path d={`M320 188V${xyMechanism.point.y}H${xyMechanism.point.x}`} className={familyStyles.yPushrod} />
                   <rect x={xyMechanism.point.x - 13} y={xyMechanism.point.y - 13} width="26" height="26" rx="2" className={familyStyles.carriageBlock} />
                   <JointMarker x={xyMechanism.point.x} y={xyMechanism.point.y} label="P" active />
                 </g>

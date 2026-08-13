@@ -68,6 +68,9 @@ const COPY = {
     gearedFiveBar: "齿轮同步五杆",
     fourBarCode: "4-BAR",
     gearedFiveBarCode: "GEARED 5-BAR",
+    zoomOut: "缩小画布",
+    resetZoom: "适应画布",
+    zoomIn: "放大画布",
   },
   en: {
     back: "OpenLinkage",
@@ -121,6 +124,9 @@ const COPY = {
     gearedFiveBar: "Gear-synchronized five-bar",
     fourBarCode: "4-BAR",
     gearedFiveBarCode: "GEARED 5-BAR",
+    zoomOut: "Zoom out",
+    resetZoom: "Fit canvas",
+    zoomIn: "Zoom in",
   },
 } as const;
 
@@ -144,12 +150,18 @@ export function SketchLinkageLab() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
   const [angle, setAngle] = useState(0);
+  const [zoom, setZoom] = useState(1);
   const [familyMode, setFamilyMode] = useState<FamilyMode>("compare");
 
   const selected = candidates.find((candidate) => candidate.id === selectedId) ?? candidates[0] ?? null;
   const mechanism = useMemo(() => selected ? sampleCandidateMechanism(selected, angle) : null, [angle, selected]);
   const targetPath = useMemo(() => pointsPath(CAT_TARGET_CURVE), []);
   const tracePath = useMemo(() => selected ? pointsPath(selected.trajectory) : "", [selected]);
+  const canvasViewBox = useMemo(() => {
+    const width = 540 / zoom;
+    const height = 450 / zoom;
+    return `${295 - width / 2} ${275 - height / 2} ${width} ${height}`;
+  }, [zoom]);
 
   useEffect(() => () => {
     if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
@@ -184,6 +196,7 @@ export function SketchLinkageLab() {
     setSelectedId(nextCandidates[0]?.id ?? null);
     setPlaying(false);
     setAngle(0);
+    setZoom(1);
   };
 
   const loadDemo = () => {
@@ -191,7 +204,12 @@ export function SketchLinkageLab() {
     setCandidates(nextCandidates);
     setSelectedId(nextCandidates[0]?.id ?? null);
     setAngle(0);
+    setZoom(1);
     setPlaying(nextCandidates.length > 0 && !window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  };
+
+  const changeZoom = (delta: number) => {
+    setZoom((current) => Math.round(Math.min(2, Math.max(0.6, current + delta)) * 10) / 10);
   };
 
   const status = candidates.length > 0 ? copy.ready : copy.waiting;
@@ -265,8 +283,13 @@ export function SketchLinkageLab() {
               <span><i className={styles.linkSwatch} />{copy.mechanismLegend}</span>
             </div>
           </div>
-          <div className={styles.canvas}>
-            <svg viewBox="25 50 540 450" role="img" aria-label={copy.canvas}>
+          <div className={`${styles.canvas} ${familyStyles.zoomCanvas}`}>
+            <div className={familyStyles.zoomControls} role="group" aria-label={copy.resetZoom}>
+              <button type="button" aria-label={copy.zoomOut} disabled={zoom <= 0.6} onClick={() => changeZoom(-0.2)}>−</button>
+              <button type="button" aria-label={copy.resetZoom} onClick={() => setZoom(1)}>{Math.round(zoom * 100)}%</button>
+              <button type="button" aria-label={copy.zoomIn} disabled={zoom >= 2} onClick={() => changeZoom(0.2)}>+</button>
+            </div>
+            <svg viewBox={canvasViewBox} role="img" aria-label={copy.canvas}>
               <defs>
                 <pattern id="sketch-grid" width="25" height="25" patternUnits="userSpaceOnUse"><path d="M25 0H0V25" /></pattern>
               </defs>

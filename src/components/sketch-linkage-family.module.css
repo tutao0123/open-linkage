@@ -47,3 +47,63 @@
   stroke: #9aa099 !important;
   stroke-width: 1.5 !important;
 }
+
+.zoomCanvas {
+  position: relative;
+}
+
+.zoomControls {
+  position: absolute;
+  z-index: 2;
+  top: 24px;
+  right: 24px;
+  display: flex;
+  align-items: center;
+  border: 1px solid #bfc2ba;
+  background: #f4f3ed;
+  box-shadow: 0 5px 18px rgb(20 24 23 / 10%);
+}
+
+.zoomControls button {
+  min-width: 36px;
+  height: 34px;
+  padding: 0 9px;
+  border: 0;
+  border-right: 1px solid #c9cbc3;
+  background: #f4f3ed;
+  color: #171b1a;
+  font: 12px "Cascadia Mono", Consolas, monospace;
+  cursor: pointer;
+}
+
+.zoomControls button:nth-child(2) {
+  min-width: 58px;
+  font-size: 10px;
+}
+
+.zoomControls button:last-child {
+  border-right: 0;
+}
+
+.zoomControls button:hover:not(:disabled) {
+  background: #dfff91;
+}
+
+.zoomControls button:disabled {
+  color: #a4a8a2;
+  cursor: not-allowed;
+}
+
+.zoomControls button:focus-visible {
+  position: relative;
+  z-index: 1;
+  outline: 3px solid #8ebd22;
+  outline-offset: -3px;
+}
+
+@media (max-width: 820px) {
+  .zoomControls {
+    top: 12px;
+    right: 12px;
+  }
+}

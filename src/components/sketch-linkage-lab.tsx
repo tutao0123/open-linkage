@@ -92,6 +92,8 @@ const COPY = {
     camPairLabel: "① 同步 X/Y 槽凸轮",
     followerLabel: "② 滚子从动件 + 推杆",
     penLabel: "④ 绘图笔",
+    compactGears: "简化合成",
+    expandedGears: "完整齿轮组",
   },
   en: {
     back: "OpenLinkage",
@@ -164,6 +166,8 @@ const COPY = {
     camPairLabel: "① Synchronized X/Y groove cams",
     followerLabel: "② Roller followers + pushrods",
     penLabel: "④ Drawing pen",
+    compactGears: "Summed output",
+    expandedGears: "Full gear bank",
   },
 } as const;
 
@@ -247,6 +251,7 @@ export function SketchLinkageLab() {
   const [pan, setPan] = useState<Point>({ x: 0, y: 0 });
   const [panning, setPanning] = useState(false);
   const [familyMode, setFamilyMode] = useState<FamilyMode>("compare");
+  const [xyDisplayMode, setXyDisplayMode] = useState<"compact" | "expanded">("expanded");
 
   const selected = candidates.find((candidate) => candidate.id === selectedId) ?? candidates[0] ?? null;
   const linkageMechanism = useMemo(() => selected && (selected.family === "four-bar" || selected.family === "geared-five-bar")
@@ -428,6 +433,12 @@ export function SketchLinkageLab() {
             </div>
           </div>
           <div className={`${styles.canvas} ${familyStyles.zoomCanvas}`}>
+            {selected?.family === "gear-synchronized-xy" && (
+              <div className={familyStyles.gearViewToggle} role="group" aria-label={copy.xyDrawing}>
+                <button type="button" aria-pressed={xyDisplayMode === "compact"} onClick={() => setXyDisplayMode("compact")}>{copy.compactGears}</button>
+                <button type="button" aria-pressed={xyDisplayMode === "expanded"} onClick={() => setXyDisplayMode("expanded")}>{copy.expandedGears}</button>
+              </div>
+            )}
             <div className={familyStyles.zoomControls} role="group" aria-label={copy.resetZoom}>
               <button type="button" aria-label={copy.zoomOut} disabled={zoom <= 0.6} onClick={() => changeZoom(-0.2)}>−</button>
               <button type="button" aria-label={copy.resetZoom} onClick={resetView}>{Math.round(zoom * 100)}%</button>
@@ -526,15 +537,19 @@ export function SketchLinkageLab() {
                   {(["x", "y"] as const).map((axis, axisIndex) => {
                     const driverY = axisIndex === 0 ? 75 : 144;
                     const exitY = axisIndex === 0 ? 119 : 188;
-                    const drives = xyMechanism.harmonicDrives.filter((drive) => drive.axis === axis && drive.harmonic <= 4);
+                    const visibleCount = xyDisplayMode === "expanded" ? selected.parameters.harmonicCount : 4;
+                    const drives = xyMechanism.harmonicDrives.filter((drive) => drive.axis === axis && drive.harmonic <= visibleCount);
+                    const firstCenter = xyDisplayMode === "expanded" ? 119 : 128;
+                    const centerStep = xyDisplayMode === "expanded" ? 22 : 45;
+                    const driverRadius = xyDisplayMode === "expanded" ? 6.2 : 11;
+                    const collectorX = xyDisplayMode === "expanded" ? 342 : 284;
                     return (
                       <g key={axis} className={axis === "x" ? familyStyles.xDrive : familyStyles.yDrive}>
                         <text x="109" y={driverY + 3} className={familyStyles.axisBankLabel}>{axis.toUpperCase()}</text>
-                        <line x1="105" y1={driverY} x2="269" y2={driverY} className={familyStyles.commonGearShaft} />
+                        <line x1="105" y1={driverY} x2={firstCenter + (drives.length - 1) * centerStep + driverRadius} y2={driverY} className={familyStyles.commonGearShaft} />
                         {drives.map((drive, driveIndex) => {
-                          const centerX = 128 + driveIndex * 45;
-                          const driverRadius = 11;
-                          const outputRadius = Math.max(4, driverRadius / drive.harmonic);
+                          const centerX = firstCenter + driveIndex * centerStep;
+                          const outputRadius = Math.max(xyDisplayMode === "expanded" ? 2.4 : 4, driverRadius / Math.sqrt(drive.harmonic));
                           const outputY = driverY + driverRadius + outputRadius;
                           const driveAngle = drive.rotationDegrees * Math.PI / 180;
                           const pinRadius = Math.max(2.5, outputRadius * 0.64);
@@ -558,20 +573,20 @@ export function SketchLinkageLab() {
                               />
                               <line x1={centerX} y1={outputY} x2={pinX} y2={pinY} className={familyStyles.eccentricArm} />
                               <circle cx={pinX} cy={pinY} r="3" className={familyStyles.eccentricPin} />
-                              <polyline points={`${pinX},${pinY} ${centerX},${exitY} 284,${exitY}`} className={familyStyles.harmonicLink} />
-                              <text x={centerX} y={driverY - 18} textAnchor="middle">{drive.harmonic}×</text>
+                              <polyline points={`${pinX},${pinY} ${centerX},${exitY} ${collectorX},${exitY}`} className={familyStyles.harmonicLink} />
+                              <text x={centerX} y={driverY - (xyDisplayMode === "expanded" ? 12 : 18)} textAnchor="middle">{drive.harmonic}×</text>
                             </g>
                           );
                         })}
-                        <rect x="284" y={exitY - 9} width="16" height="18" rx="2" className={familyStyles.sliderBlock} />
-                        <path d={`M300 ${exitY}H320`} markerEnd="url(#sketch-motion-arrow)" className={familyStyles.axisMotion} />
+                        <line x1={firstCenter - 5} y1={exitY} x2={collectorX} y2={exitY} className={familyStyles.summingRail} />
+                        <rect x={collectorX} y={exitY - 9} width="16" height="18" rx="2" className={familyStyles.sliderBlock} />
                       </g>
                     );
                   })}
                   <line x1={selected.parameters.targetBounds.minimum.x - 18} y1={xyMechanism.point.y} x2={selected.parameters.targetBounds.maximum.x + 18} y2={xyMechanism.point.y} className={familyStyles.yCarriage} />
                   <line x1={xyMechanism.point.x} y1={selected.parameters.targetBounds.minimum.y - 18} x2={xyMechanism.point.x} y2={selected.parameters.targetBounds.maximum.y + 18} className={familyStyles.xCarriage} />
-                  <path d={`M320 119H${xyMechanism.point.x}V${xyMechanism.point.y}`} className={familyStyles.xPushrod} />
-                  <path d={`M320 188V${xyMechanism.point.y}H${xyMechanism.point.x}`} className={familyStyles.yPushrod} />
+                  <path d={`M${xyDisplayMode === "expanded" ? 358 : 300} 119H${xyMechanism.point.x}V${xyMechanism.point.y}`} className={familyStyles.xPushrod} />
+                  <path d={`M${xyDisplayMode === "expanded" ? 358 : 300} 188V${xyMechanism.point.y}H${xyMechanism.point.x}`} className={familyStyles.yPushrod} />
                   <rect x={xyMechanism.point.x - 13} y={xyMechanism.point.y - 13} width="26" height="26" rx="2" className={familyStyles.carriageBlock} />
                   <JointMarker x={xyMechanism.point.x} y={xyMechanism.point.y} label="P" active />
                 </g>
@@ -588,8 +603,8 @@ export function SketchLinkageLab() {
                       <text x={cam.center.x} y={cam.center.y + 73} textAnchor="middle">{camIndex === 0 ? "X CAM" : "Y CAM"}</text>
                     </g>
                   ))}
-                  <polyline points={`${camDisplay.x.contactPoint.x},${camDisplay.x.contactPoint.y} ${camMechanism.crossSlide.drawingPoint.x},${camDisplay.x.contactPoint.y} ${camMechanism.crossSlide.drawingPoint.x},${camMechanism.crossSlide.drawingPoint.y}`} className={`${familyStyles.xPushrod} ${familyStyles.linkBar}`} markerEnd="url(#sketch-motion-arrow)" />
-                  <polyline points={`${camDisplay.y.contactPoint.x},${camDisplay.y.contactPoint.y} ${camDisplay.y.contactPoint.x},${camMechanism.crossSlide.drawingPoint.y} ${camMechanism.crossSlide.drawingPoint.x},${camMechanism.crossSlide.drawingPoint.y}`} className={`${familyStyles.yPushrod} ${familyStyles.linkBar}`} markerEnd="url(#sketch-motion-arrow)" />
+                  <polyline points={`${camDisplay.x.contactPoint.x},${camDisplay.x.contactPoint.y} ${camMechanism.crossSlide.drawingPoint.x},${camDisplay.x.contactPoint.y} ${camMechanism.crossSlide.drawingPoint.x},${camMechanism.crossSlide.drawingPoint.y}`} className={`${familyStyles.xPushrod} ${familyStyles.linkBar}`} />
+                  <polyline points={`${camDisplay.y.contactPoint.x},${camDisplay.y.contactPoint.y} ${camDisplay.y.contactPoint.x},${camMechanism.crossSlide.drawingPoint.y} ${camMechanism.crossSlide.drawingPoint.x},${camMechanism.crossSlide.drawingPoint.y}`} className={`${familyStyles.yPushrod} ${familyStyles.linkBar}`} />
                   <line x1={selected.parameters.xLaw.minimum - 18} y1={camMechanism.crossSlide.drawingPoint.y} x2={selected.parameters.xLaw.maximum + 18} y2={camMechanism.crossSlide.drawingPoint.y} className={familyStyles.yCarriage} />
                   <line x1={camMechanism.crossSlide.drawingPoint.x} y1={selected.parameters.yLaw.minimum - 18} x2={camMechanism.crossSlide.drawingPoint.x} y2={selected.parameters.yLaw.maximum + 18} className={familyStyles.xCarriage} />
                   <rect x={camMechanism.crossSlide.drawingPoint.x - 13} y={camMechanism.crossSlide.drawingPoint.y - 13} width="26" height="26" rx="2" className={familyStyles.carriageBlock} />

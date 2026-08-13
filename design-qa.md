@@ -47,6 +47,15 @@ The focused mechanism views show the same J/F/P joint-marker construction and fi
 - The final X and Y rows expose four meshing input/output gear pairs, their `1×–4×` ratios, eccentric pins, summing links, output blocks, and the shared J1 input. The previous P2 ambiguity—circles that could be read as abstract harmonic nodes rather than gears—is resolved.
 - Playback was verified from 0° to approximately 30° with no browser console errors; the flat gears, eccentric pins, linkage summation, cross-slide, and drawing point remain synchronized.
 
+## Full gear-bank option and cam-arrow refinement
+
+- Requested target: keep a compact representation but add a direct, full gear-bank view; remove flowchart-like arrows from the dual-cam mechanism.
+- Full gear-bank evidence: `C:/Users/39007/.codex/visualizations/2026/07/23/019f8d9b-1c31-7a52-9efa-6f82fea26e23/sketch-mechanism-full-gear-option/full-gear-bank.png`
+- Dual-cam evidence: `C:/Users/39007/.codex/visualizations/2026/07/23/019f8d9b-1c31-7a52-9efa-6f82fea26e23/sketch-mechanism-full-gear-option/dual-cam-no-arrows.png`
+- The canvas now exposes a keyboard-focusable `简化合成 / 完整齿轮组` segmented control. Full mode displays all ten X gears and ten Y gears, individual eccentric pins and individual links into visible summing rails; compact mode retains the four-stage overview.
+- Both dual-cam pushrod arrowheads were removed. The pushrod geometry and black/blue axis distinction remain, so the motion relationship is readable without a process-diagram treatment.
+- No actionable P0/P1/P2 visual issue remains. The complete twenty-gear view is intentionally denser, while the compact option remains available for overview use.
+
 ## Follow-up polish
 
 - P3: if the canvas later gains a teaching mode, transient motion arrows can be shown only during playback to reduce static density further.

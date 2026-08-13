@@ -37,12 +37,12 @@ export const PAGE_METADATA = {
   },
   sketchMechanism: {
     zh: {
-      title: "草图生成四杆机构 · OpenLinkage",
-      description: "从猫轮廓闭合曲线出发，基于经典四杆运动学搜索相似的连杆轨迹并播放机构动画。",
+      title: "草图生成连杆机构 · OpenLinkage",
+      description: "从猫轮廓闭合曲线出发，对比经典四杆与齿轮同步五杆机构并播放拟合动画。",
     },
     en: {
-      title: "Sketch to Four-bar Mechanism · OpenLinkage",
-      description: "Synthesize a classic four-bar coupler curve from a closed cat outline and animate the resulting mechanism.",
+      title: "Sketch to Linkage Mechanism · OpenLinkage",
+      description: "Compare classic four-bar and gear-synchronized five-bar mechanisms that trace a closed cat outline.",
     },
   },
   leg: {
@@ -98,6 +98,10 @@ const EN_OVERRIDES: Record<string, string> = {
   "标准机构快速求解，自由机构灵活探索。": "Solve standard mechanisms quickly or explore freely.",
   "进入四杆设计": "Open Four-bar Design",
   "草图生成四杆机构": "Sketch to Four-bar Mechanism",
+  "草图生成连杆机构": "Sketch to Linkage Mechanism",
+  "给定猫轮廓闭合曲线，对比经典四杆与齿轮同步五杆机构，让连杆绘图点描出相似轨迹。":
+    "Given a closed cat outline, compare classic four-bar and gear-synchronized five-bar mechanisms whose coupler points trace a similar curve.",
+  "猫轮廓 · 四杆 / 齿轮五杆": "Cat Outline · Four-bar / Geared Five-bar",
   "给定猫轮廓闭合曲线，从经典闭环方程出发搜索完整可转的四杆机构，让连杆绘图点描出相似轨迹。":
     "Given a closed cat outline, search the classic loop-closure equations for a full-cycle four-bar whose coupler point traces a similar curve.",
   "打开草图生成机构": "Open Sketch Synthesis",

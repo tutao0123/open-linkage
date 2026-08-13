@@ -1,4 +1,9 @@
 import { solveFourBar, type AssemblyMode, type FourBarParameters, type Point } from "./four-bar";
+import {
+  gearedFiveBarPitchRadii,
+  solveGearedFiveBar,
+  type GearedFiveBarParameters,
+} from "./geared-five-bar";
 
 export type SimilarityTransform = {
   scale: number;
@@ -6,9 +11,10 @@ export type SimilarityTransform = {
   translation: Point;
 };
 
-export type SketchLinkageCandidate = {
+export type MechanismFamily = "four-bar" | "geared-five-bar";
+
+type SketchLinkageCandidateBase = {
   id: string;
-  parameters: FourBarParameters;
   assemblyMode: AssemblyMode;
   transform: SimilarityTransform;
   phaseIndex: number;
@@ -19,16 +25,36 @@ export type SketchLinkageCandidate = {
   trajectory: Point[];
 };
 
+export type FourBarSketchCandidate = SketchLinkageCandidateBase & {
+  family: "four-bar";
+  parameters: FourBarParameters;
+};
+
+export type GearedFiveBarSketchCandidate = SketchLinkageCandidateBase & {
+  family: "geared-five-bar";
+  parameters: GearedFiveBarParameters;
+};
+
+export type SketchLinkageCandidate = FourBarSketchCandidate | GearedFiveBarSketchCandidate;
+
 export type SketchLinkageProgress = {
   progress: number;
   stage: "global" | "refine" | "verify";
+  family: MechanismFamily;
   bestNormalizedRmse: number | null;
 };
 
 type NormalizedParameters = Omit<FourBarParameters, "ground"> & { ground: 1 };
 
-type EvaluatedCandidate = Omit<SketchLinkageCandidate, "id" | "parameters"> & {
+type NormalizedFiveBarParameters = Omit<GearedFiveBarParameters, "ground"> & { ground: 1 };
+
+type EvaluatedCandidate = Omit<FourBarSketchCandidate, "id" | "parameters" | "family"> & {
   parameters: NormalizedParameters;
+  score: number;
+};
+
+type EvaluatedFiveBarCandidate = Omit<GearedFiveBarSketchCandidate, "id" | "parameters" | "family"> & {
+  parameters: NormalizedFiveBarParameters;
   score: number;
 };
 
@@ -269,6 +295,7 @@ function toPublicCandidate(candidate: EvaluatedCandidate, index: number): Sketch
   const unit = 100;
   return {
     id: `cat-four-bar-${index + 1}`,
+    family: "four-bar",
     parameters: {
       ground: unit,
       input: candidate.parameters.input * unit,
@@ -308,6 +335,7 @@ export function fitFourBarToSketch(
     options.onProgress?.({
       progress: iteration / iterations,
       stage,
+      family: "four-bar",
       bestNormalizedRmse: pool[0]?.normalizedRmse ?? null,
     });
   };
@@ -339,19 +367,279 @@ export function fitFourBarToSketch(
     if (diverse.length === 3) break;
   }
   while (diverse.length < Math.min(3, pool.length)) diverse.push(pool[diverse.length]);
-  options.onProgress?.({ progress: 1, stage: "verify", bestNormalizedRmse: diverse[0].normalizedRmse });
+  options.onProgress?.({ progress: 1, stage: "verify", family: "four-bar", bestNormalizedRmse: diverse[0].normalizedRmse });
   return diverse.map(toPublicCandidate);
 }
 
-export function sampleCandidateMechanism(candidate: SketchLinkageCandidate, angleDegrees: number) {
-  const position = solveFourBar(candidate.parameters, angleDegrees, candidate.assemblyMode);
-  if (!position) return null;
-  const plot = (point: Point) => applySimilarity({ x: point.x, y: -point.y }, candidate.transform);
+function sampleFiveBarTrajectory(
+  parameters: NormalizedFiveBarParameters,
+  assemblyMode: AssemblyMode,
+  sampleCount = 144,
+) {
+  const points: Point[] = [];
+  let minimumTransmissionAngle = Number.POSITIVE_INFINITY;
+  for (let index = 0; index < sampleCount; index += 1) {
+    const position = solveGearedFiveBar(parameters, (index / sampleCount) * 360, assemblyMode);
+    if (!position) return null;
+    points.push({ x: position.couplerPoint.x, y: -position.couplerPoint.y });
+    minimumTransmissionAngle = Math.min(minimumTransmissionAngle, position.transmissionAngle);
+  }
+  return { points, minimumTransmissionAngle };
+}
+
+function evaluateFiveBarParameters(
+  parameters: NormalizedFiveBarParameters,
+  target: Point[],
+  diagonal: number,
+  assemblyMode: AssemblyMode,
+): EvaluatedFiveBarCandidate | null {
+  const sampled = sampleFiveBarTrajectory(parameters, assemblyMode);
+  if (!sampled) return null;
+  const trajectory = resampleClosedCurve(sampled.points, target.length);
+  const alignment = alignClosedCurves(trajectory, target);
+  const normalizedRmse = alignment.rmse / diagonal;
+  const transmissionPenalty = Math.max(0, 8 - sampled.minimumTransmissionAngle) / 250;
   return {
-    inputPivot: plot({ x: 0, y: 0 }),
-    outputPivot: plot({ x: candidate.parameters.ground, y: 0 }),
-    inputJoint: plot(position.inputJoint),
-    couplerJoint: plot(position.couplerJoint),
-    couplerPoint: plot(position.couplerPoint),
+    parameters,
+    assemblyMode,
+    transform: alignment.transform,
+    phaseIndex: alignment.phaseIndex,
+    direction: alignment.direction,
+    rmse: alignment.rmse,
+    normalizedRmse,
+    minimumTransmissionAngle: sampled.minimumTransmissionAngle,
+    trajectory: alignment.orderedSource.map((point) => applySimilarity(point, alignment.transform)),
+    score: normalizedRmse + transmissionPenalty,
+  };
+}
+
+function randomFiveBarParameters(random: () => number): NormalizedFiveBarParameters {
+  return {
+    ground: 1,
+    leftInput: 0.1 + random() * 0.65,
+    leftCoupler: 0.45 + random() * 1.45,
+    rightCoupler: 0.45 + random() * 1.45,
+    rightInput: 0.1 + random() * 0.65,
+    gearRatio: random() < 0.72 ? -1 : -2,
+    gearPhase: random() * 360,
+    couplerPointRatio: random(),
+    couplerPointOffset: -1.5 + random() * 3,
+  };
+}
+
+function wrapDegrees(value: number) {
+  return ((value % 360) + 360) % 360;
+}
+
+function mutateFiveBarParameters(
+  base: NormalizedFiveBarParameters,
+  random: () => number,
+  temperature: number,
+): NormalizedFiveBarParameters {
+  const delta = (range: number) => (random() + random() + random() - 1.5) * range * temperature;
+  return {
+    ground: 1,
+    leftInput: clamp(base.leftInput + delta(0.45), 0.06, 0.95),
+    leftCoupler: clamp(base.leftCoupler + delta(0.8), 0.2, 2.2),
+    rightCoupler: clamp(base.rightCoupler + delta(0.8), 0.2, 2.2),
+    rightInput: clamp(base.rightInput + delta(0.45), 0.06, 0.95),
+    gearRatio: random() < 0.025 ? (base.gearRatio === -1 ? -2 : -1) : base.gearRatio,
+    gearPhase: wrapDegrees(base.gearPhase + delta(150)),
+    couplerPointRatio: clamp(base.couplerPointRatio + delta(0.7), 0, 1),
+    couplerPointOffset: clamp(base.couplerPointOffset + delta(1.2), -1.8, 1.8),
+  };
+}
+
+function fiveBarParameterDistance(first: NormalizedFiveBarParameters, second: NormalizedFiveBarParameters) {
+  return Math.hypot(
+    first.leftInput - second.leftInput,
+    first.leftCoupler - second.leftCoupler,
+    first.rightCoupler - second.rightCoupler,
+    first.rightInput - second.rightInput,
+    (first.couplerPointRatio - second.couplerPointRatio) * 0.5,
+    (first.couplerPointOffset - second.couplerPointOffset) * 0.5,
+    Math.min(Math.abs(first.gearPhase - second.gearPhase), 360 - Math.abs(first.gearPhase - second.gearPhase)) / 180,
+    first.gearRatio === second.gearRatio ? 0 : 0.5,
+  );
+}
+
+function addFiveBarToPool(pool: EvaluatedFiveBarCandidate[], candidate: EvaluatedFiveBarCandidate, maximum = 28) {
+  pool.push(candidate);
+  pool.sort((first, second) => first.score - second.score);
+  if (pool.length > maximum) pool.length = maximum;
+}
+
+function toPublicFiveBarCandidate(candidate: EvaluatedFiveBarCandidate, index: number): GearedFiveBarSketchCandidate {
+  const unit = 100;
+  return {
+    id: `cat-geared-five-bar-${index + 1}`,
+    family: "geared-five-bar",
+    parameters: {
+      ground: unit,
+      leftInput: candidate.parameters.leftInput * unit,
+      leftCoupler: candidate.parameters.leftCoupler * unit,
+      rightCoupler: candidate.parameters.rightCoupler * unit,
+      rightInput: candidate.parameters.rightInput * unit,
+      gearRatio: candidate.parameters.gearRatio,
+      gearPhase: candidate.parameters.gearPhase,
+      couplerPointRatio: candidate.parameters.couplerPointRatio,
+      couplerPointOffset: candidate.parameters.couplerPointOffset * unit,
+    },
+    assemblyMode: candidate.assemblyMode,
+    transform: {
+      scale: candidate.transform.scale / unit,
+      rotation: candidate.transform.rotation,
+      translation: candidate.transform.translation,
+    },
+    phaseIndex: candidate.phaseIndex,
+    direction: candidate.direction,
+    rmse: candidate.rmse,
+    normalizedRmse: candidate.normalizedRmse,
+    minimumTransmissionAngle: candidate.minimumTransmissionAngle,
+    trajectory: candidate.trajectory,
+  };
+}
+
+export function fitGearedFiveBarToSketch(
+  rawTarget: Point[],
+  options: { iterations?: number; seed?: number; onProgress?: (progress: SketchLinkageProgress) => void } = {},
+) {
+  const target = resampleClosedCurve(rawTarget, 64);
+  if (target.length < 8) throw new Error("target curve is too short");
+  const iterations = Math.max(180, options.iterations ?? 3600);
+  const globalIterations = Math.round(iterations * 0.62);
+  const random = createRandom(options.seed ?? 20260814);
+  const diagonal = targetDiagonal(target);
+  const pool: EvaluatedFiveBarCandidate[] = [];
+
+  const report = (iteration: number, stage: SketchLinkageProgress["stage"]) => options.onProgress?.({
+    progress: iteration / iterations,
+    stage,
+    family: "geared-five-bar",
+    bestNormalizedRmse: pool[0]?.normalizedRmse ?? null,
+  });
+
+  for (let iteration = 0; iteration < globalIterations; iteration += 1) {
+    const parameters = randomFiveBarParameters(random);
+    const assemblyMode = random() < 0.5 ? "open" : "crossed";
+    const evaluated = evaluateFiveBarParameters(parameters, target, diagonal, assemblyMode);
+    if (evaluated) addFiveBarToPool(pool, evaluated);
+    if (iteration % 80 === 79) report(iteration + 1, "global");
+  }
+  if (pool.length === 0) throw new Error("no full-cycle geared five-bar candidate found");
+
+  for (let iteration = globalIterations; iteration < iterations; iteration += 1) {
+    const progress = (iteration - globalIterations) / Math.max(1, iterations - globalIterations);
+    const base = pool[Math.floor(random() * Math.min(8, pool.length))];
+    const parameters = mutateFiveBarParameters(base.parameters, random, Math.max(0.04, 1 - progress));
+    const assemblyMode = random() < 0.025 ? (base.assemblyMode === "open" ? "crossed" : "open") : base.assemblyMode;
+    const evaluated = evaluateFiveBarParameters(parameters, target, diagonal, assemblyMode);
+    if (evaluated) addFiveBarToPool(pool, evaluated);
+    if (iteration % 80 === 79) report(iteration + 1, "refine");
+  }
+
+  const diverse: EvaluatedFiveBarCandidate[] = [];
+  for (const candidate of pool) {
+    if (diverse.every((existing) => fiveBarParameterDistance(existing.parameters, candidate.parameters) > 0.2)) {
+      diverse.push(candidate);
+    }
+    if (diverse.length === 3) break;
+  }
+  while (diverse.length < Math.min(3, pool.length)) diverse.push(pool[diverse.length]);
+  options.onProgress?.({
+    progress: 1,
+    stage: "verify",
+    family: "geared-five-bar",
+    bestNormalizedRmse: diverse[0].normalizedRmse,
+  });
+  return diverse.map(toPublicFiveBarCandidate);
+}
+
+export function fitMechanismFamiliesToSketch(
+  rawTarget: Point[],
+  options: {
+    families?: MechanismFamily[];
+    iterations?: number;
+    seed?: number;
+    onProgress?: (progress: SketchLinkageProgress) => void;
+  } = {},
+) {
+  const families = options.families?.length ? [...new Set(options.families)] : ["four-bar", "geared-five-bar"];
+  const totalIterations = Math.max(360, options.iterations ?? 6000);
+  const candidates: SketchLinkageCandidate[] = [];
+  families.forEach((family, familyIndex) => {
+    const span = 1 / families.length;
+    const onProgress = (progress: SketchLinkageProgress) => options.onProgress?.({
+      ...progress,
+      progress: familyIndex * span + progress.progress * span,
+    });
+    const familyOptions = {
+      iterations: Math.round(totalIterations / families.length),
+      seed: (options.seed ?? 20260813) + familyIndex * 7919,
+      onProgress,
+    };
+    candidates.push(...(family === "four-bar"
+      ? fitFourBarToSketch(rawTarget, familyOptions)
+      : fitGearedFiveBarToSketch(rawTarget, familyOptions)));
+  });
+  const sorted = candidates.sort((first, second) => first.normalizedRmse - second.normalizedRmse);
+  const selected = sorted.slice(0, Math.min(4, sorted.length));
+  for (const family of families) {
+    if (selected.some((candidate) => candidate.family === family)) continue;
+    const familyLeader = sorted.find((candidate) => candidate.family === family);
+    if (familyLeader) selected[selected.length - 1] = familyLeader;
+  }
+  return selected.sort((first, second) => first.normalizedRmse - second.normalizedRmse);
+}
+
+export function sampleCandidateMechanism(candidate: SketchLinkageCandidate, angleDegrees: number) {
+  const plot = (point: Point) => applySimilarity({ x: point.x, y: -point.y }, candidate.transform);
+  const inputPivot = plot({ x: 0, y: 0 });
+  const outputPivot = plot({ x: candidate.parameters.ground, y: 0 });
+  if (candidate.family === "four-bar") {
+    const position = solveFourBar(candidate.parameters, angleDegrees, candidate.assemblyMode);
+    if (!position) return null;
+    const inputJoint = plot(position.inputJoint);
+    const couplerJoint = plot(position.couplerJoint);
+    const couplerPoint = plot(position.couplerPoint);
+    return {
+      family: candidate.family,
+      ground: { start: inputPivot, end: outputPivot },
+      links: [
+        { start: inputPivot, end: inputJoint, kind: "input" as const },
+        { start: inputJoint, end: couplerJoint, kind: "coupler" as const },
+        { start: couplerJoint, end: outputPivot, kind: "output" as const },
+      ],
+      joints: [inputPivot, outputPivot, inputJoint, couplerJoint],
+      tracerBase: inputJoint,
+      couplerPoint,
+      gears: [],
+    };
+  }
+
+  const position = solveGearedFiveBar(candidate.parameters, angleDegrees, candidate.assemblyMode);
+  if (!position) return null;
+  const leftInputJoint = plot(position.leftInputJoint);
+  const rightInputJoint = plot(position.rightInputJoint);
+  const centerJoint = plot(position.centerJoint);
+  const couplerPoint = plot(position.couplerPoint);
+  const pitchRadii = gearedFiveBarPitchRadii(candidate.parameters);
+  const rotationOffset = candidate.transform.rotation * 180 / Math.PI;
+  return {
+    family: candidate.family,
+    ground: { start: inputPivot, end: outputPivot },
+    links: [
+      { start: inputPivot, end: leftInputJoint, kind: "input" as const },
+      { start: leftInputJoint, end: centerJoint, kind: "coupler" as const },
+      { start: centerJoint, end: rightInputJoint, kind: "coupler" as const },
+      { start: rightInputJoint, end: outputPivot, kind: "output" as const },
+    ],
+    joints: [inputPivot, outputPivot, leftInputJoint, rightInputJoint, centerJoint],
+    tracerBase: leftInputJoint,
+    couplerPoint,
+    gears: [
+      { center: inputPivot, radius: pitchRadii.left * candidate.transform.scale, rotation: rotationOffset - angleDegrees },
+      { center: outputPivot, radius: pitchRadii.right * candidate.transform.scale, rotation: rotationOffset - position.rightInputAngle },
+    ],
   };
 }

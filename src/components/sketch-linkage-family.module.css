@@ -1,0 +1,49 @@
+.familyPicker {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-top: 14px;
+}
+
+.familyPicker strong {
+  grid-column: 1 / -1;
+  margin-bottom: 2px;
+  font-size: 11px;
+}
+
+.familyPicker button {
+  padding: 9px 7px;
+  border: 1px solid #c9cbc3;
+  background: #e8e9e2;
+  color: #5f655f;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.familyPicker button:first-of-type {
+  grid-column: 1 / -1;
+}
+
+.familyPicker .activeFamily {
+  border-color: #151918;
+  background: #dfff91;
+  color: #151918;
+  font-weight: 700;
+}
+
+.familyPicker button:focus-visible {
+  outline: 3px solid #8ebd22;
+  outline-offset: 2px;
+}
+
+.gear circle {
+  fill: none !important;
+  stroke: #788078 !important;
+  stroke-width: 2 !important;
+  stroke-dasharray: 4 3;
+}
+
+.gear line {
+  stroke: #9aa099 !important;
+  stroke-width: 1.5 !important;
+}

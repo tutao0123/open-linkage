@@ -1,7 +1,8 @@
 /// <reference lib="webworker" />
 
 import {
-  fitFourBarToSketch,
+  fitMechanismFamiliesToSketch,
+  type MechanismFamily,
   type SketchLinkageCandidate,
   type SketchLinkageProgress,
 } from "@/lib/sketch-linkage";
@@ -11,6 +12,7 @@ export type SketchLinkageWorkerRequest = {
   requestId: string;
   target: Point[];
   iterations?: number;
+  families?: MechanismFamily[];
 };
 
 export type SketchLinkageWorkerResponse =
@@ -21,8 +23,9 @@ export type SketchLinkageWorkerResponse =
 self.onmessage = (event: MessageEvent<SketchLinkageWorkerRequest>) => {
   const request = event.data;
   try {
-    const candidates = fitFourBarToSketch(request.target, {
+    const candidates = fitMechanismFamiliesToSketch(request.target, {
       iterations: request.iterations,
+      families: request.families,
       onProgress: (progress) => self.postMessage({ type: "progress", requestId: request.requestId, progress } satisfies SketchLinkageWorkerResponse),
     });
     self.postMessage({ type: "result", requestId: request.requestId, candidates } satisfies SketchLinkageWorkerResponse);

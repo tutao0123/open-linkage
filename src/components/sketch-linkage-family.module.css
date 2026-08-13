@@ -48,6 +48,44 @@
   stroke-width: 1.5 !important;
 }
 
+.xyMechanism > line,
+.camMechanism > line {
+  stroke: #171b1a;
+  stroke-width: 3;
+  stroke-dasharray: 6 4;
+}
+
+.xyMechanism circle,
+.camMechanism circle {
+  fill: #f4f3ed;
+  stroke: #171b1a;
+  stroke-width: 2;
+}
+
+.xyMechanism rect {
+  fill: #dfff91;
+  stroke: #171b1a;
+  stroke-width: 2;
+}
+
+.xyMechanism g line {
+  stroke: #171b1a;
+  stroke-width: 2;
+}
+
+.camMechanism path {
+  fill: rgb(223 255 145 / 28%);
+  stroke: #171b1a;
+  stroke-width: 5;
+  vector-effect: non-scaling-stroke;
+}
+
+.demoTracer {
+  fill: #c7fb43 !important;
+  stroke: #171b1a !important;
+  stroke-width: 3 !important;
+}
+
 .zoomCanvas {
   position: relative;
 }

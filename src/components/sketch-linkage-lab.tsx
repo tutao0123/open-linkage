@@ -6,10 +6,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CAT_TARGET_CURVE,
   sampleCandidateMechanism,
-  type MechanismFamily,
-  type SketchLinkageCandidate,
 } from "@/lib/sketch-linkage";
-import { precomputedCandidatesFor } from "@/lib/sketch-linkage-demo";
+import {
+  precomputedCandidatesFor,
+  type DemoMechanismFamily,
+  type SketchDemoCandidate,
+} from "@/lib/sketch-linkage-demo";
+import { createXYDrawingMechanismGeometry } from "@/lib/xy-drawing-mechanism";
+import { solveDualGrooveCam } from "@/lib/dual-groove-cam";
 import type { Point } from "@/lib/four-bar";
 import { useLanguage } from "./locale-shell";
 import styles from "./sketch-linkage-lab.module.css";
@@ -20,7 +24,7 @@ const COPY = {
     back: "OpenLinkage",
     badge: "FIRST PRINCIPLES / PHASE 1",
     title: "Sketch → Mechanism",
-    subtitle: "从猫轮廓出发，比较经典四杆与齿轮同步五杆的 coupler curve。",
+    subtitle: "从猫轮廓出发，比较连杆、齿轮谐波滑台与双槽凸轮方案。",
     target: "目标曲线",
     targetName: "猫轮廓 · 固定示例",
     targetNote: "第一阶段只解决这一条闭合曲线，不尝试通用草图识别。",
@@ -39,7 +43,7 @@ const COPY = {
     play: "播放",
     pause: "暂停",
     candidates: "候选机构",
-    empty: "开始求解后，这里会显示完整可转的四杆与齿轮五杆候选。",
+    empty: "加载演示后，这里会显示连杆、齿轮 X–Y 与双槽凸轮候选。",
     candidate: "候选",
     error: "归一化误差",
     transmission: "最小传动角",
@@ -59,15 +63,24 @@ const COPY = {
     offset: "法向偏移",
     normalized: "杆长以机架 100 mm 归一化；整体等比例缩放不会改变轨迹形状。",
     principleTitle: "当前 Solver 做了什么",
-    principle: "候选已在本地用完整 Solver 预计算并通过 360° 验证。页面只重放四杆闭环与齿轮同步五杆运动学，因此点击后可以立即展示和播放。",
+    principle: "候选已在本地预计算并通过 360° 验证。页面实时重放连杆闭环、齿轮谐波 X–Y 滑台和双槽凸轮运动学。",
     limitationTitle: "第一阶段边界",
-    limitation: "当前只开放两个明确机构族。6–10 杆会按 Watt、Stephenson 和串联多环逐族加入，不把任意拓扑搜索伪装成已经可用。",
+    limitation: "误差不能单独代表方案优劣：连杆参数少但轮廓受限；谐波机构零件更多；双槽凸轮精度最高，但还需接触、强度与制造校核。",
     familyTitle: "参与搜索的机构族",
     compare: "四杆 + 齿轮五杆",
     fourBar: "经典四杆",
     gearedFiveBar: "齿轮同步五杆",
     fourBarCode: "4-BAR",
     gearedFiveBarCode: "GEARED 5-BAR",
+    allFamilies: "全部方案",
+    xyDrawing: "齿轮同步 X–Y",
+    dualCam: "双槽凸轮",
+    xyCode: "GEARED X–Y",
+    camCode: "DUAL CAM",
+    complexity: "机构复杂度",
+    harmonics: "谐波级数",
+    camSamples: "凸轮槽采样",
+    kinematicExact: "离散点精确",
     zoomOut: "缩小画布",
     resetZoom: "适应画布",
     zoomIn: "放大画布",
@@ -76,7 +89,7 @@ const COPY = {
     back: "OpenLinkage",
     badge: "FIRST PRINCIPLES / PHASE 1",
     title: "Sketch → Mechanism",
-    subtitle: "Start from a cat outline and compare classic four-bar and gear-synchronized five-bar coupler curves.",
+    subtitle: "Compare linkages, a geared harmonic X–Y stage, and dual groove cams for the same cat outline.",
     target: "Target curve",
     targetName: "Cat outline · fixed example",
     targetNote: "Phase one solves this single closed curve; it does not attempt general sketch recognition.",
@@ -95,7 +108,7 @@ const COPY = {
     play: "Play",
     pause: "Pause",
     candidates: "Mechanism candidates",
-    empty: "Run the solver to generate full-cycle four-bar and geared five-bar candidates.",
+    empty: "Load the demo to compare linkage, geared X–Y, and dual-cam candidates.",
     candidate: "Candidate",
     error: "Normalized error",
     transmission: "Min. transmission angle",
@@ -115,15 +128,24 @@ const COPY = {
     offset: "Normal offset",
     normalized: "Lengths are normalized to a 100 mm ground link. Uniform scaling preserves the curve shape.",
     principleTitle: "What the solver does",
-    principle: "Candidates were precomputed locally with the full solver and verified over 360°. The page only replays four-bar and gear-synchronized five-bar kinematics, so results appear immediately.",
+    principle: "Candidates were precomputed and verified over 360°. The page replays linkage loops, a geared harmonic X–Y stage, and dual groove-cam kinematics in real time.",
     limitationTitle: "Phase-one boundary",
-    limitation: "Only two explicit mechanism families are enabled. Watt, Stephenson, and serial multi-loop families will add 6–10 links incrementally; arbitrary topology search is not presented as solved.",
+    limitation: "Error alone is not a fair ranking: linkages use fewer parameters, harmonics need more parts, and accurate groove cams still require contact, strength, and manufacturing checks.",
     familyTitle: "Mechanism families to search",
     compare: "Four-bar + geared five-bar",
     fourBar: "Classic four-bar",
     gearedFiveBar: "Gear-synchronized five-bar",
     fourBarCode: "4-BAR",
     gearedFiveBarCode: "GEARED 5-BAR",
+    allFamilies: "All concepts",
+    xyDrawing: "Gear-synchronized X–Y",
+    dualCam: "Dual groove cams",
+    xyCode: "GEARED X–Y",
+    camCode: "DUAL CAM",
+    complexity: "Mechanism complexity",
+    harmonics: "Harmonic stages",
+    camSamples: "Cam groove samples",
+    kinematicExact: "Exact at samples",
     zoomOut: "Zoom out",
     resetZoom: "Fit canvas",
     zoomIn: "Zoom in",
@@ -139,14 +161,21 @@ function format(value: number, digits = 1) {
   return Number.isFinite(value) ? value.toFixed(digits) : "—";
 }
 
-type FamilyMode = MechanismFamily | "compare";
+type FamilyMode = DemoMechanismFamily | "compare";
+
+function familyCode(family: DemoMechanismFamily, copy: typeof COPY.zh | typeof COPY.en) {
+  if (family === "four-bar") return copy.fourBarCode;
+  if (family === "geared-five-bar") return copy.gearedFiveBarCode;
+  if (family === "gear-synchronized-xy") return copy.xyCode;
+  return copy.camCode;
+}
 
 export function SketchLinkageLab() {
   const language = useLanguage();
   const copy = COPY[language];
   const frameRef = useRef<number | null>(null);
   const previousTimeRef = useRef<number | null>(null);
-  const [candidates, setCandidates] = useState<SketchLinkageCandidate[]>([]);
+  const [candidates, setCandidates] = useState<SketchDemoCandidate[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
   const [angle, setAngle] = useState(0);
@@ -154,7 +183,15 @@ export function SketchLinkageLab() {
   const [familyMode, setFamilyMode] = useState<FamilyMode>("compare");
 
   const selected = candidates.find((candidate) => candidate.id === selectedId) ?? candidates[0] ?? null;
-  const mechanism = useMemo(() => selected ? sampleCandidateMechanism(selected, angle) : null, [angle, selected]);
+  const linkageMechanism = useMemo(() => selected && (selected.family === "four-bar" || selected.family === "geared-five-bar")
+    ? sampleCandidateMechanism(selected, angle)
+    : null, [angle, selected]);
+  const xyMechanism = useMemo(() => selected?.family === "gear-synchronized-xy"
+    ? createXYDrawingMechanismGeometry(selected.parameters, angle)
+    : null, [angle, selected]);
+  const camMechanism = useMemo(() => selected?.family === "dual-groove-cam"
+    ? solveDualGrooveCam(selected.parameters, angle)
+    : null, [angle, selected]);
   const targetPath = useMemo(() => pointsPath(CAT_TARGET_CURVE), []);
   const tracePath = useMemo(() => selected ? pointsPath(selected.trajectory) : "", [selected]);
   const canvasViewBox = useMemo(() => {
@@ -228,7 +265,7 @@ export function SketchLinkageLab() {
           <span>{copy.subtitle}</span>
         </div>
         <div className={styles.pipeline} aria-label="Cat target curve to linkage mechanism pipeline">
-          <span>CAT CURVE</span><i>→</i><span>OPENLINK SOLVER</span><i>→</i><span>4 / 5-BAR</span><i>→</i><span>COUPLER TRACE</span>
+          <span>CAT CURVE</span><i>→</i><span>OPENLINK SOLVER</span><i>→</i><span>LINK / GEAR / CAM</span><i>→</i><span>DRAWING TRACE</span>
         </div>
       </section>
 
@@ -245,9 +282,11 @@ export function SketchLinkageLab() {
           <section className={familyStyles.familyPicker}>
             <strong>{copy.familyTitle}</strong>
             {([
-              ["compare", copy.compare],
+              ["compare", copy.allFamilies],
               ["four-bar", copy.fourBar],
               ["geared-five-bar", copy.gearedFiveBar],
+              ["gear-synchronized-xy", copy.xyDrawing],
+              ["dual-groove-cam", copy.dualCam],
             ] as const).map(([mode, label]) => (
               <button
                 key={mode}
@@ -296,9 +335,9 @@ export function SketchLinkageLab() {
               <rect x="25" y="50" width="540" height="450" className={styles.grid} />
               <path d={targetPath} className={styles.targetCurve} />
               {selected && <path d={tracePath} className={styles.fittedCurve} />}
-              {mechanism && (
+              {linkageMechanism && (
                 <g className={styles.mechanism}>
-                  {mechanism.gears.map((gear, gearIndex) => (
+                  {linkageMechanism.gears.map((gear, gearIndex) => (
                     <g
                       key={`gear-${gearIndex}`}
                       className={familyStyles.gear}
@@ -317,8 +356,8 @@ export function SketchLinkageLab() {
                       })}
                     </g>
                   ))}
-                  <line x1={mechanism.ground.start.x} y1={mechanism.ground.start.y} x2={mechanism.ground.end.x} y2={mechanism.ground.end.y} className={styles.groundLink} />
-                  {mechanism.links.map((link, linkIndex) => (
+                  <line x1={linkageMechanism.ground.start.x} y1={linkageMechanism.ground.start.y} x2={linkageMechanism.ground.end.x} y2={linkageMechanism.ground.end.y} className={styles.groundLink} />
+                  {linkageMechanism.links.map((link, linkIndex) => (
                     <line
                       key={`link-${linkIndex}`}
                       x1={link.start.x}
@@ -328,9 +367,42 @@ export function SketchLinkageLab() {
                       className={link.kind === "coupler" ? styles.couplerLink : ""}
                     />
                   ))}
-                  <line x1={mechanism.tracerBase.x} y1={mechanism.tracerBase.y} x2={mechanism.couplerPoint.x} y2={mechanism.couplerPoint.y} className={styles.tracerArm} />
-                  {mechanism.joints.map((point, index) => <circle key={index} cx={point.x} cy={point.y} r="6" />)}
-                  <circle cx={mechanism.couplerPoint.x} cy={mechanism.couplerPoint.y} r="8" className={styles.tracerPoint} />
+                  <line x1={linkageMechanism.tracerBase.x} y1={linkageMechanism.tracerBase.y} x2={linkageMechanism.couplerPoint.x} y2={linkageMechanism.couplerPoint.y} className={styles.tracerArm} />
+                  {linkageMechanism.joints.map((point, index) => <circle key={index} cx={point.x} cy={point.y} r="6" />)}
+                  <circle cx={linkageMechanism.couplerPoint.x} cy={linkageMechanism.couplerPoint.y} r="8" className={styles.tracerPoint} />
+                </g>
+              )}
+              {xyMechanism && (
+                <g className={familyStyles.xyMechanism}>
+                  <line x1={xyMechanism.xGuide.start.x} y1={xyMechanism.xGuide.start.y} x2={xyMechanism.xGuide.end.x} y2={xyMechanism.xGuide.end.y} />
+                  <line x1={xyMechanism.yGuide.start.x} y1={xyMechanism.yGuide.start.y} x2={xyMechanism.yGuide.end.x} y2={xyMechanism.yGuide.end.y} />
+                  <line x1={xyMechanism.xSlider.x} y1={xyMechanism.xSlider.y} x2={xyMechanism.point.x} y2={xyMechanism.point.y} />
+                  <line x1={xyMechanism.ySlider.x} y1={xyMechanism.ySlider.y} x2={xyMechanism.point.x} y2={xyMechanism.point.y} />
+                  <g transform="translate(80 95)">
+                    {xyMechanism.harmonicDrives.filter((drive) => drive.harmonic <= 5).map((drive) => (
+                      <g key={`${drive.axis}-${drive.harmonic}`}>
+                        <circle cx={drive.gearCenter.x} cy={drive.gearCenter.y} r={drive.pitchRadius} />
+                        <line x1={drive.gearCenter.x} y1={drive.gearCenter.y} x2={drive.eccentricPin.x} y2={drive.eccentricPin.y} />
+                        <circle cx={drive.eccentricPin.x} cy={drive.eccentricPin.y} r="3" />
+                      </g>
+                    ))}
+                  </g>
+                  <rect x={xyMechanism.xSlider.x - 9} y={xyMechanism.xSlider.y - 7} width="18" height="14" />
+                  <rect x={xyMechanism.ySlider.x - 7} y={xyMechanism.ySlider.y - 9} width="14" height="18" />
+                  <circle cx={xyMechanism.point.x} cy={xyMechanism.point.y} r="8" className={familyStyles.demoTracer} />
+                </g>
+              )}
+              {camMechanism && selected?.family === "dual-groove-cam" && (
+                <g className={familyStyles.camMechanism}>
+                  <g transform="translate(118 142) scale(.18)">
+                    <circle cx={camMechanism.cams.x.center.x} cy={camMechanism.cams.x.center.y} r={camMechanism.cams.x.baseCircleRadius} />
+                    <path d={pointsPath(camMechanism.cams.x.groove)} />
+                    <circle cx={camMechanism.cams.y.center.x} cy={camMechanism.cams.y.center.y} r={camMechanism.cams.y.baseCircleRadius} />
+                    <path d={pointsPath(camMechanism.cams.y.groove)} />
+                  </g>
+                  <line x1={selected.parameters.xLaw.minimum - 18} y1={camMechanism.crossSlide.drawingPoint.y} x2={selected.parameters.xLaw.maximum + 18} y2={camMechanism.crossSlide.drawingPoint.y} />
+                  <line x1={camMechanism.crossSlide.drawingPoint.x} y1={selected.parameters.yLaw.minimum - 18} x2={camMechanism.crossSlide.drawingPoint.x} y2={selected.parameters.yLaw.maximum + 18} />
+                  <circle cx={camMechanism.crossSlide.drawingPoint.x} cy={camMechanism.crossSlide.drawingPoint.y} r="8" className={familyStyles.demoTracer} />
                 </g>
               )}
               {!selected && <text x="295" y="285" textAnchor="middle" className={styles.emptyCanvas}>CAT CURVE → SOLVE → ANIMATE</text>}
@@ -348,7 +420,7 @@ export function SketchLinkageLab() {
             <div className={styles.candidateList}>
               {candidates.map((candidate, index) => (
                 <button key={candidate.id} type="button" className={candidate.id === selected?.id ? styles.selectedCandidate : ""} onClick={() => { setSelectedId(candidate.id); setAngle(0); }}>
-                  <span><b>{copy.candidate} {String(index + 1).padStart(2, "0")}</b><i>{candidate.family === "four-bar" ? copy.fourBarCode : copy.gearedFiveBarCode} · {candidate.assemblyMode.toUpperCase()}</i></span>
+                  <span><b>{copy.candidate} {String(index + 1).padStart(2, "0")}</b><i>{familyCode(candidate.family, copy)}{("assemblyMode" in candidate) ? ` · ${candidate.assemblyMode.toUpperCase()}` : ""}</i></span>
                   <span><small>{copy.error}</small><strong>{format(candidate.normalizedRmse * 100, 2)}%</strong></span>
                 </button>
               ))}
@@ -359,32 +431,53 @@ export function SketchLinkageLab() {
             <>
               <section className={styles.metrics}>
                 <div><span>{copy.error}</span><strong>{format(selected.normalizedRmse * 100, 2)}<small>%</small></strong></div>
-                <div><span>{copy.transmission}</span><strong>{format(selected.minimumTransmissionAngle)}<small>°</small></strong></div>
+                {("minimumTransmissionAngle" in selected) && <div><span>{copy.transmission}</span><strong>{format(selected.minimumTransmissionAngle)}<small>°</small></strong></div>}
+                {selected.family === "gear-synchronized-xy" && <div><span>{copy.harmonics}</span><strong>{selected.parameters.harmonicCount}<small>×2</small></strong></div>}
+                {selected.family === "dual-groove-cam" && <div><span>{copy.complexity}</span><strong>{copy.kinematicExact}</strong></div>}
               </section>
               <section className={styles.parameters}>
                 <h3>{copy.parameters}</h3>
-                {(selected.family === "four-bar" ? ([
+                {selected.family === "four-bar" && ([
                   [copy.ground, "L₀", selected.parameters.ground],
                   [copy.input, "L₁", selected.parameters.input],
                   [copy.coupler, "L₂", selected.parameters.coupler],
                   [copy.output, "L₃", selected.parameters.output],
-                ] as const) : ([
+                ] as const).map(([label, code, value]) => <div key={code}><span>{label}<small>{code}</small></span><b>{format(value)} mm</b></div>)}
+                {selected.family === "geared-five-bar" && ([
                   [copy.ground, "L₀", selected.parameters.ground],
                   [copy.leftInput, "L₁", selected.parameters.leftInput],
                   [copy.leftCoupler, "L₂", selected.parameters.leftCoupler],
                   [copy.rightCoupler, "L₃", selected.parameters.rightCoupler],
                   [copy.rightInput, "L₄", selected.parameters.rightInput],
-                ] as const)).map(([label, code, value]) => <div key={code}><span>{label}<small>{code}</small></span><b>{format(value)} mm</b></div>)}
+                ] as const).map(([label, code, value]) => <div key={code}><span>{label}<small>{code}</small></span><b>{format(value)} mm</b></div>)}
                 {selected.family === "geared-five-bar" && (
                   <>
                     <div><span>{copy.gearRatio}<small>i</small></span><b>{format(selected.parameters.gearRatio, 0)} : 1</b></div>
                     <div><span>{copy.gearPhase}<small>φ₀</small></span><b>{format(selected.parameters.gearPhase)}°</b></div>
                   </>
                 )}
-                <h3>{copy.point}</h3>
-                <div><span>{copy.ratio}<small>u</small></span><b>{format(selected.parameters.couplerPointRatio, 3)}</b></div>
-                <div><span>{copy.offset}<small>v</small></span><b>{format(selected.parameters.couplerPointOffset)} mm</b></div>
-                <p>{copy.normalized}</p>
+                {(selected.family === "four-bar" || selected.family === "geared-five-bar") && (
+                  <>
+                    <h3>{copy.point}</h3>
+                    <div><span>{copy.ratio}<small>u</small></span><b>{format(selected.parameters.couplerPointRatio, 3)}</b></div>
+                    <div><span>{copy.offset}<small>v</small></span><b>{format(selected.parameters.couplerPointOffset)} mm</b></div>
+                    <p>{copy.normalized}</p>
+                  </>
+                )}
+                {selected.family === "gear-synchronized-xy" && (
+                  <>
+                    <div><span>{copy.harmonics}<small>N</small></span><b>{selected.parameters.harmonicCount} × 2</b></div>
+                    <div><span>{copy.camSamples}<small>S</small></span><b>{selected.parameters.sampleCount}</b></div>
+                    <p>{language === "zh" ? "同一输入轴通过整数齿轮倍频驱动 X/Y 两组偏心谐波，再由十字滑台合成轨迹。" : "One input shaft drives integer-ratio X/Y eccentric harmonics, combined by a cross slide."}</p>
+                  </>
+                )}
+                {selected.family === "dual-groove-cam" && (
+                  <>
+                    <div><span>{copy.camSamples}<small>S</small></span><b>{selected.parameters.sampleCount} × 2</b></div>
+                    <div><span>{copy.complexity}<small>CAM</small></span><b>{copy.kinematicExact}</b></div>
+                    <p>{language === "zh" ? "当前仅为槽凸轮运动学模型；尚未校核接触力、强度、根切和制造可行性。" : selected.parameters.modelNote}</p>
+                  </>
+                )}
               </section>
             </>
           )}

@@ -1,6 +1,13 @@
 import { solveFourBar, type Point } from "./four-bar";
 import { solveGearedFiveBar } from "./geared-five-bar";
+import { createDualGrooveCam, solveDualGrooveCam, type DualGrooveCamParameters } from "./dual-groove-cam";
 import {
+  fitXYDrawingMechanism,
+  sampleXYDrawingTrajectory,
+  type XYDrawingMechanismParameters,
+} from "./xy-drawing-mechanism";
+import {
+  CAT_TARGET_CURVE,
   applySimilarity,
   resampleClosedCurve,
   type FourBarSketchCandidate,
@@ -8,6 +15,26 @@ import {
   type MechanismFamily,
   type SketchLinkageCandidate,
 } from "./sketch-linkage";
+
+export type DemoMechanismFamily = MechanismFamily | "gear-synchronized-xy" | "dual-groove-cam";
+
+export type XYDrawingDemoCandidate = {
+  id: string;
+  family: "gear-synchronized-xy";
+  parameters: XYDrawingMechanismParameters;
+  trajectory: Point[];
+  normalizedRmse: number;
+};
+
+export type DualCamDemoCandidate = {
+  id: string;
+  family: "dual-groove-cam";
+  parameters: DualGrooveCamParameters;
+  trajectory: Point[];
+  normalizedRmse: number;
+};
+
+export type SketchDemoCandidate = SketchLinkageCandidate | XYDrawingDemoCandidate | DualCamDemoCandidate;
 
 type CandidateSeed =
   | Omit<FourBarSketchCandidate, "trajectory">
@@ -134,14 +161,39 @@ function buildTrajectory(seed: CandidateSeed) {
   });
 }
 
-export const PRECOMPUTED_SKETCH_CANDIDATES: SketchLinkageCandidate[] = SEEDS.map((seed) => {
+const LINKAGE_CANDIDATES: SketchLinkageCandidate[] = SEEDS.map((seed) => {
   const trajectory = buildTrajectory(seed);
   return seed.family === "four-bar"
     ? { ...seed, trajectory }
     : { ...seed, trajectory };
 });
 
-export function precomputedCandidatesFor(family: MechanismFamily | "compare") {
+const xyParameters = fitXYDrawingMechanism(CAT_TARGET_CURVE, { harmonicCount: 10, sampleCount: 128 });
+const XY_CANDIDATE: XYDrawingDemoCandidate = {
+  id: "cat-gear-synchronized-xy-1",
+  family: "gear-synchronized-xy",
+  parameters: xyParameters,
+  trajectory: sampleXYDrawingTrajectory(xyParameters, 128),
+  normalizedRmse: xyParameters.normalizedRmse,
+};
+
+const camParameters = createDualGrooveCam(CAT_TARGET_CURVE, { sampleCount: 128 });
+const CAM_CANDIDATE: DualCamDemoCandidate = {
+  id: "cat-dual-groove-cam-1",
+  family: "dual-groove-cam",
+  parameters: camParameters,
+  trajectory: Array.from({ length: 128 }, (_, index) =>
+    solveDualGrooveCam(camParameters, index * 360 / 128).crossSlide.drawingPoint),
+  normalizedRmse: 0,
+};
+
+export const PRECOMPUTED_SKETCH_CANDIDATES: SketchDemoCandidate[] = [
+  CAM_CANDIDATE,
+  XY_CANDIDATE,
+  ...LINKAGE_CANDIDATES,
+];
+
+export function precomputedCandidatesFor(family: DemoMechanismFamily | "compare") {
   return family === "compare"
     ? PRECOMPUTED_SKETCH_CANDIDATES
     : PRECOMPUTED_SKETCH_CANDIDATES.filter((candidate) => candidate.family === family);

@@ -362,6 +362,30 @@
   outline-offset: -3px;
 }
 
+.directViewNote {
+  position: absolute;
+  z-index: 2;
+  top: 67px;
+  left: 24px;
+  padding: 5px 8px;
+  border-left: 3px solid #99cc2c;
+  background: rgb(244 243 237 / 90%);
+  color: #626962;
+  font: 9px "Cascadia Mono", Consolas, monospace;
+  pointer-events: none;
+}
+
+.directContribution {
+  fill: none;
+  stroke-width: 1.15 !important;
+  stroke-dasharray: 4 3;
+  opacity: .28;
+}
+
+.directGearView .eccentricPin {
+  fill: #c7fb43 !important;
+}
+
 .zoomCanvas > svg {
   cursor: grab;
   touch-action: none;
@@ -437,6 +461,11 @@
 @media (max-width: 820px) {
   .gearViewToggle {
     top: 12px;
+    left: 12px;
+  }
+
+  .directViewNote {
+    top: 55px;
     left: 12px;
   }
 

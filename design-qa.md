@@ -56,6 +56,15 @@ The focused mechanism views show the same J/F/P joint-marker construction and fi
 - Both dual-cam pushrod arrowheads were removed. The pushrod geometry and black/blue axis distinction remain, so the motion relationship is readable without a process-diagram treatment.
 - No actionable P0/P1/P2 visual issue remains. The complete twenty-gear view is intentionally denser, while the compact option remains available for overview use.
 
+## Direct gear-contribution view
+
+- Requested target: lay out all twenty harmonic gears from the original axes and connect each eccentric output directly to the drawing point.
+- Previous full-bank view: `C:/Users/39007/.codex/visualizations/2026/07/23/019f8d9b-1c31-7a52-9efa-6f82fea26e23/sketch-mechanism-full-gear-option/full-gear-bank.png`
+- Direct-view evidence: `C:/Users/39007/.codex/visualizations/2026/07/23/019f8d9b-1c31-7a52-9efa-6f82fea26e23/sketch-mechanism-direct-gears/direct-to-pen.png`
+- The direct view places X1-X10 across the top and Y1-Y10 down the left, with each animated eccentric pin connected to P by a restrained dashed contribution line. This makes the twenty inputs and their shared output immediately visible.
+- The canvas explicitly labels this as `运动分量示意 · 非刚性装配`, because twenty physical rigid links meeting at one point would be overconstrained. The compact and full gear-bank views remain available as the mechanism-oriented representations.
+- The three-way view switch is keyboard focusable and announces its selected state. No actionable P0/P1/P2 visual issue remains.
+
 ## Follow-up polish
 
 - P3: if the canvas later gains a teaching mode, transient motion arrows can be shown only during playback to reduce static density further.

@@ -94,6 +94,8 @@ const COPY = {
     penLabel: "④ 绘图笔",
     compactGears: "简化合成",
     expandedGears: "完整齿轮组",
+    directGears: "直连绘图点",
+    directGearsNote: "运动分量示意 · 非刚性装配",
   },
   en: {
     back: "OpenLinkage",
@@ -168,6 +170,8 @@ const COPY = {
     penLabel: "④ Drawing pen",
     compactGears: "Summed output",
     expandedGears: "Full gear bank",
+    directGears: "Direct to pen",
+    directGearsNote: "Motion contributions · not a rigid assembly",
   },
 } as const;
 
@@ -251,7 +255,7 @@ export function SketchLinkageLab() {
   const [pan, setPan] = useState<Point>({ x: 0, y: 0 });
   const [panning, setPanning] = useState(false);
   const [familyMode, setFamilyMode] = useState<FamilyMode>("compare");
-  const [xyDisplayMode, setXyDisplayMode] = useState<"compact" | "expanded">("expanded");
+  const [xyDisplayMode, setXyDisplayMode] = useState<"compact" | "expanded" | "direct">("expanded");
 
   const selected = candidates.find((candidate) => candidate.id === selectedId) ?? candidates[0] ?? null;
   const linkageMechanism = useMemo(() => selected && (selected.family === "four-bar" || selected.family === "geared-five-bar")
@@ -437,7 +441,11 @@ export function SketchLinkageLab() {
               <div className={familyStyles.gearViewToggle} role="group" aria-label={copy.xyDrawing}>
                 <button type="button" aria-pressed={xyDisplayMode === "compact"} onClick={() => setXyDisplayMode("compact")}>{copy.compactGears}</button>
                 <button type="button" aria-pressed={xyDisplayMode === "expanded"} onClick={() => setXyDisplayMode("expanded")}>{copy.expandedGears}</button>
+                <button type="button" aria-pressed={xyDisplayMode === "direct"} onClick={() => setXyDisplayMode("direct")}>{copy.directGears}</button>
               </div>
+            )}
+            {selected?.family === "gear-synchronized-xy" && xyDisplayMode === "direct" && (
+              <span className={familyStyles.directViewNote}>{copy.directGearsNote}</span>
             )}
             <div className={familyStyles.zoomControls} role="group" aria-label={copy.resetZoom}>
               <button type="button" aria-label={copy.zoomOut} disabled={zoom <= 0.6} onClick={() => changeZoom(-0.2)}>−</button>
@@ -533,8 +541,36 @@ export function SketchLinkageLab() {
                   </g>
                   <JointMarker x={72} y={122} label="J1" fixed active />
                   <text x="43" y="91" className={familyStyles.mechanismLabel}>INPUT θ</text>
-                  <path d="M94 122H105V75M105 122V144" className={familyStyles.powerSplit} />
-                  {(["x", "y"] as const).map((axis, axisIndex) => {
+                  {xyDisplayMode !== "direct" && <path d="M94 122H105V75M105 122V144" className={familyStyles.powerSplit} />}
+                  {xyDisplayMode === "direct" ? (
+                    <g className={familyStyles.directGearView}>
+                      {(["x", "y"] as const).flatMap((axis) => {
+                        const drives = xyMechanism.harmonicDrives.filter((drive) => drive.axis === axis);
+                        return drives.map((drive, index) => {
+                          const centerX = axis === "x" ? 112 + index * 24 : 88;
+                          const centerY = axis === "x" ? 68 : 112 + index * 24;
+                          const gearRadius = 7;
+                          const driveAngle = drive.rotationDegrees * Math.PI / 180;
+                          const pinX = centerX + Math.cos(driveAngle) * 4.4;
+                          const pinY = centerY + Math.sin(driveAngle) * 4.4;
+                          return (
+                            <g key={`direct-${axis}-${drive.harmonic}`} className={axis === "x" ? familyStyles.xDrive : familyStyles.yDrive}>
+                              <FlatGear x={centerX} y={centerY} radius={gearRadius} rotation={drive.rotationDegrees} axis={axis} />
+                              <line x1={centerX} y1={centerY} x2={pinX} y2={pinY} className={familyStyles.eccentricArm} />
+                              <circle cx={pinX} cy={pinY} r="2.5" className={familyStyles.eccentricPin} />
+                              <line x1={pinX} y1={pinY} x2={xyMechanism.point.x} y2={xyMechanism.point.y} className={familyStyles.directContribution} />
+                              <text
+                                x={axis === "x" ? centerX : centerX - 13}
+                                y={axis === "x" ? centerY - 13 : centerY + 3}
+                                textAnchor={axis === "x" ? "middle" : "end"}
+                              >{axis.toUpperCase()}{drive.harmonic}</text>
+                            </g>
+                          );
+                        });
+                      })}
+                      <JointMarker x={xyMechanism.point.x} y={xyMechanism.point.y} label="P" active />
+                    </g>
+                  ) : (["x", "y"] as const).map((axis, axisIndex) => {
                     const driverY = axisIndex === 0 ? 75 : 144;
                     const exitY = axisIndex === 0 ? 119 : 188;
                     const visibleCount = xyDisplayMode === "expanded" ? selected.parameters.harmonicCount : 4;
@@ -583,12 +619,16 @@ export function SketchLinkageLab() {
                       </g>
                     );
                   })}
-                  <line x1={selected.parameters.targetBounds.minimum.x - 18} y1={xyMechanism.point.y} x2={selected.parameters.targetBounds.maximum.x + 18} y2={xyMechanism.point.y} className={familyStyles.yCarriage} />
-                  <line x1={xyMechanism.point.x} y1={selected.parameters.targetBounds.minimum.y - 18} x2={xyMechanism.point.x} y2={selected.parameters.targetBounds.maximum.y + 18} className={familyStyles.xCarriage} />
-                  <path d={`M${xyDisplayMode === "expanded" ? 358 : 300} 119H${xyMechanism.point.x}V${xyMechanism.point.y}`} className={familyStyles.xPushrod} />
-                  <path d={`M${xyDisplayMode === "expanded" ? 358 : 300} 188V${xyMechanism.point.y}H${xyMechanism.point.x}`} className={familyStyles.yPushrod} />
-                  <rect x={xyMechanism.point.x - 13} y={xyMechanism.point.y - 13} width="26" height="26" rx="2" className={familyStyles.carriageBlock} />
-                  <JointMarker x={xyMechanism.point.x} y={xyMechanism.point.y} label="P" active />
+                  {xyDisplayMode !== "direct" && (
+                    <>
+                      <line x1={selected.parameters.targetBounds.minimum.x - 18} y1={xyMechanism.point.y} x2={selected.parameters.targetBounds.maximum.x + 18} y2={xyMechanism.point.y} className={familyStyles.yCarriage} />
+                      <line x1={xyMechanism.point.x} y1={selected.parameters.targetBounds.minimum.y - 18} x2={xyMechanism.point.x} y2={selected.parameters.targetBounds.maximum.y + 18} className={familyStyles.xCarriage} />
+                      <path d={`M${xyDisplayMode === "expanded" ? 358 : 300} 119H${xyMechanism.point.x}V${xyMechanism.point.y}`} className={familyStyles.xPushrod} />
+                      <path d={`M${xyDisplayMode === "expanded" ? 358 : 300} 188V${xyMechanism.point.y}H${xyMechanism.point.x}`} className={familyStyles.yPushrod} />
+                      <rect x={xyMechanism.point.x - 13} y={xyMechanism.point.y - 13} width="26" height="26" rx="2" className={familyStyles.carriageBlock} />
+                      <JointMarker x={xyMechanism.point.x} y={xyMechanism.point.y} label="P" active />
+                    </>
+                  )}
                 </g>
               )}
               {camMechanism && camDisplay && selected?.family === "dual-groove-cam" && (

@@ -14,7 +14,6 @@ import {
 import type { Point } from "@/lib/four-bar";
 import { localizeReactTree, withLanguagePath } from "@/lib/i18n";
 import {
-  VARIABLE_LEG_MODE_COLORS,
   VARIABLE_LEG_OPTIONS,
   alignedTargetPath,
   analyzeVariableLegBarSamples,
@@ -27,14 +26,12 @@ import {
   applyVariableLegRecommendedRange,
   cloneVariableLegProject,
   createDefaultAdjustment,
-  createGaitPath,
   createVariableLegDesignerTransfer,
   getVariableLegTemplate,
   isVariableLegDesignerTransfer,
   materializeVariableLegMode,
   measureGaitClearance,
   migrateVariableLegProject,
-  restoreVariableLegStandardModes,
   sampleVariableLeg,
   smoothClosedPath,
   type VariableLegAdjustmentKind,
@@ -125,7 +122,7 @@ const SESSION_STORAGE_KEY = "open-linkage:variable-leg-session:v3";
 const TRANSFER_KEY = "open-linkage:designer-transfer";
 type CanvasMode = "inspect" | "draw" | "points";
 type ViewMode = "mechanism" | "deployment";
-type WorkspaceStep = 1 | 2 | 3 | 4 | 5;
+type WorkspaceStep = 1 | 2 | 3 | 4;
 type LegSession = VariableLegSession<VariableLegProject, VariableLegCandidate, RefinementRequest | VariableLegGenerationRequest>;
 type QuickStartValues = {
   stepLength: number;
@@ -149,30 +146,23 @@ const REQUIREMENT_METRICS: Array<{
 ];
 
 const WORKSPACE_STEPS: Array<{ id: WorkspaceStep; label: string }> = [
-  { id: 1, label: "选择工况" },
-  { id: 2, label: "定义目标" },
-  { id: 3, label: "机构与调节" },
-  { id: 4, label: "生成比较" },
-  { id: 5, label: "精修定版" },
+  { id: 1, label: "选择腿数" },
+  { id: 2, label: "机构与调节" },
+  { id: 3, label: "生成比较" },
+  { id: 4, label: "精修定版" },
 ];
 
-const CONDITION_COPY: Record<string, { eyebrow: string; description: string; focus: string }> = {
-  cruise: {
-    eyebrow: "CRUISE",
-    description: "持续平稳行走，优先支撑稳定与低冲击。",
-    focus: "稳定与效率",
-  },
-  sprint: {
-    eyebrow: "SPRINT",
-    description: "提高转速和步幅，优先速度与连续性。",
-    focus: "速度与步幅",
-  },
-  obstacle: {
-    eyebrow: "OBSTACLE",
-    description: "跨越台阶与松散地形，优先摆动净离地。",
-    focus: "抬脚与通过性",
-  },
-};
+const LEG_COUNT_CHOICES: Array<{
+  count: VariableLegCount;
+  eyebrow: string;
+  label: string;
+  description: string;
+}> = [
+  { count: 2, eyebrow: "TWO LEGS", label: "2 条腿", description: "桌面原型与教学演示，材料最省，先跑通步态再扩展。" },
+  { count: 4, eyebrow: "FOUR LEGS", label: "4 条腿", description: "最常见的稳定平台，静态步态从容，承载均衡。" },
+  { count: 6, eyebrow: "SIX LEGS", label: "6 条腿", description: "支撑更连续、通过性更好，适合复杂地形。" },
+  { count: 8, eyebrow: "EIGHT LEGS", label: "8 条腿", description: "重载与高冗余，支撑相更长，落地更平稳。" },
+];
 
 let sessionEventSequence = 0;
 
@@ -532,10 +522,8 @@ export function VariableGeometryLegLab() {
   const activeMode = displayProject.modes.find((mode) => mode.id === project.activeModeId)
     ?? displayProject.modes.find((mode) => mode.id === displayProject.activeModeId)
     ?? displayProject.modes[0];
-  const missingStandardModeCount = ["cruise", "sprint", "obstacle"].filter((id) => !project.modes.some((mode) => mode.id === id)).length;
   const enabledRequirements = project.requirements.filter((requirement) => requirement.enabled);
   const enabledModeIds = new Set(enabledRequirements.map((requirement) => requirement.modeId));
-  const activeModeIndex = Math.max(0, project.modes.findIndex((mode) => mode.id === project.activeModeId));
   const cycleSamples = useMemo(
     () => sampleVariableLeg(displayProject.baseProject, displayProject.adjustment, activeMode.adjustmentValue, 72, 90),
     [activeMode.adjustmentValue, displayProject.adjustment, displayProject.baseProject],
@@ -644,6 +632,10 @@ export function VariableGeometryLegLab() {
     preserveMotion = false,
   ) => {
     const safeProject = cloneVariableLegProject(nextProject);
+    const previousProject = lastKnownGoodQuickProjectRef.current;
+    if (previousProject && safeProject.deployment.legCount !== previousProject.deployment.legCount) {
+      safeProject.deployment = changeVariableLegCount(safeProject.deployment, previousProject.deployment.legCount);
+    }
     lastKnownGoodQuickProjectRef.current = cloneVariableLegProject(safeProject);
     if (!preserveMotion) stopMotion();
     resetHistory(safeProject);
@@ -706,7 +698,21 @@ export function VariableGeometryLegLab() {
     }
   };
 
-  const acceptQuickReference = (nextStep: WorkspaceStep, intent: "continue" | "goals" | "advanced") => {
+  const selectQuickLegCount = (legCount: VariableLegCount) => {
+    const base = cloneVariableLegProject(lastKnownGoodQuickProjectRef.current);
+    const nextProject = { ...base, deployment: changeVariableLegCount(base.deployment, legCount) };
+    lastKnownGoodQuickProjectRef.current = cloneVariableLegProject(nextProject);
+    stopMotion();
+    setMotionPhase(0);
+    resetGaitTrail();
+    setCanvasMode("inspect");
+    resetHistory(nextProject);
+    setSession(initializeLegSession(nextProject));
+    setViewMode("deployment");
+    setMessage(`已切换为 ${legCount} 条腿的整机部署，播放可以看到整机步态。`);
+  };
+
+  const acceptQuickReference = (nextStep: WorkspaceStep, intent: "continue" | "advanced") => {
     const accepted = advanceVariableLegProjectRevision(cloneVariableLegProject(lastKnownGoodQuickProjectRef.current));
     const acceptedSession = initializeLegSession(accepted);
     resetHistory(accepted);
@@ -717,8 +723,6 @@ export function VariableGeometryLegLab() {
     setWorkspaceStep(nextStep);
     if (intent === "continue") {
       setMessage("当前可走参考已采用，可以继续播放和使用；生成新方案只是可选优化。");
-    } else if (intent === "goals") {
-      setMessage("当前参考已作为起点保留；现在可以输入明确目标，不会重置已有工况。");
     } else {
       setMessage("当前参考已作为起点保留；现在可以展开机构与调节设置。");
     }
@@ -847,7 +851,7 @@ export function VariableGeometryLegLab() {
               pendingCloudSessionRef.current = returnedSession;
               setMotionPhase(returned.project.inputPhase || 0);
               setQuickStart(false);
-              setWorkspaceStep(3);
+              setWorkspaceStep(2);
               setMessage("已接收自由设计器修改；工况和整机部署已保留，旧候选已清空。");
             } else {
               setMessage(`设计器返回失败：${returned.validation.reasons.join("；")}`);
@@ -879,10 +883,7 @@ export function VariableGeometryLegLab() {
         setMotionPhase(migrated.inputPhase || 0);
         setQuickStart(false);
         setWorkspaceStep(2);
-        const missingStandardModes = ["cruise", "sprint", "obstacle"].filter((id) => !restored.modes.some((mode) => mode.id === id));
-        setMessage(missingStandardModes.length
-          ? "已恢复旧本地项目；检测到标准工况缺失，可点击“补齐标准工况”恢复。"
-          : "已恢复上次的可变几何步行腿项目。");
+        setMessage("已恢复上次的可变几何步行腿项目。");
       } catch {
         setMessage("自动保存数据无效，已保留可完整运动的平稳行走参考。");
       } finally {
@@ -1178,65 +1179,6 @@ export function VariableGeometryLegLab() {
     }, "已更换可调对象，旧候选结果已清除。");
   };
 
-  const addMode = () => {
-    if (project.modes.length >= 6) {
-      setMessage("最多支持六个工况；请先删除不需要的工况。");
-      return;
-    }
-    const modeNumber = project.modes.reduce((maximum, mode) => {
-      const number = Number(mode.id.replace(/\D/g, ""));
-      return Number.isFinite(number) ? Math.max(maximum, number) : maximum;
-    }, 0) + 1;
-    const id = `mode-${modeNumber}`;
-    const source = cloneVariableLegProject(project).modes[activeModeIndex];
-    const mode = { ...source, id, name: `工况 ${project.modes.length + 1}`, color: VARIABLE_LEG_MODE_COLORS[project.modes.length], targetPath: source.targetPath.map((point) => ({ ...point })) };
-    updateProject((current) => {
-      const sourceRequirement = current.requirements.find((requirement) => requirement.modeId === source.id) ?? current.requirements[0];
-      return {
-        ...current,
-        modes: [...current.modes, mode],
-        requirements: [...current.requirements, {
-          ...sourceRequirement,
-          modeId: id,
-          role: "supporting",
-          constraints: Object.fromEntries(Object.entries(sourceRequirement.constraints).map(([key, constraint]) => [key, { ...constraint, level: "soft" }])) as typeof sourceRequirement.constraints,
-        }],
-        activeModeId: id,
-        candidates: [],
-        selectedCandidateId: null,
-      };
-    }, "已复制当前工况，并创建默认软目标要求。");
-  };
-
-  const deleteMode = () => {
-    if (project.modes.length <= 1) {
-      setMessage("项目至少需要保留一个工况。");
-      return;
-    }
-    updateProject((current) => {
-      const nextModes = current.modes.filter((mode) => mode.id !== current.activeModeId);
-      const remainingRequirements = current.requirements.filter((requirement) => requirement.modeId !== current.activeModeId);
-      const nextRequirements = remainingRequirements.some((requirement) => requirement.role === "primary")
-        ? remainingRequirements
-        : remainingRequirements.map((requirement, index) => ({ ...requirement, role: index === 0 ? "primary" as const : "supporting" as const }));
-      return {
-        ...current,
-        modes: nextModes,
-        requirements: nextRequirements,
-        activeModeId: nextModes[0].id,
-        candidates: [],
-        selectedCandidateId: null,
-      };
-    }, "当前工况已删除。");
-  };
-
-  const restoreStandardModes = () => {
-    updateProject(
-      (current) => restoreVariableLegStandardModes(current),
-      "已补齐巡航、高速和越障标准工况；现有同名工况、机构与整机部署均已保留。",
-    );
-  };
-
   const canvasPoint = (event: { clientX: number; clientY: number }) => {
     const svg = svgRef.current;
     if (!svg) return null;
@@ -1436,7 +1378,7 @@ export function VariableGeometryLegLab() {
           completedAt: Date.now(),
           stale,
         }));
-        setWorkspaceStep(scope === "global" ? 3 : 4);
+        setWorkspaceStep(scope === "global" ? 2 : 3);
         setResultsOpen(true);
         if (!response.candidates.length) {
           const currentSafetyFailed = analysis.evaluation.conditions.some((condition) => condition.enabled && condition.safety.some((item) => !item.passed));
@@ -1614,7 +1556,7 @@ export function VariableGeometryLegLab() {
     resetGaitTrail();
     try {
       setSession(setCandidatePreview(sessionRef.current, reference, materializeCandidateProject));
-      setWorkspaceStep(3);
+      setWorkspaceStep(2);
       setResultsOpen(true);
       setMessage("已切换为候选草稿：画布、结构标签、工况指标和警告均来自该候选；当前项目尚未修改。");
     } catch (error) {
@@ -1648,7 +1590,7 @@ export function VariableGeometryLegLab() {
       setSession(next);
       queueCloudSave(next);
       resetGaitTrail();
-      setWorkspaceStep(4);
+      setWorkspaceStep(3);
       setMessage(`已应用${selected.label}并创建版本检查点；其余候选因源版本变化已标记为过期。`);
     } catch (error) {
       setMessage(error instanceof VariableLegSessionError && error.code === "STALE_CANDIDATE"
@@ -1789,7 +1731,7 @@ export function VariableGeometryLegLab() {
   };
 
   const changeWorkspaceStep = (step: WorkspaceStep) => {
-    if (step <= 3 && sessionRef.current.draftProject) {
+    if (step <= 2 && sessionRef.current.draftProject) {
       setSession(clearCandidatePreview(sessionRef.current));
       setMessage("已退出候选草稿，正在编辑当前项目。");
     }
@@ -1806,112 +1748,17 @@ export function VariableGeometryLegLab() {
     window.requestAnimationFrame(() => resultsCloseRef.current?.focus());
   };
 
-  const setConditionEnabled = (modeId: string, enabled: boolean) => {
-    const modeName = project.modes.find((mode) => mode.id === modeId)?.name ?? modeId;
-    updateProject((current) => {
-      const primaryModeId = current.requirements.find((requirement) => requirement.role === "primary")?.modeId ?? current.activeModeId;
-      return {
+  const startWithLegCount = (legCount: VariableLegCount) => {
+    setViewMode("deployment");
+    if (project.deployment.legCount === legCount) {
+      setMessage(`保持 ${legCount} 条腿的整机部署；接下来选择机构与调节方式。`);
+    } else {
+      updateProject((current) => ({
         ...current,
-        activeModeId: !enabled && current.activeModeId === modeId ? primaryModeId : current.activeModeId,
-        requirements: current.requirements.map((requirement) => requirement.modeId === modeId ? { ...requirement, enabled } : requirement),
-      };
-    }, enabled ? `已加入${modeName}辅助工况。` : `已移除${modeName}辅助工况。`);
-  };
-
-  const startWithCondition = (modeId: string) => {
-    const modeName = project.modes.find((mode) => mode.id === modeId)?.name ?? modeId;
-    updateProject((current) => ({
-      ...current,
-      activeModeId: modeId,
-      requirements: current.requirements.map((requirement) => {
-        const primary = requirement.modeId === modeId;
-        const level = primary ? "hard" : "soft";
-        return {
-          ...requirement,
-          enabled: primary,
-          role: primary ? "primary" : "supporting",
-          constraints: {
-            stepLength: { ...requirement.constraints.stepLength, level },
-            liftHeight: { ...requirement.constraints.liftHeight, level },
-            stanceRatio: { ...requirement.constraints.stanceRatio, level },
-            landingVerticalSpeed: { ...requirement.constraints.landingVerticalSpeed, level },
-          },
-        };
-      }),
-    }), `已选择${modeName}工况。`);
+        deployment: changeVariableLegCount(current.deployment, legCount),
+      }), `已选择 ${legCount} 条腿的整机部署；接下来选择机构与调节方式。`);
+    }
     setWorkspaceStep(2);
-  };
-
-  const setPrimaryCondition = (modeId: string) => {
-    updateProject((current) => ({
-      ...current,
-      activeModeId: modeId,
-      requirements: current.requirements.map((requirement) => {
-        const primary = requirement.modeId === modeId;
-        const level = primary ? "hard" : "soft";
-        return {
-          ...requirement,
-          enabled: primary ? true : requirement.enabled,
-          role: primary ? "primary" : "supporting",
-          constraints: {
-            stepLength: { ...requirement.constraints.stepLength, level },
-            liftHeight: { ...requirement.constraints.liftHeight, level },
-            stanceRatio: { ...requirement.constraints.stanceRatio, level },
-            landingVerticalSpeed: { ...requirement.constraints.landingVerticalSpeed, level },
-          },
-        };
-      }),
-    }), "已选择主工况；接下来可以添加辅助工况并定义目标。");
-  };
-
-  const updateRequirementRpm = (modeId: string, rpm: number) => {
-    if (!Number.isFinite(rpm)) return;
-    const nextRpm = Math.max(1, Math.min(180, rpm));
-    updateProject((current) => ({
-      ...current,
-      modes: current.modes.map((mode) => mode.id === modeId ? { ...mode, rpm: nextRpm } : mode),
-      requirements: current.requirements.map((requirement) => requirement.modeId === modeId
-        ? { ...requirement, rpm: nextRpm }
-        : requirement),
-    }), "RPM 已作为固定工况输入更新。");
-  };
-
-  const updateRequirementConstraint = (
-    modeId: string,
-    metric: VariableLegConstraintMetric,
-    patch: Partial<VariableLegProject["requirements"][number]["constraints"][VariableLegConstraintMetric]>,
-  ) => {
-    updateProject((current) => {
-      const requirement = current.requirements.find((item) => item.modeId === modeId);
-      const mode = current.modes.find((item) => item.id === modeId);
-      if (!requirement || !mode) return current;
-      const nextConstraint = { ...requirement.constraints[metric], ...patch };
-      const constraints = { ...requirement.constraints, [metric]: nextConstraint };
-      const nextModes = current.modes.map((item) => {
-        if (item.id !== modeId || patch.target === undefined || metric === "landingVerticalSpeed") return item;
-        const stats = targetStats(item);
-        const step = metric === "stepLength" ? nextConstraint.target : constraints.stepLength.target;
-        const lift = metric === "liftHeight" ? nextConstraint.target : constraints.liftHeight.target;
-        const stance = metric === "stanceRatio" ? nextConstraint.target : constraints.stanceRatio.target;
-        return {
-          ...item,
-          stanceStart: 0,
-          stanceEnd: Math.min(0.82, Math.max(0.35, stance)),
-          targetPath: createGaitPath(
-            Math.max(40, step),
-            Math.max(10, lift),
-            Math.min(0.82, Math.max(0.35, stance)),
-            stats.centerX,
-            stats.groundY,
-          ),
-        };
-      });
-      return {
-        ...current,
-        modes: nextModes,
-        requirements: current.requirements.map((item) => item.modeId === modeId ? { ...item, constraints } : item),
-      };
-    }, `${project.modes.find((mode) => mode.id === modeId)?.name ?? modeId}目标已更新；数值与目标轨迹保持同步。`);
   };
 
   const toggleRefinementParameter = (parameterId: VariableLegRefinementParameterId) => {
@@ -1972,41 +1819,50 @@ export function VariableGeometryLegLab() {
       {!quickStart && workspaceStep === 1 ? <section className={styles.conditionLanding}>
         <div className={styles.conditionLandingIntro}>
           <span>VARIABLE GEOMETRY LEG</span>
-          <h1>先选择一种工况</h1>
-          <p>其他参数稍后再设置。现在只需要告诉我们，这台腿最主要用来做什么。</p>
+          <h1>先定几条腿</h1>
+          <p>其他参数稍后再设置。现在只需要告诉我们，这台机器一共要几条腿。</p>
         </div>
-        <div className={styles.landingConditionGrid}>
-          {project.requirements.filter((requirement) => CONDITION_COPY[requirement.modeId]).map((requirement) => {
-            const mode = project.modes.find((item) => item.id === requirement.modeId);
-            if (!mode) return null;
-            const copy = CONDITION_COPY[mode.id];
-            return <button type="button" key={requirement.modeId} className={styles.landingConditionCard} onClick={() => startWithCondition(requirement.modeId)}>
-              <span className={styles.conditionEyebrow}>{copy.eyebrow}</span>
-              <i style={{ background: mode.color }} />
-              <b>{mode.name}</b>
-              <p>{copy.description}</p>
-              <em>选择{mode.name} →</em>
-            </button>;
-          })}
+        <div className={styles.landingLegGrid}>
+          {LEG_COUNT_CHOICES.map((choice) => <button type="button" key={choice.count} className={styles.landingLegCard} onClick={() => startWithLegCount(choice.count)}>
+            <span className={styles.conditionEyebrow}>{choice.eyebrow}</span>
+            <b>{choice.label}</b>
+            <p>{choice.description}</p>
+            <em>选择{choice.count}条腿 →</em>
+          </button>)}
         </div>
-        {missingStandardModeCount > 0 && <button className={styles.restoreConditions} type="button" onClick={restoreStandardModes}>恢复三个标准工况</button>}
-        <small className={styles.conditionLandingHint}>下一步可以添加辅助工况，也可以调整步长、抬脚高度和转速。</small>
+        <small className={styles.conditionLandingHint}>下一步再选择工况和目标；腿数之后也可以随时修改。</small>
       </section> : <div className={`${styles.layout} ${quickStart ? styles.quickStartLayout : ""}`}>
         <aside className={styles.panel}>
           <div className={styles.panelTitle}>
-            <div><span>{quickStart ? "PLAY" : "01"}</span><h1>{quickStart ? "先让它走起来" : "目标驱动设计"}</h1></div>
+            <div><span>{quickStart ? "PLAY" : "01"}</span><h1>{quickStart ? "先选几条腿" : "目标驱动设计"}</h1></div>
             <button type="button" onClick={resetProject}>{quickStart ? "重新开始" : "恢复默认"}</button>
           </div>
 
           {quickStart && <section className={styles.quickStartPanel} aria-labelledby="quick-start-heading">
             <div className={styles.quickStartIntro}>
               <span>VARIABLE GEOMETRY LEG</span>
-              <h2 id="quick-start-heading">这个示例已经可以走</h2>
-              <p>播放看看，也可以表达你想要的步子、抬脚和速度。拖动后会匹配最接近的已验证走法，并始终保留上一个可走参考。</p>
+              <h2 id="quick-start-heading">选好腿数，马上能走</h2>
+              <p>先决定这台机器用几条腿，画布会立刻显示整机步态。走法细节（步子、抬脚、速度）稍后也可以调整。</p>
             </div>
 
+            <fieldset className={styles.quickLegCountPicker}>
+              <legend>这台机器要几条腿</legend>
+              <div role="radiogroup" aria-label="整机腿数">
+                {LEG_COUNT_CHOICES.map((choice) => <label key={choice.count} className={project.deployment.legCount === choice.count ? styles.quickPresetActive : ""}>
+                  <input
+                    type="radio"
+                    name="quick-leg-count"
+                    value={choice.count}
+                    checked={project.deployment.legCount === choice.count}
+                    onChange={() => selectQuickLegCount(choice.count)}
+                  />
+                  <span><b>{choice.label}</b><em>{choice.description}</em></span>
+                </label>)}
+              </div>
+            </fieldset>
+
             <fieldset className={styles.quickPresetPicker}>
-              <legend>选择一种走法</legend>
+              <legend>再选一种走法</legend>
               <div role="radiogroup" aria-label="走法参考预设">
                 {quickStartPresets.map((preset) => {
                   const copy = QUICK_PRESET_COPY[preset.id];
@@ -2071,10 +1927,9 @@ export function VariableGeometryLegLab() {
               <span><b>{quickMatchState.kind === "matched" ? "可走参考已匹配" : "继续使用上一个参考"}</b><small>{quickMatchState.message}</small></span>
             </div>
 
-            <button className={styles.quickContinueButton} type="button" onClick={() => acceptQuickReference(4, "continue")}>按这个效果继续</button>
+            <button className={styles.quickContinueButton} type="button" onClick={() => acceptQuickReference(3, "continue")}>按这个效果继续</button>
             <div className={styles.quickAdvancedLinks}>
-              <button type="button" onClick={() => acceptQuickReference(2, "goals")}>我有明确目标</button>
-              <button type="button" onClick={() => acceptQuickReference(3, "advanced")}>专业设置</button>
+              <button type="button" onClick={() => acceptQuickReference(2, "advanced")}>专业设置</button>
             </div>
             <small className={styles.quickStartFootnote}>采用后当前方案即可继续使用；生成新方案和工程细调都是可选步骤。</small>
           </section>}
@@ -2084,7 +1939,7 @@ export function VariableGeometryLegLab() {
             <button type="button" disabled={!canRedo} onClick={() => { stopMotion(); const restored = redo(); if (restored) { synchronizeRestoredProject(restored); resetGaitTrail(); setMessage("已重做一步。"); } }}>↷ 重做</button>
           </div>}
 
-          {!quickStart && <div className={styles.workflowStepper} aria-label="目标驱动设计五步流程">
+          {!quickStart && <div className={styles.workflowStepper} aria-label="目标驱动设计四步流程">
             {WORKSPACE_STEPS.map((step) => <button
               type="button"
               key={step.id}
@@ -2094,89 +1949,9 @@ export function VariableGeometryLegLab() {
             ><span>{step.id}</span><b>{step.label}</b></button>)}
           </div>}
 
-          {workspaceStep === 2 && <section className={styles.stepPanel}>
+          {workspaceStep === 2 && <section className={styles.configSection}>
             <div className={styles.stepHeading}>
               <span>STEP 02</span>
-              <h2>定义每个工况的目标</h2>
-              <p>先调整必要目标。需要兼顾其他工况时，在这里加入即可。</p>
-            </div>
-            <div className={styles.supportingConditionPicker}>
-              <b>还需要兼顾其他工况吗？</b>
-              <div>
-                {project.requirements.filter((requirement) => requirement.role !== "primary").map((requirement) => {
-                  const mode = project.modes.find((item) => item.id === requirement.modeId);
-                  return mode ? <label key={requirement.modeId} className={requirement.enabled ? styles.supportingConditionActive : ""}>
-                    <input type="checkbox" checked={requirement.enabled} onChange={(event) => setConditionEnabled(requirement.modeId, event.target.checked)} />
-                    {mode.name}
-                  </label> : null;
-                })}
-              </div>
-              <small>不勾选也没关系，可以先完成单一工况设计。</small>
-            </div>
-            <div className={styles.modeTabs}>
-              {enabledRequirements.map((requirement) => {
-                const mode = project.modes.find((item) => item.id === requirement.modeId);
-                return mode ? <button type="button" key={mode.id} className={mode.id === activeMode.id ? styles.activeMode : ""} style={{ borderColor: mode.color }} onClick={() => selectMode(mode.id)}>{mode.name}</button> : null;
-              })}
-            </div>
-            <div className={styles.conditionToolbar}>
-              <b>当前工况目标</b>
-              <span>{enabledRequirements.length} 个工况已启用</span>
-            </div>
-            <div className={styles.requirementList}>
-              {project.requirements.filter((requirement) => requirement.enabled && requirement.modeId === activeMode.id).map((requirement) => {
-                const mode = project.modes.find((item) => item.id === requirement.modeId);
-                if (!mode) return null;
-                const evaluation = analysis.evaluation.conditions.find((item) => item.modeId === requirement.modeId);
-                const active = project.activeModeId === requirement.modeId;
-                return <article key={requirement.modeId} className={`${styles.requirementCard} ${active ? styles.requirementCardActive : ""}`}>
-                  <div className={styles.requirementHeader}>
-                    <button type="button" className={styles.requirementIdentity} onClick={() => selectMode(requirement.modeId)}>
-                      <i style={{ background: mode.color }} />
-                      <span><b>{mode.name}</b><small>{requirement.role === "primary" ? "主工况" : "辅助工况"} · {requirement.rpm} rpm</small></span>
-                    </button>
-                    <label className={styles.rpmField}>转速 <input aria-label={`${mode.name}固定 RPM`} type="number" min="1" max="180" value={requirement.rpm} onChange={(event) => updateRequirementRpm(requirement.modeId, Number(event.target.value))} /><span>rpm</span></label>
-                  </div>
-                  <div className={styles.targetGrid}>
-                    {REQUIREMENT_METRICS.map((definition) => {
-                      const constraint = requirement.constraints[definition.key];
-                      const scale = definition.key === "stanceRatio" ? 100 : 1;
-                      return <label key={definition.key}>
-                        <span>{definition.label}<small>{definition.unit}</small></span>
-                        <input aria-label={`${mode.name}${definition.label}目标`} type="number" step={definition.step} value={Number((constraint.target * scale).toFixed(1))} onChange={(event) => updateRequirementConstraint(requirement.modeId, definition.key, { target: Number(event.target.value) / scale })} />
-                      </label>;
-                    })}
-                  </div>
-                  <details className={styles.advancedDisclosure}>
-                    <summary>高级约束设置</summary>
-                    <div className={styles.advancedConstraintList}>
-                      {REQUIREMENT_METRICS.map((definition) => {
-                        const constraint = requirement.constraints[definition.key];
-                        const result = evaluation?.metrics[definition.key];
-                        const scale = definition.key === "stanceRatio" ? 100 : 1;
-                        return <div key={definition.key} className={styles.advancedConstraintItem}>
-                          <span>{definition.label}<i className={`${styles.constraintStatus} ${result?.status === "passed" ? styles.statusPass : result?.status === "soft-failed" ? styles.statusSoft : styles.statusFail}`}>{result ? result.status === "passed" ? "通过" : result.status === "soft-failed" ? "偏差" : "失败" : "未评估"}</i></span>
-                          <label>级别<select aria-label={`${mode.name}${definition.label}约束级别`} value={constraint.level} onChange={(event) => updateRequirementConstraint(requirement.modeId, definition.key, { level: event.target.value as "hard" | "soft" })}><option value="hard">硬约束</option><option value="soft">软目标</option></select></label>
-                          <label>容差<input aria-label={`${mode.name}${definition.label}容差`} type="number" min="0" step={definition.step} disabled={constraint.rule !== "range"} value={Number((constraint.tolerance * scale).toFixed(1))} onChange={(event) => updateRequirementConstraint(requirement.modeId, definition.key, { tolerance: Math.max(0, Number(event.target.value) / scale) })} /></label>
-                          <label>权重<input aria-label={`${mode.name}${definition.label}软目标权重`} type="number" min="0.1" max="10" step="0.1" disabled={constraint.level === "hard"} value={constraint.weight} onChange={(event) => updateRequirementConstraint(requirement.modeId, definition.key, { weight: Math.max(0.1, Number(event.target.value) || 1) })} /></label>
-                          <small>实际 {result?.actual === null || result?.actual === undefined ? "—" : (result.actual * scale).toFixed(1)} {definition.unit}</small>
-                        </div>;
-                      })}
-                    </div>
-                    <div className={styles.advancedConditionMeta}>
-                      <label className={styles.conditionNameField}>工况名称<input value={mode.name} maxLength={12} onChange={(event) => updateActiveMode((current) => ({ ...current, name: event.target.value.slice(0, 12) }))} /></label>
-                      <label className={styles.requirementRole}>优化权重 <input type="number" min="0.1" max="5" step="0.1" value={mode.weight} onChange={(event) => updateActiveMode((current) => ({ ...current, weight: Math.max(0.1, Number(event.target.value) || 1) }))} /></label>
-                      {requirement.role !== "primary" && <button type="button" onClick={() => setPrimaryCondition(requirement.modeId)}>设为主工况</button>}
-                    </div>
-                  </details>
-                </article>;
-              })}
-            </div>
-          </section>}
-
-          {workspaceStep === 3 && <section className={styles.configSection}>
-            <div className={styles.stepHeading}>
-              <span>STEP 03</span>
               <h2>选择机构与调节方式</h2>
               <p>先确定机构拓扑，再选择移动铰点或伸缩杆，以及每个工况对应的锁止值。</p>
             </div>
@@ -2231,16 +2006,14 @@ export function VariableGeometryLegLab() {
             </div>
           </section>}
 
-          {workspaceStep === 3 && <><div className={styles.modeHeader}><b>设置各工况锁止值</b><span>{enabledRequirements.length} 个已启用</span></div>
+          {workspaceStep === 2 && <><div className={styles.modeHeader}><b>设置各工况锁止值</b><span>{enabledRequirements.length} 个已启用</span></div>
           <div className={styles.modeTabs}>
             {enabledRequirements.map((requirement) => {
               const mode = project.modes.find((item) => item.id === requirement.modeId);
               return mode ? <button type="button" key={mode.id} className={mode.id === activeMode.id ? styles.activeMode : ""} style={{ borderColor: mode.color }} onClick={() => selectMode(mode.id)}>{mode.name}</button> : null;
             })}
           </div></>}
-          {workspaceStep === 2 && <div className={styles.modeActions}><button type="button" onClick={addMode}>复制当前工况</button><button type="button" onClick={deleteMode} disabled={project.modes.length <= 1}>删除当前工况</button></div>}
-
-          {workspaceStep === 3 && <section className={styles.modeEditor}>
+          {workspaceStep === 2 && <section className={styles.modeEditor}>
             <div className={styles.lockValueHeader}>
               <span><i style={{ background: activeMode.color }} /><b>{activeMode.name}</b></span>
               <label>锁止值 <input type="number" value={Number(activeMode.adjustmentValue.toFixed(2))} onChange={(event) => updateActiveMode((mode) => ({ ...mode, adjustmentValue: Number(event.target.value) }))} /></label>
@@ -2256,7 +2029,7 @@ export function VariableGeometryLegLab() {
             <small>{project.adjustment.kind === "moving-pivot" ? "单位为沿导轨的位移 mm" : "单位为锁定后的有效杆长 mm"}</small>
           </section>}
 
-          {workspaceStep === 3 && <><div className={styles.deploymentHeader}><b>整机部署</b><span>{project.deployment.legCount} 条腿</span></div>
+          {workspaceStep === 2 && <><div className={styles.deploymentHeader}><b>整机部署</b><span>{project.deployment.legCount} 条腿</span></div>
           <section className={styles.deploymentEditor}>
             <div className={styles.legCountTabs} role="group" aria-label="整机腿数">
               {([2, 4, 6, 8] as const).map((legCount) => <button
@@ -2305,9 +2078,9 @@ export function VariableGeometryLegLab() {
             </div>
           </section></>}
 
-          {workspaceStep === 4 && <section className={`${styles.stepPanel} ${styles.searchBox}`}>
+          {workspaceStep === 3 && <section className={`${styles.stepPanel} ${styles.searchBox}`}>
             <div className={styles.stepHeading}>
-              <span>STEP 04</span>
+              <span>STEP 03</span>
               <h2>当前方案已经可用</h2>
               <p>你可以继续播放和使用它。只有想寻找其他走法时，才需要生成并比较新方案。</p>
             </div>
@@ -2327,9 +2100,9 @@ export function VariableGeometryLegLab() {
             </div>}
           </section>}
 
-          {workspaceStep === 5 && <section className={`${styles.stepPanel} ${styles.searchBox}`}>
+          {workspaceStep === 4 && <section className={`${styles.stepPanel} ${styles.searchBox}`}>
             <div className={styles.stepHeading}>
-              <span>STEP 05</span>
+              <span>STEP 04</span>
               <h2>精修并保存定版</h2>
               <p>以{session.draftProject ? "当前候选草稿" : "当前已应用项目"}为起点，只解锁你明确选择的参数。</p>
             </div>
@@ -2393,7 +2166,7 @@ export function VariableGeometryLegLab() {
             </div>
           </section>}
 
-          {workspaceStep === 5 && <div className={styles.projectTools}>
+          {workspaceStep === 4 && <div className={styles.projectTools}>
             <button type="button" onClick={exportProject}>导出 JSON</button>
             <button type="button" onClick={() => fileInputRef.current?.click()}>导入项目</button>
             <button type="button" onClick={openInDesigner}>在自由设计器打开</button>
@@ -2404,7 +2177,7 @@ export function VariableGeometryLegLab() {
             {workspaceStep > 1
               ? <button type="button" onClick={() => changeWorkspaceStep((workspaceStep - 1) as WorkspaceStep)}>← 上一步</button>
               : <span />}
-            {workspaceStep < 5 && <button className={styles.nextStepButton} type="button" onClick={() => changeWorkspaceStep((workspaceStep + 1) as WorkspaceStep)}>
+            {workspaceStep < 4 && <button className={styles.nextStepButton} type="button" onClick={() => changeWorkspaceStep((workspaceStep + 1) as WorkspaceStep)}>
               继续：{WORKSPACE_STEPS[workspaceStep].label} →
             </button>}
           </div>}
@@ -2572,10 +2345,9 @@ export function VariableGeometryLegLab() {
               ? latestCandidates.length
                 ? describeCandidateBatchFailure(latestCandidates, project)
                 : "本次搜索没有方案通过全部硬约束。系统没有生成或推荐不可应用候选。"
-              : "在第 4 步创建候选。生成和精修不会覆盖当前项目；结果会先进入真实草稿预览。")}</p>
+              : "在第 3 步创建候选。生成和精修不会覆盖当前项目；结果会先进入真实草稿预览。")}</p>
             {latestRun?.status === "completed" && <div className={styles.emptyStateActions}>
-              <button type="button" onClick={() => { changeWorkspaceStep(2); setResultsOpen(false); }}>调整目标</button>
-              <button type="button" onClick={() => { changeWorkspaceStep(3); setResultsOpen(false); }}>调整机构</button>
+              <button type="button" onClick={() => { changeWorkspaceStep(2); setResultsOpen(false); }}>调整机构</button>
             </div>}
           </div>}
 

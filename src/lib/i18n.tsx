@@ -274,7 +274,7 @@ const EN_OVERRIDES: Record<string, string> = {
   "已选择": "Selected ",
   "工况。": " operating condition.",
   "条腿的整机部署，播放可以看到整机步态。": "legs on this machine; press play to watch the gait.",
-  "条腿的整机部署；接下来定义工况目标。": "legs for this machine; next, define the condition targets.",
+  "条腿的整机部署；接下来选择机构与调节方式。": "legs for this machine; next, choose the mechanism and adjustment.",
   "腿整机部署。": "legs for the whole machine.",
   "固定 RPM": " Fixed RPM",
   "步长目标": " Step Length target",

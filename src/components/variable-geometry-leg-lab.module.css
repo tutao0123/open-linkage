@@ -17,9 +17,9 @@
 .panelTitle span { color:#777c77; font:10px "Cascadia Mono",Consolas,monospace; }
 .panelTitle h1,.panelTitle h2 { margin:0; font-size:18px; }
 .panelTitle button { border:0; background:transparent; color:#686d68; cursor:pointer; font-size:11px; text-decoration:underline; }
-.historyBar,.modeActions { margin:11px 0; display:grid; grid-template-columns:1fr 1fr; gap:7px; }
-.historyBar button,.modeActions button { padding:8px; border:1px solid #c7c9c1; background:#e8e8e1; cursor:pointer; }
-.historyBar button:disabled,.modeActions button:disabled { cursor:not-allowed; opacity:.42; }
+.historyBar { margin:11px 0; display:grid; grid-template-columns:1fr 1fr; gap:7px; }
+.historyBar button { padding:8px; border:1px solid #c7c9c1; background:#e8e8e1; cursor:pointer; }
+.historyBar button:disabled { cursor:not-allowed; opacity:.42; }
 .quickStartPanel { padding-top:18px; }
 .quickStartIntro>span { color:#6f776f; font:9px "Cascadia Mono",Consolas,monospace; letter-spacing:.12em; }
 .quickStartIntro h2 { margin:7px 0 7px; font-size:24px; letter-spacing:-.035em; line-height:1.1; }
@@ -389,63 +389,14 @@
 .supportingToggle { padding:6px 10px; display:flex; align-items:center; gap:7px; border-top:1px solid #d8dbd3; color:#535b54; font-size:8px; cursor:pointer; }
 .supportingToggle input { accent-color:#111515; }
 .supportingToggle input:disabled { cursor:not-allowed; }
-.restoreConditions { width:100%; margin-top:9px; padding:8px; border:1px dashed #9eaa8d; background:transparent; color:#515c4d; cursor:pointer; font-size:8px; }
 .selectionSummary { margin-top:10px; padding:10px; display:grid; grid-template-columns:1fr auto; gap:3px 8px; background:#111515; color:#f1f2ec; }
 .selectionSummary span { color:#aeb6ad; font-size:8px; }
 .selectionSummary b { grid-row:1/3; grid-column:2; align-self:center; color:#c8ff3d; font-size:12px; }
 .selectionSummary small { color:#c9cec7; font-size:8px; }
-.conditionToolbar,.requirementHeader,.sourceChoice,.refinementHeader,.candidateActions,.versionHeader { display:flex; align-items:center; justify-content:space-between; gap:8px; }
-.conditionToolbar { margin-bottom:8px; }
-.supportingConditionPicker { margin-bottom:12px; padding:10px; border:1px solid #c6c9c0; background:#f3f3ed; }
-.supportingConditionPicker>b { font-size:9px; }
-.supportingConditionPicker>div { margin:8px 0 6px; display:flex; flex-wrap:wrap; gap:6px; }
-.supportingConditionPicker label { padding:6px 8px; display:flex; align-items:center; gap:5px; border:1px solid #c5c8bf; background:#fff; color:#5b635c; cursor:pointer; font-size:8px; }
-.supportingConditionPicker .supportingConditionActive { border-color:#111515; background:#111515; color:#c8ff3d; }
-.supportingConditionPicker input { margin:0; accent-color:#8dbd24; }
-.supportingConditionPicker>small { color:#747b74; font-size:8px; }
-.conditionToolbar button,.requirementHeader button,.candidateActions button,.versionList button { padding:6px 8px; border:1px solid #b9bdb4; background:#f4f3ed; cursor:pointer; font-size:8px; }
-.requirementHeader button { color:inherit; text-align:left; text-decoration:none; }
-.requirementList { display:grid; gap:7px; }
-.requirementCard { padding:9px; border:1px solid #c1c5bb; background:#f2f1eb; }
-.requirementCardActive { border-color:#171b19; box-shadow:inset 3px 0 #c8ff3d; }
-.requirementHeader { margin-bottom:8px; }
-.requirementIdentity { display:flex; align-items:center; gap:7px; }
-.requirementIdentity i { width:8px; height:8px; border-radius:50%; }
-.requirementIdentity b { font-size:10px; }
-.requirementIdentity small { display:block; margin-top:2px; color:#717871; font-size:7px; }
-.requirementRole { padding:4px 6px; display:flex; align-items:center; gap:5px; border:1px solid #b9bdb4; background:#fff; font-size:8px; }
-.requirementRole input { width:48px; padding:4px; border:1px solid #c3c6bd; font:9px "Cascadia Mono",Consolas,monospace; }
-.conditionNameField { margin-bottom:8px; display:grid; grid-template-columns:auto minmax(0,1fr); align-items:center; gap:8px; color:#626962; font-size:8px; }
-.conditionNameField input { min-width:0; width:100%; padding:6px; border:1px solid #c3c6bd; background:#fff; font:9px "Cascadia Mono",Consolas,monospace; }
-.rpmField { display:flex; align-items:center; gap:4px; color:#626962; font-size:8px; }
-.rpmField input { width:54px; padding:5px; border:1px solid #c3c6bd; background:#fff; font:9px "Cascadia Mono",Consolas,monospace; }
-.rpmField span { color:#747b74; font-size:7px; }
-.targetGrid { display:grid; grid-template-columns:1fr 1fr; gap:7px; }
-.targetGrid>label { padding:9px; display:grid; grid-template-columns:1fr 74px; align-items:center; gap:8px; border:1px solid #d0d2ca; background:#faf9f4; }
-.targetGrid>label>span { display:flex; flex-direction:column; gap:2px; color:#4d554f; font-size:9px; }
-.targetGrid>label small { color:#7a807a; font-size:7px; }
-.targetGrid input { min-width:0; width:100%; padding:7px; border:1px solid #c3c6bd; background:#fff; font:10px "Cascadia Mono",Consolas,monospace; text-align:right; }
-.constraintGrid { display:grid; grid-template-columns:1fr; gap:6px; }
-.constraintItem { min-width:0; padding:7px; display:grid; gap:5px; border:1px solid #d0d2ca; background:#faf9f4; }
-.constraintItem>span { display:flex; align-items:center; justify-content:space-between; gap:4px; color:#626962; font-size:8px; }
-.constraintItem input,.constraintItem select { min-width:0; width:100%; padding:6px; border:1px solid #c3c6bd; background:#fff; font:9px "Cascadia Mono",Consolas,monospace; }
-.constraintControls { display:grid; grid-template-columns:minmax(0,1fr) 62px; gap:4px; }
-.constraintStatus { padding:2px 4px; font-size:7px; font-style:normal; }
-.statusPass { background:#dcecb7; color:#40561b; }
-.statusSoft { background:#f1e6b9; color:#65530e; }
-.statusFail { background:#f0d5c8; color:#772f20; }
+.sourceChoice,.refinementHeader,.candidateActions,.versionHeader { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.candidateActions button,.versionList button { padding:6px 8px; border:1px solid #b9bdb4; background:#f4f3ed; cursor:pointer; font-size:8px; }
 .advancedDisclosure { margin-top:8px; }
 .advancedDisclosure>summary { padding:8px 0; cursor:pointer; color:#4e554f; font-size:9px; font-weight:650; }
-.advancedConstraintList { display:grid; gap:6px; }
-.advancedConstraintItem { padding:7px; display:grid; grid-template-columns:minmax(74px,1fr) repeat(3,minmax(0,.85fr)); gap:5px; align-items:end; border:1px solid #d0d2ca; background:#faf9f4; }
-.advancedConstraintItem>span { display:flex; align-items:center; justify-content:space-between; gap:4px; align-self:center; font-size:8px; }
-.advancedConstraintItem label { display:grid; gap:3px; color:#707770; font-size:7px; }
-.advancedConstraintItem input,.advancedConstraintItem select { min-width:0; width:100%; padding:5px; border:1px solid #c3c6bd; background:#fff; font:8px "Cascadia Mono",Consolas,monospace; }
-.advancedConstraintItem>small { grid-column:1/-1; color:#777e77; font-size:7px; }
-.advancedConditionMeta { margin-top:8px; padding-top:8px; display:grid; gap:7px; border-top:1px solid #d0d2ca; }
-.advancedConditionMeta .conditionNameField { margin:0; }
-.advancedConditionMeta .requirementRole { justify-content:space-between; }
-.advancedConditionMeta>button { padding:7px; border:1px solid #b9bdb4; background:#f4f3ed; cursor:pointer; font-size:8px; }
 .sourceChoice { margin:8px 0; align-items:stretch; }
 .sourceChoice label { flex:1; padding:8px; display:flex; gap:6px; align-items:flex-start; border:1px solid #c1c5bb; background:#f4f3ed; color:#4f5650; font-size:8px; line-height:1.4; cursor:pointer; }
 .sourceChoice input { margin:1px 0 0; accent-color:#111515; }
@@ -525,10 +476,7 @@
   .candidateList,.modeSummary { display:block; }
   .transport { flex-wrap:wrap; }
   .modeTabs { grid-template-columns:repeat(2,1fr); }
-  .targetGrid { grid-template-columns:1fr; }
-  .advancedConstraintItem { grid-template-columns:1fr 1fr 1fr; }
-  .advancedConstraintItem>span { grid-column:1/-1; }
-  .constraintGrid,.unlockList { grid-template-columns:1fr; }
+  .unlockList { grid-template-columns:1fr; }
   .previewBanner { flex-wrap:wrap; }
 }
 @media(prefers-reduced-motion:reduce){

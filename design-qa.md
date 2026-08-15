@@ -86,4 +86,21 @@ The focused mechanism views show the same J/F/P joint-marker construction and fi
 - Browser verification found zero `/dev` or `/sketch-mechanism` links on the homepage. The development page links correctly to the localized experiment and emits `noindex, nofollow` metadata.
 - The regular four-bar navigation no longer exposes the experiment. No actionable P0/P1/P2 visual or discoverability issue remains.
 
+## Trojan-horse silhouette rebuild
+
+- Final source reference: `C:/Users/39007/AppData/Local/Temp/codex-clipboard-ee2a1006-125b-4beb-ad0d-5910342b302a.png`.
+- Verification surface: `http://localhost:4173/zh/sketch-mechanism` in the Codex in-app browser at a 1440 × 1000 viewport.
+- The previous left-facing outline read as a long-eared canine. The target was fully redrawn in the reference's right-facing orientation around its distinctive proportions: a high arched neck, vertical jagged wooden mane, tall poll, long downward-hanging face, heavy barrel body, four broad column legs, and a short plank-like tail.
+- The target remains one closed curve because this phase synthesizes a continuous drawing path; photographic plank texture, ropes, and internal construction are intentionally outside the fitted contour.
+- High-fidelity methods use 192 samples. The dual-groove cam reproduces the final contour at 0.00% normalized error; the geared X–Y and 28-term Fourier candidates are approximately 2.94% and 2.93%. Classical four-bar and geared five-bar candidates remain explicitly labelled approximations and were refitted to the new contour.
+- Candidate loading, default dual-cam selection, animation controls, and the final target/trace overlay were verified. The browser console reports no errors.
+- A same-pass visual comparison of the final target and supplied cinematic wooden-horse reference found no remaining P0/P1/P2 silhouette issue for the requested simplified continuous-curve representation; the result now reads as a horse rather than a dog.
+
+### Proportion follow-up
+
+- The rear contour was changed from a rounded quarter-circle and star-like tail into a straighter, blockier wooden rump with one restrained plank tail, removing the pig-like reading.
+- The entire neck crest and poll were raised and extended, while the target-card view box was expanded upward so the longer neck remains uncropped.
+- The muzzle's inward hook was removed. The final face now descends in one long tapered plane and returns through a shallow jaw into the throat, matching the reference's hanging wooden head more closely.
+- All precomputed linkage candidates were refitted to the revised contour. Candidate loading, the 0.00% dual-cam trace, animation, production build, and browser console were verified again.
+
 final result: passed

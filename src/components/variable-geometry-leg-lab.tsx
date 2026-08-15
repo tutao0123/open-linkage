@@ -149,30 +149,24 @@ const REQUIREMENT_METRICS: Array<{
 ];
 
 const WORKSPACE_STEPS: Array<{ id: WorkspaceStep; label: string }> = [
-  { id: 1, label: "选择工况" },
+  { id: 1, label: "选择腿数" },
   { id: 2, label: "定义目标" },
   { id: 3, label: "机构与调节" },
   { id: 4, label: "生成比较" },
   { id: 5, label: "精修定版" },
 ];
 
-const CONDITION_COPY: Record<string, { eyebrow: string; description: string; focus: string }> = {
-  cruise: {
-    eyebrow: "CRUISE",
-    description: "持续平稳行走，优先支撑稳定与低冲击。",
-    focus: "稳定与效率",
-  },
-  sprint: {
-    eyebrow: "SPRINT",
-    description: "提高转速和步幅，优先速度与连续性。",
-    focus: "速度与步幅",
-  },
-  obstacle: {
-    eyebrow: "OBSTACLE",
-    description: "跨越台阶与松散地形，优先摆动净离地。",
-    focus: "抬脚与通过性",
-  },
-};
+const LEG_COUNT_CHOICES: Array<{
+  count: VariableLegCount;
+  eyebrow: string;
+  label: string;
+  description: string;
+}> = [
+  { count: 2, eyebrow: "TWO LEGS", label: "2 条腿", description: "桌面原型与教学演示，材料最省，先跑通步态再扩展。" },
+  { count: 4, eyebrow: "FOUR LEGS", label: "4 条腿", description: "最常见的稳定平台，静态步态从容，承载均衡。" },
+  { count: 6, eyebrow: "SIX LEGS", label: "6 条腿", description: "支撑更连续、通过性更好，适合复杂地形。" },
+  { count: 8, eyebrow: "EIGHT LEGS", label: "8 条腿", description: "重载与高冗余，支撑相更长，落地更平稳。" },
+];
 
 let sessionEventSequence = 0;
 
@@ -644,6 +638,10 @@ export function VariableGeometryLegLab() {
     preserveMotion = false,
   ) => {
     const safeProject = cloneVariableLegProject(nextProject);
+    const previousProject = lastKnownGoodQuickProjectRef.current;
+    if (previousProject && safeProject.deployment.legCount !== previousProject.deployment.legCount) {
+      safeProject.deployment = changeVariableLegCount(safeProject.deployment, previousProject.deployment.legCount);
+    }
     lastKnownGoodQuickProjectRef.current = cloneVariableLegProject(safeProject);
     if (!preserveMotion) stopMotion();
     resetHistory(safeProject);
@@ -704,6 +702,20 @@ export function VariableGeometryLegLab() {
       });
       setMessage("没有找到更合适的参考，画布继续使用上一个可走方案。");
     }
+  };
+
+  const selectQuickLegCount = (legCount: VariableLegCount) => {
+    const base = cloneVariableLegProject(lastKnownGoodQuickProjectRef.current);
+    const nextProject = { ...base, deployment: changeVariableLegCount(base.deployment, legCount) };
+    lastKnownGoodQuickProjectRef.current = cloneVariableLegProject(nextProject);
+    stopMotion();
+    setMotionPhase(0);
+    resetGaitTrail();
+    setCanvasMode("inspect");
+    resetHistory(nextProject);
+    setSession(initializeLegSession(nextProject));
+    setViewMode("deployment");
+    setMessage(`已切换为 ${legCount} 条腿的整机部署，播放可以看到整机步态。`);
   };
 
   const acceptQuickReference = (nextStep: WorkspaceStep, intent: "continue" | "goals" | "advanced") => {
@@ -1818,27 +1830,16 @@ export function VariableGeometryLegLab() {
     }, enabled ? `已加入${modeName}辅助工况。` : `已移除${modeName}辅助工况。`);
   };
 
-  const startWithCondition = (modeId: string) => {
-    const modeName = project.modes.find((mode) => mode.id === modeId)?.name ?? modeId;
-    updateProject((current) => ({
-      ...current,
-      activeModeId: modeId,
-      requirements: current.requirements.map((requirement) => {
-        const primary = requirement.modeId === modeId;
-        const level = primary ? "hard" : "soft";
-        return {
-          ...requirement,
-          enabled: primary,
-          role: primary ? "primary" : "supporting",
-          constraints: {
-            stepLength: { ...requirement.constraints.stepLength, level },
-            liftHeight: { ...requirement.constraints.liftHeight, level },
-            stanceRatio: { ...requirement.constraints.stanceRatio, level },
-            landingVerticalSpeed: { ...requirement.constraints.landingVerticalSpeed, level },
-          },
-        };
-      }),
-    }), `已选择${modeName}工况。`);
+  const startWithLegCount = (legCount: VariableLegCount) => {
+    setViewMode("deployment");
+    if (project.deployment.legCount === legCount) {
+      setMessage(`保持 ${legCount} 条腿的整机部署；接下来定义工况目标。`);
+    } else {
+      updateProject((current) => ({
+        ...current,
+        deployment: changeVariableLegCount(current.deployment, legCount),
+      }), `已选择 ${legCount} 条腿的整机部署；接下来定义工况目标。`);
+    }
     setWorkspaceStep(2);
   };
 
@@ -1972,41 +1973,50 @@ export function VariableGeometryLegLab() {
       {!quickStart && workspaceStep === 1 ? <section className={styles.conditionLanding}>
         <div className={styles.conditionLandingIntro}>
           <span>VARIABLE GEOMETRY LEG</span>
-          <h1>先选择一种工况</h1>
-          <p>其他参数稍后再设置。现在只需要告诉我们，这台腿最主要用来做什么。</p>
+          <h1>先定几条腿</h1>
+          <p>其他参数稍后再设置。现在只需要告诉我们，这台机器一共要几条腿。</p>
         </div>
-        <div className={styles.landingConditionGrid}>
-          {project.requirements.filter((requirement) => CONDITION_COPY[requirement.modeId]).map((requirement) => {
-            const mode = project.modes.find((item) => item.id === requirement.modeId);
-            if (!mode) return null;
-            const copy = CONDITION_COPY[mode.id];
-            return <button type="button" key={requirement.modeId} className={styles.landingConditionCard} onClick={() => startWithCondition(requirement.modeId)}>
-              <span className={styles.conditionEyebrow}>{copy.eyebrow}</span>
-              <i style={{ background: mode.color }} />
-              <b>{mode.name}</b>
-              <p>{copy.description}</p>
-              <em>选择{mode.name} →</em>
-            </button>;
-          })}
+        <div className={styles.landingLegGrid}>
+          {LEG_COUNT_CHOICES.map((choice) => <button type="button" key={choice.count} className={styles.landingLegCard} onClick={() => startWithLegCount(choice.count)}>
+            <span className={styles.conditionEyebrow}>{choice.eyebrow}</span>
+            <b>{choice.label}</b>
+            <p>{choice.description}</p>
+            <em>选择{choice.count}条腿 →</em>
+          </button>)}
         </div>
-        {missingStandardModeCount > 0 && <button className={styles.restoreConditions} type="button" onClick={restoreStandardModes}>恢复三个标准工况</button>}
-        <small className={styles.conditionLandingHint}>下一步可以添加辅助工况，也可以调整步长、抬脚高度和转速。</small>
+        <small className={styles.conditionLandingHint}>下一步再选择工况和目标；腿数之后也可以随时修改。</small>
       </section> : <div className={`${styles.layout} ${quickStart ? styles.quickStartLayout : ""}`}>
         <aside className={styles.panel}>
           <div className={styles.panelTitle}>
-            <div><span>{quickStart ? "PLAY" : "01"}</span><h1>{quickStart ? "先让它走起来" : "目标驱动设计"}</h1></div>
+            <div><span>{quickStart ? "PLAY" : "01"}</span><h1>{quickStart ? "先选几条腿" : "目标驱动设计"}</h1></div>
             <button type="button" onClick={resetProject}>{quickStart ? "重新开始" : "恢复默认"}</button>
           </div>
 
           {quickStart && <section className={styles.quickStartPanel} aria-labelledby="quick-start-heading">
             <div className={styles.quickStartIntro}>
               <span>VARIABLE GEOMETRY LEG</span>
-              <h2 id="quick-start-heading">这个示例已经可以走</h2>
-              <p>播放看看，也可以表达你想要的步子、抬脚和速度。拖动后会匹配最接近的已验证走法，并始终保留上一个可走参考。</p>
+              <h2 id="quick-start-heading">选好腿数，马上能走</h2>
+              <p>先决定这台机器用几条腿，画布会立刻显示整机步态。走法细节（步子、抬脚、速度）稍后也可以调整。</p>
             </div>
 
+            <fieldset className={styles.quickLegCountPicker}>
+              <legend>这台机器要几条腿</legend>
+              <div role="radiogroup" aria-label="整机腿数">
+                {LEG_COUNT_CHOICES.map((choice) => <label key={choice.count} className={project.deployment.legCount === choice.count ? styles.quickPresetActive : ""}>
+                  <input
+                    type="radio"
+                    name="quick-leg-count"
+                    value={choice.count}
+                    checked={project.deployment.legCount === choice.count}
+                    onChange={() => selectQuickLegCount(choice.count)}
+                  />
+                  <span><b>{choice.label}</b><em>{choice.description}</em></span>
+                </label>)}
+              </div>
+            </fieldset>
+
             <fieldset className={styles.quickPresetPicker}>
-              <legend>选择一种走法</legend>
+              <legend>再选一种走法</legend>
               <div role="radiogroup" aria-label="走法参考预设">
                 {quickStartPresets.map((preset) => {
                   const copy = QUICK_PRESET_COPY[preset.id];
@@ -2112,6 +2122,7 @@ export function VariableGeometryLegLab() {
                 })}
               </div>
               <small>不勾选也没关系，可以先完成单一工况设计。</small>
+              {missingStandardModeCount > 0 && <button className={styles.restoreConditions} type="button" onClick={restoreStandardModes}>恢复三个标准工况</button>}
             </div>
             <div className={styles.modeTabs}>
               {enabledRequirements.map((requirement) => {

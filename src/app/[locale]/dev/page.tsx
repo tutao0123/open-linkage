@@ -35,7 +35,7 @@ export default async function DevPage({ params }: Props) {
         <article className={styles.card}>
           <span className={styles.badge}>ACTIVE EXPERIMENT</span>
           <h2>Sketch → Mechanism</h2>
-          <p>{zh ? "从固定猫轮廓出发，对比四杆、齿轮同步 X–Y 与双槽凸轮方案，并观察绘图点如何形成目标轨迹。" : "Compare four-bar, geared X–Y and dual-groove cam solutions for the fixed cat outline, then inspect how the drawing point produces the target trajectory."}</p>
+          <p>{zh ? "从固定的特洛伊木马轮廓出发，对比四杆、齿轮同步 X–Y 与双槽凸轮方案，并观察绘图点如何形成目标轨迹。" : "Compare four-bar, geared X–Y and dual-groove cam solutions for the fixed Trojan horse outline, then inspect how the drawing point produces the target trajectory."}</p>
           <Link href={`/${locale}/sketch-mechanism`}>
             {zh ? "进入实验模块" : "Open experiment"}<span aria-hidden="true">↗</span>
           </Link>

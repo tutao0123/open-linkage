@@ -38,11 +38,11 @@ export const PAGE_METADATA = {
   sketchMechanism: {
     zh: {
       title: "草图生成连杆机构 · OpenLinkage",
-      description: "从猫轮廓闭合曲线出发，对比经典四杆与齿轮同步五杆机构并播放拟合动画。",
+      description: "从特洛伊木马轮廓闭合曲线出发，对比经典四杆与齿轮同步五杆机构并播放拟合动画。",
     },
     en: {
       title: "Sketch to Linkage Mechanism · OpenLinkage",
-      description: "Compare classic four-bar and gear-synchronized five-bar mechanisms that trace a closed cat outline.",
+      description: "Compare classic four-bar and gear-synchronized five-bar mechanisms that trace a closed Trojan horse outline.",
     },
   },
   leg: {
@@ -99,13 +99,13 @@ const EN_OVERRIDES: Record<string, string> = {
   "进入四杆设计": "Open Four-bar Design",
   "草图生成四杆机构": "Sketch to Four-bar Mechanism",
   "草图生成连杆机构": "Sketch to Linkage Mechanism",
-  "给定猫轮廓闭合曲线，对比经典四杆与齿轮同步五杆机构，让连杆绘图点描出相似轨迹。":
-    "Given a closed cat outline, compare classic four-bar and gear-synchronized five-bar mechanisms whose coupler points trace a similar curve.",
-  "猫轮廓 · 四杆 / 齿轮五杆": "Cat Outline · Four-bar / Geared Five-bar",
-  "给定猫轮廓闭合曲线，从经典闭环方程出发搜索完整可转的四杆机构，让连杆绘图点描出相似轨迹。":
-    "Given a closed cat outline, search the classic loop-closure equations for a full-cycle four-bar whose coupler point traces a similar curve.",
+  "给定特洛伊木马轮廓闭合曲线，对比经典四杆与齿轮同步五杆机构，让连杆绘图点描出相似轨迹。":
+    "Given a closed Trojan horse outline, compare classic four-bar and gear-synchronized five-bar mechanisms whose coupler points trace a similar curve.",
+  "特洛伊木马轮廓 · 四杆 / 齿轮五杆": "Trojan Horse Outline · Four-bar / Geared Five-bar",
+  "给定特洛伊木马轮廓闭合曲线，从经典闭环方程出发搜索完整可转的四杆机构，让连杆绘图点描出相似轨迹。":
+    "Given a closed Trojan horse outline, search the classic loop-closure equations for a full-cycle four-bar whose coupler point traces a similar curve.",
   "打开草图生成机构": "Open Sketch Synthesis",
-  "猫轮廓 · 四杆综合": "Cat Outline · Four-bar Synthesis",
+  "特洛伊木马轮廓 · 四杆综合": "Trojan Horse Outline · Four-bar Synthesis",
   "进入六杆腿设计": "Open Six-bar Leg Design",
   "进入可变步行腿工作台": "Open Variable-leg Workbench",
   "进入直线机构工作台": "Open Straight-line Workbench",

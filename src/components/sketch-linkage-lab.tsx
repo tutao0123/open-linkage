@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
-  CAT_TARGET_CURVE,
+  ACTIVE_SKETCH_TARGET_CURVE,
   sampleCandidateMechanism,
 } from "@/lib/sketch-linkage";
 import {
@@ -14,6 +14,7 @@ import {
 } from "@/lib/sketch-linkage-demo";
 import { createXYDrawingMechanismGeometry } from "@/lib/xy-drawing-mechanism";
 import { solveDualGrooveCam } from "@/lib/dual-groove-cam";
+import { solveFourierEpicycle } from "@/lib/fourier-epicycle";
 import { panSketchCanvas } from "@/lib/sketch-canvas-view";
 import type { Point } from "@/lib/four-bar";
 import { useLanguage } from "./locale-shell";
@@ -25,9 +26,9 @@ const COPY = {
     back: "OpenLinkage",
     badge: "FIRST PRINCIPLES / PHASE 1",
     title: "Sketch → Mechanism",
-    subtitle: "从猫轮廓出发，比较连杆、齿轮谐波滑台与双槽凸轮方案。",
+    subtitle: "从特洛伊木马轮廓出发，比较连杆、齿轮谐波滑台、双槽凸轮与傅里叶旋轮方案。",
     target: "目标曲线",
-    targetName: "猫轮廓 · 固定示例",
+    targetName: "特洛伊木马轮廓 · 固定示例",
     targetNote: "第一阶段只解决这一条闭合曲线，不尝试通用草图识别。",
     solve: "加载预计算演示",
     solveAgain: "重新载入演示",
@@ -38,13 +39,13 @@ const COPY = {
     ready: "预计算候选已载入",
     failed: "求解失败，请重试",
     canvas: "机构动画与轨迹比较",
-    targetLegend: "猫目标",
+    targetLegend: "木马目标",
     traceLegend: "Coupler 轨迹",
     mechanismLegend: "候选机构",
     play: "播放",
     pause: "暂停",
     candidates: "候选机构",
-    empty: "加载演示后，这里会显示连杆、齿轮 X–Y 与双槽凸轮候选。",
+    empty: "加载演示后，这里会显示连杆、齿轮 X–Y、双槽凸轮与傅里叶旋轮候选。",
     candidate: "候选",
     error: "归一化误差",
     transmission: "最小传动角",
@@ -76,11 +77,14 @@ const COPY = {
     allFamilies: "全部方案",
     xyDrawing: "齿轮同步 X–Y",
     dualCam: "双槽凸轮",
+    fourierEpicycle: "傅里叶旋轮",
     xyCode: "GEARED X–Y",
     camCode: "DUAL CAM",
+    epicycleCode: "FOURIER EPICYCLES",
     complexity: "机构复杂度",
     harmonics: "谐波级数",
     camSamples: "凸轮槽采样",
+    epicycleTerms: "旋转项",
     kinematicExact: "离散点精确",
     zoomOut: "缩小画布",
     resetZoom: "适应画布",
@@ -91,6 +95,9 @@ const COPY = {
     crossSlideLabel: "③ X/Y 十字滑台",
     camPairLabel: "① 同步 X/Y 槽凸轮",
     followerLabel: "② 滚子从动件 + 推杆",
+    epicycleInputLabel: "① 共同输入轴",
+    epicycleArmLabel: "② 按幅值排序的旋转臂链",
+    epicycleSumLabel: "③ 末端矢量和",
     penLabel: "④ 绘图笔",
     compactGears: "简化合成",
     expandedGears: "完整齿轮组",
@@ -101,9 +108,9 @@ const COPY = {
     back: "OpenLinkage",
     badge: "FIRST PRINCIPLES / PHASE 1",
     title: "Sketch → Mechanism",
-    subtitle: "Compare linkages, a geared harmonic X–Y stage, and dual groove cams for the same cat outline.",
+    subtitle: "Compare linkages, a geared harmonic X–Y stage, dual groove cams, and Fourier epicycles for the same Trojan horse outline.",
     target: "Target curve",
-    targetName: "Cat outline · fixed example",
+    targetName: "Trojan horse outline · fixed example",
     targetNote: "Phase one solves this single closed curve; it does not attempt general sketch recognition.",
     solve: "Load precomputed demo",
     solveAgain: "Reload demo",
@@ -114,13 +121,13 @@ const COPY = {
     ready: "Precomputed candidates loaded",
     failed: "Solver failed. Please retry.",
     canvas: "Mechanism animation and curve comparison",
-    targetLegend: "Cat target",
+    targetLegend: "Trojan horse target",
     traceLegend: "Coupler curve",
     mechanismLegend: "Candidate mechanism",
     play: "Play",
     pause: "Pause",
     candidates: "Mechanism candidates",
-    empty: "Load the demo to compare linkage, geared X–Y, and dual-cam candidates.",
+    empty: "Load the demo to compare linkage, geared X–Y, dual-cam, and Fourier-epicycle candidates.",
     candidate: "Candidate",
     error: "Normalized error",
     transmission: "Min. transmission angle",
@@ -152,11 +159,14 @@ const COPY = {
     allFamilies: "All concepts",
     xyDrawing: "Gear-synchronized X–Y",
     dualCam: "Dual groove cams",
+    fourierEpicycle: "Fourier epicycles",
     xyCode: "GEARED X–Y",
     camCode: "DUAL CAM",
+    epicycleCode: "FOURIER EPICYCLES",
     complexity: "Mechanism complexity",
     harmonics: "Harmonic stages",
     camSamples: "Cam groove samples",
+    epicycleTerms: "Rotating terms",
     kinematicExact: "Exact at samples",
     zoomOut: "Zoom out",
     resetZoom: "Fit canvas",
@@ -167,6 +177,9 @@ const COPY = {
     crossSlideLabel: "③ X/Y cross slide",
     camPairLabel: "① Synchronized X/Y groove cams",
     followerLabel: "② Roller followers + pushrods",
+    epicycleInputLabel: "① Shared input shaft",
+    epicycleArmLabel: "② Amplitude-ranked rotor chain",
+    epicycleSumLabel: "③ Tip vector sum",
     penLabel: "④ Drawing pen",
     compactGears: "Summed output",
     expandedGears: "Full gear bank",
@@ -234,11 +247,12 @@ function familyCode(family: DemoMechanismFamily, copy: typeof COPY.zh | typeof C
   if (family === "four-bar") return copy.fourBarCode;
   if (family === "geared-five-bar") return copy.gearedFiveBarCode;
   if (family === "gear-synchronized-xy") return copy.xyCode;
-  return copy.camCode;
+  if (family === "dual-groove-cam") return copy.camCode;
+  return copy.epicycleCode;
 }
 
 function defaultZoomFor(family?: DemoMechanismFamily) {
-  return family === "gear-synchronized-xy" || family === "dual-groove-cam" ? 0.8 : 1;
+  return family === "gear-synchronized-xy" || family === "dual-groove-cam" || family === "fourier-epicycle" ? 0.8 : 1;
 }
 
 export function SketchLinkageLab() {
@@ -267,6 +281,9 @@ export function SketchLinkageLab() {
   const camMechanism = useMemo(() => selected?.family === "dual-groove-cam"
     ? solveDualGrooveCam(selected.parameters, angle)
     : null, [angle, selected]);
+  const epicycleMechanism = useMemo(() => selected?.family === "fourier-epicycle"
+    ? solveFourierEpicycle(selected.parameters, angle)
+    : null, [angle, selected]);
   const camDisplay = useMemo(() => {
     if (!camMechanism || selected?.family !== "dual-groove-cam") return null;
     const mapCam = (
@@ -291,7 +308,7 @@ export function SketchLinkageLab() {
       y: mapCam(camMechanism.cams.y, selected.parameters.yLaw, { x: 245, y: 130 }),
     };
   }, [camMechanism, selected]);
-  const targetPath = useMemo(() => pointsPath(CAT_TARGET_CURVE), []);
+  const targetPath = useMemo(() => pointsPath(ACTIVE_SKETCH_TARGET_CURVE), []);
   const tracePath = useMemo(() => selected ? pointsPath(selected.trajectory) : "", [selected]);
   const canvasViewBox = useMemo(() => {
     const width = 540 / zoom;
@@ -378,8 +395,8 @@ export function SketchLinkageLab() {
           <h1>{copy.title}</h1>
           <span>{copy.subtitle}</span>
         </div>
-        <div className={styles.pipeline} aria-label="Cat target curve to linkage mechanism pipeline">
-          <span>CAT CURVE</span><i>→</i><span>OPENLINK SOLVER</span><i>→</i><span>LINK / GEAR / CAM</span><i>→</i><span>DRAWING TRACE</span>
+        <div className={styles.pipeline} aria-label="Trojan horse target curve to linkage mechanism pipeline">
+          <span>TROJAN CURVE</span><i>→</i><span>OPENLINK SOLVER</span><i>→</i><span>LINK / GEAR / CAM</span><i>→</i><span>DRAWING TRACE</span>
         </div>
       </section>
 
@@ -387,7 +404,7 @@ export function SketchLinkageLab() {
         <aside className={styles.targetPanel}>
           <div className={styles.panelHeading}><span>01</span><div><small>SKETCH</small><h2>{copy.target}</h2></div></div>
           <div className={styles.targetCard}>
-            <svg viewBox="35 65 510 420" role="img" aria-label={copy.targetName}>
+            <svg viewBox="30 20 500 455" role="img" aria-label={copy.targetName}>
               <path d={targetPath} />
             </svg>
             <strong>{copy.targetName}</strong>
@@ -401,6 +418,7 @@ export function SketchLinkageLab() {
               ["geared-five-bar", copy.gearedFiveBar],
               ["gear-synchronized-xy", copy.xyDrawing],
               ["dual-groove-cam", copy.dualCam],
+              ["fourier-epicycle", copy.fourierEpicycle],
             ] as const).map(([mode, label]) => (
               <button
                 key={mode}
@@ -659,6 +677,24 @@ export function SketchLinkageLab() {
                   )}
                 </g>
               )}
+              {epicycleMechanism && selected?.family === "fourier-epicycle" && (
+                <g className={familyStyles.epicycleMechanism}>
+                  {selected.parameters.terms.map((term, index) => {
+                    const start = epicycleMechanism.joints[index];
+                    const end = epicycleMechanism.joints[index + 1];
+                    return (
+                      <g key={`${term.frequency}-${index}`}>
+                        <circle cx={start.x} cy={start.y} r={Math.max(2, term.amplitude)} className={familyStyles.epicycleCircle} />
+                        <line x1={start.x} y1={start.y} x2={end.x} y2={end.y} className={familyStyles.epicycleArm} />
+                        {index < 7 && <text x={start.x} y={start.y - Math.max(7, term.amplitude) - 4}>{term.frequency > 0 ? `+${term.frequency}` : term.frequency}×</text>}
+                      </g>
+                    );
+                  })}
+                  <circle cx={epicycleMechanism.joints[0].x} cy={epicycleMechanism.joints[0].y} r="5" className={familyStyles.epicycleCenter} />
+                  <circle cx={epicycleMechanism.point.x} cy={epicycleMechanism.point.y} r="8" className={familyStyles.epicyclePoint} />
+                  <JointMarker x={epicycleMechanism.point.x} y={epicycleMechanism.point.y} label="P" active />
+                </g>
+              )}
               {camMechanism && camDisplay && selected?.family === "dual-groove-cam" && (
                 <g className={familyStyles.camMechanism}>
                   <path d="M105 72V83H245V72" className={familyStyles.syncShaft} />
@@ -679,7 +715,7 @@ export function SketchLinkageLab() {
                   <JointMarker x={camMechanism.crossSlide.drawingPoint.x} y={camMechanism.crossSlide.drawingPoint.y} label="P" active />
                 </g>
               )}
-              {!selected && <text x="295" y="285" textAnchor="middle" className={styles.emptyCanvas}>CAT CURVE → SOLVE → ANIMATE</text>}
+              {!selected && <text x="295" y="285" textAnchor="middle" className={styles.emptyCanvas}>TROJAN CURVE → SOLVE → ANIMATE</text>}
             </svg>
           </div>
           <div className={styles.transport}>
@@ -708,12 +744,15 @@ export function SketchLinkageLab() {
                 {("minimumTransmissionAngle" in selected) && <div><span>{copy.transmission}</span><strong>{format(selected.minimumTransmissionAngle)}<small>°</small></strong></div>}
                 {selected.family === "gear-synchronized-xy" && <div><span>{copy.harmonics}</span><strong>{selected.parameters.harmonicCount}<small>×2</small></strong></div>}
                 {selected.family === "dual-groove-cam" && <div><span>{copy.complexity}</span><strong>{copy.kinematicExact}</strong></div>}
+                {selected.family === "fourier-epicycle" && <div><span>{copy.epicycleTerms}</span><strong>{selected.parameters.termCount}</strong></div>}
               </section>
-              {(selected.family === "gear-synchronized-xy" || selected.family === "dual-groove-cam") && (
+              {(selected.family === "gear-synchronized-xy" || selected.family === "dual-groove-cam" || selected.family === "fourier-epicycle") && (
                 <section className={familyStyles.operationChain} aria-label={copy.principleTitle}>
                   {(selected.family === "gear-synchronized-xy"
                     ? [copy.inputShaftLabel, copy.harmonicBankLabel, copy.crossSlideLabel, copy.penLabel]
-                    : [copy.camPairLabel, copy.followerLabel, copy.crossSlideLabel, copy.penLabel]
+                    : selected.family === "dual-groove-cam"
+                      ? [copy.camPairLabel, copy.followerLabel, copy.crossSlideLabel, copy.penLabel]
+                      : [copy.epicycleInputLabel, copy.epicycleArmLabel, copy.epicycleSumLabel, copy.penLabel]
                   ).map((step) => <span key={step}>{step}</span>)}
                 </section>
               )}
@@ -758,6 +797,13 @@ export function SketchLinkageLab() {
                     <div><span>{copy.camSamples}<small>S</small></span><b>{selected.parameters.sampleCount} × 2</b></div>
                     <div><span>{copy.complexity}<small>CAM</small></span><b>{copy.kinematicExact}</b></div>
                     <p>{language === "zh" ? "当前仅为槽凸轮运动学模型；尚未校核接触力、强度、根切和制造可行性。" : selected.parameters.modelNote}</p>
+                  </>
+                )}
+                {selected.family === "fourier-epicycle" && (
+                  <>
+                    <div><span>{copy.epicycleTerms}<small>N</small></span><b>{selected.parameters.termCount}</b></div>
+                    <div><span>{copy.camSamples}<small>S</small></span><b>{selected.parameters.sampleCount}</b></div>
+                    <p>{language === "zh" ? "闭合轮廓先转换为复数傅里叶系数，再将幅值最大的旋转项串联成旋轮链；低频项保留整体形状，高频项补充耳朵和脚部细节。" : "The closed outline is converted to complex Fourier coefficients, then the largest rotating terms are chained as epicycles: low frequencies preserve the shape and higher frequencies restore details."}</p>
                   </>
                 )}
               </section>

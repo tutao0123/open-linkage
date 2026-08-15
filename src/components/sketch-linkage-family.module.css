@@ -296,6 +296,41 @@
   stroke-width: 4 !important;
 }
 
+.epicycleMechanism circle {
+  vector-effect: non-scaling-stroke;
+}
+
+.epicycleCircle {
+  fill: rgb(223 255 145 / 8%);
+  stroke: #a0a59e;
+  stroke-width: 1.2;
+  stroke-dasharray: 4 4;
+}
+
+.epicycleArm {
+  stroke: #476a83;
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+
+.epicycleCenter {
+  fill: #dfff91;
+  stroke: #171b1a;
+  stroke-width: 2;
+}
+
+.epicyclePoint {
+  fill: #c7fb43;
+  stroke: #171b1a;
+  stroke-width: 3;
+}
+
+.epicycleMechanism text {
+  fill: #4e554f;
+  font: 8px "Cascadia Mono", Consolas, monospace;
+  letter-spacing: .04em;
+}
+
 .linkBar {
   stroke-width: 6;
   stroke-linecap: round;

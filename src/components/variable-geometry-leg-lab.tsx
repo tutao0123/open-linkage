@@ -473,6 +473,7 @@ export function VariableGeometryLegLab() {
   const [viewMode, setViewMode] = useState<ViewMode>("mechanism");
   const [workspaceStep, setWorkspaceStep] = useState<WorkspaceStep>(1);
   const [quickStart, setQuickStart] = useState(true);
+  const [synthesisEnabled, setSynthesisEnabled] = useState(false);
   const [quickPresetId, setQuickPresetId] = useState<ReferencePresetId>("smooth");
   const [quickValues, setQuickValues] = useState<QuickStartValues>(() => quickStartValuesFromProject(initialProject));
   const [quickMatchState, setQuickMatchState] = useState<QuickMatchState>({
@@ -722,7 +723,9 @@ export function VariableGeometryLegLab() {
     setQuickStart(false);
     setWorkspaceStep(nextStep);
     if (intent === "continue") {
-      setMessage("当前可走参考已采用，可以继续播放和使用；生成新方案只是可选优化。");
+      setMessage(synthesisEnabled
+        ? "当前可走参考已采用，可以继续播放和使用；生成新方案只是可选优化。"
+        : "当前可走参考已采用，可以继续播放、调节和使用。");
     } else {
       setMessage("当前参考已作为起点保留；现在可以展开机构与调节设置。");
     }
@@ -833,6 +836,8 @@ export function VariableGeometryLegLab() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
+      const synthesisFlag = new URLSearchParams(window.location.search).get("synthesis");
+      if (synthesisFlag === "1" || synthesisFlag === "true" || synthesisFlag === "on") setSynthesisEnabled(true);
       const transferValue = window.sessionStorage.getItem(TRANSFER_KEY);
       if (transferValue) {
         try {
@@ -1927,11 +1932,11 @@ export function VariableGeometryLegLab() {
               <span><b>{quickMatchState.kind === "matched" ? "可走参考已匹配" : "继续使用上一个参考"}</b><small>{quickMatchState.message}</small></span>
             </div>
 
-            <button className={styles.quickContinueButton} type="button" onClick={() => acceptQuickReference(3, "continue")}>按这个效果继续</button>
+            <button className={styles.quickContinueButton} type="button" onClick={() => acceptQuickReference(synthesisEnabled ? 3 : 2, "continue")}>按这个效果继续</button>
             <div className={styles.quickAdvancedLinks}>
               <button type="button" onClick={() => acceptQuickReference(2, "advanced")}>专业设置</button>
             </div>
-            <small className={styles.quickStartFootnote}>采用后当前方案即可继续使用；生成新方案和工程细调都是可选步骤。</small>
+            <small className={styles.quickStartFootnote}>采用后当前方案即可继续使用；机构、步态与整机部署都可以继续调整。</small>
           </section>}
 
           {!quickStart && workspaceStep > 1 && <div className={styles.historyBar}>
@@ -1939,8 +1944,8 @@ export function VariableGeometryLegLab() {
             <button type="button" disabled={!canRedo} onClick={() => { stopMotion(); const restored = redo(); if (restored) { synchronizeRestoredProject(restored); resetGaitTrail(); setMessage("已重做一步。"); } }}>↷ 重做</button>
           </div>}
 
-          {!quickStart && <div className={styles.workflowStepper} aria-label="目标驱动设计四步流程">
-            {WORKSPACE_STEPS.map((step) => <button
+          {!quickStart && <div className={styles.workflowStepper} aria-label={synthesisEnabled ? "目标驱动设计四步流程" : "目标驱动设计两步流程"}>
+            {WORKSPACE_STEPS.filter((step) => synthesisEnabled || step.id <= 2).map((step) => <button
               type="button"
               key={step.id}
               className={workspaceStep === step.id ? styles.activeStep : ""}
@@ -2078,7 +2083,7 @@ export function VariableGeometryLegLab() {
             </div>
           </section></>}
 
-          {workspaceStep === 3 && <section className={`${styles.stepPanel} ${styles.searchBox}`}>
+          {synthesisEnabled && workspaceStep === 3 && <section className={`${styles.stepPanel} ${styles.searchBox}`}>
             <div className={styles.stepHeading}>
               <span>STEP 03</span>
               <h2>当前方案已经可用</h2>
@@ -2100,7 +2105,7 @@ export function VariableGeometryLegLab() {
             </div>}
           </section>}
 
-          {workspaceStep === 4 && <section className={`${styles.stepPanel} ${styles.searchBox}`}>
+          {synthesisEnabled && workspaceStep === 4 && <section className={`${styles.stepPanel} ${styles.searchBox}`}>
             <div className={styles.stepHeading}>
               <span>STEP 04</span>
               <h2>精修并保存定版</h2>
@@ -2166,7 +2171,7 @@ export function VariableGeometryLegLab() {
             </div>
           </section>}
 
-          {workspaceStep === 4 && <div className={styles.projectTools}>
+          {synthesisEnabled && workspaceStep === 4 && <div className={styles.projectTools}>
             <button type="button" onClick={exportProject}>导出 JSON</button>
             <button type="button" onClick={() => fileInputRef.current?.click()}>导入项目</button>
             <button type="button" onClick={openInDesigner}>在自由设计器打开</button>
@@ -2177,7 +2182,7 @@ export function VariableGeometryLegLab() {
             {workspaceStep > 1
               ? <button type="button" onClick={() => changeWorkspaceStep((workspaceStep - 1) as WorkspaceStep)}>← 上一步</button>
               : <span />}
-            {workspaceStep < 4 && <button className={styles.nextStepButton} type="button" onClick={() => changeWorkspaceStep((workspaceStep + 1) as WorkspaceStep)}>
+            {synthesisEnabled && workspaceStep < 4 && <button className={styles.nextStepButton} type="button" onClick={() => changeWorkspaceStep((workspaceStep + 1) as WorkspaceStep)}>
               继续：{WORKSPACE_STEPS[workspaceStep].label} →
             </button>}
           </div>}
@@ -2301,8 +2306,8 @@ export function VariableGeometryLegLab() {
           </div>
         </section>
 
-        <aside id="variable-leg-results" className={`${styles.panel} ${styles.analysisPanel} ${resultsOpen ? styles.analysisPanelOpen : ""}`} aria-label="候选与工程检查" onKeyDown={(event) => { if (event.key === "Escape" && resultsOpen) toggleResultsDrawer(); }}>
-          <div className={styles.panelTitle}><div><span>{quickStart ? "NOW" : "02"}</span><h2>{quickStart ? "当前效果" : "候选与工程检查"}</h2></div><button ref={resultsCloseRef} type="button" onClick={toggleResultsDrawer}>关闭</button></div>
+        <aside id="variable-leg-results" className={`${styles.panel} ${styles.analysisPanel} ${resultsOpen ? styles.analysisPanelOpen : ""}`} aria-label={synthesisEnabled ? "候选与工程检查" : "当前效果与工程检查"} onKeyDown={(event) => { if (event.key === "Escape" && resultsOpen) toggleResultsDrawer(); }}>
+          <div className={styles.panelTitle}><div><span>{quickStart ? "NOW" : "02"}</span><h2>{quickStart || !synthesisEnabled ? "当前效果与工程检查" : "候选与工程检查"}</h2></div><button ref={resultsCloseRef} type="button" onClick={toggleResultsDrawer}>关闭</button></div>
           {quickStart && <section className={styles.quickResultSummary}>
             <div className={styles.quickResultLead}>
               <i aria-hidden="true" />
@@ -2339,7 +2344,7 @@ export function VariableGeometryLegLab() {
                 </div>
               </div>;
             })}
-          </div> : <div className={styles.emptyState}>
+          </div> : (latestRun || synthesisEnabled) ? <div className={styles.emptyState}>
             <b>{latestRun?.status === "failed" ? "生成失败" : latestRun?.status === "completed" ? "未找到可应用方案" : "等待候选批次"}</b>
             <p>{latestRun?.error ?? (latestRun?.status === "completed"
               ? latestCandidates.length
@@ -2349,7 +2354,7 @@ export function VariableGeometryLegLab() {
             {latestRun?.status === "completed" && <div className={styles.emptyStateActions}>
               <button type="button" onClick={() => { changeWorkspaceStep(2); setResultsOpen(false); }}>调整机构</button>
             </div>}
-          </div>}
+          </div> : null}
 
           {comparisonCandidates.length > 0 && <div className={styles.comparisonMatrix}>
             <table>
@@ -2457,7 +2462,7 @@ export function VariableGeometryLegLab() {
             </div>
           </details>
         </aside>
-        <button ref={resultsToggleRef} type="button" className={styles.resultDrawerButton} aria-controls="variable-leg-results" aria-expanded={resultsOpen} onClick={toggleResultsDrawer}>{resultsOpen ? "关闭结果" : quickStart ? "查看当前效果" : latestApplicableCandidates.length ? `查看 ${latestApplicableCandidates.length} 个可应用方案` : "查看搜索结果"}</button>
+        <button ref={resultsToggleRef} type="button" className={styles.resultDrawerButton} aria-controls="variable-leg-results" aria-expanded={resultsOpen} onClick={toggleResultsDrawer}>{resultsOpen ? "关闭结果" : quickStart ? "查看当前效果" : latestApplicableCandidates.length ? `查看 ${latestApplicableCandidates.length} 个可应用方案` : synthesisEnabled ? "查看搜索结果" : "查看当前效果"}</button>
       </div>}
     </main>
   ), language);

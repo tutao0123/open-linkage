@@ -40,6 +40,14 @@ export default async function DevPage({ params }: Props) {
             {zh ? "进入实验模块" : "Open experiment"}<span aria-hidden="true">↗</span>
           </Link>
         </article>
+        <article className={styles.card}>
+          <span className={styles.badge}>HIDDEN FROM PUBLIC FLOW</span>
+          <h2>Variable-leg Synthesis</h2>
+          <p>{zh ? "可变几何步行腿的生成、精修与项目工具：解锁参数、搜索候选、比较并应用新方案。已从正式流程中隐藏，待打磨后再上线，此处可直接进入。" : "Generation, refinement and project tools for the variable-geometry walking leg: unlock parameters, search candidates, compare and apply. Hidden from the public flow while being polished; open it here."}</p>
+          <Link href={`/${locale}/variable-leg?synthesis=1`}>
+            {zh ? "进入实验模块" : "Open experiment"}<span aria-hidden="true">↗</span>
+          </Link>
+        </article>
         <aside className={styles.note}>
           <p className={styles.meta}>VISIBILITY</p>
           <p>{zh ? "此页面不在主导航中公开，也设置为不参与搜索引擎索引。后续功能稳定后，再决定是否进入正式工作台。" : "This page is absent from the main navigation and excluded from search indexing. It can move into the public workbenches after the feature matures."}</p>

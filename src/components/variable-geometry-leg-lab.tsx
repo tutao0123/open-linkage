@@ -857,7 +857,7 @@ export function VariableGeometryLegLab() {
               setMotionPhase(returned.project.inputPhase || 0);
               setQuickStart(false);
               setWorkspaceStep(2);
-              setMessage("已接收自由设计器修改；工况和整机部署已保留，旧候选已清空。");
+              setMessage("已接收自由设计器修改；机构和整机部署已保留，旧候选已清空。");
             } else {
               setMessage(`设计器返回失败：${returned.validation.reasons.join("；")}`);
             }
@@ -1112,19 +1112,6 @@ export function VariableGeometryLegLab() {
         } : requirement),
       };
     }, status);
-  };
-
-  const selectMode = (modeId: string) => {
-    stopMotion();
-    resetGaitTrail();
-    replace({ ...projectRef.current, activeModeId: modeId });
-    setSession((current) => ({
-      ...current,
-      workingProject: { ...current.workingProject, activeModeId: modeId },
-      draftProject: current.draftProject ? { ...current.draftProject, activeModeId: modeId } : null,
-    }));
-    setCanvasMode("inspect");
-    setMessage("主轴已暂停，已切换到新的离散锁止工况。");
   };
 
   const changeTopology = (topology: VariableLegTopology) => {
@@ -1499,7 +1486,7 @@ export function VariableGeometryLegLab() {
     const preview = cloneVariableLegProject(barLengthPreview.previewProject);
     updateProject(
       () => preview,
-      `已应用 ${barLengthPreview.barId} = ${barLengthPreview.nearestFeasibleLength.toFixed(2)} mm；全部工况检查已通过。`,
+      `已应用 ${barLengthPreview.barId} = ${barLengthPreview.nearestFeasibleLength.toFixed(2)} mm；全部硬约束检查已通过。`,
       true,
     );
     setBarLengthPreview(null);
@@ -1515,7 +1502,7 @@ export function VariableGeometryLegLab() {
     requestIdRef.current = requestId;
     const scannedKey = feasibilityKey;
     setSearching(true);
-    setSearchProgress({ progress: 0, stage: "scan", message: "正在扫描 41 个调节值 × 全部工况 36 相位" });
+    setSearchProgress({ progress: 0, stage: "scan", message: "正在扫描 41 个调节值 × 36 相位" });
     setMessage("正在检查整周可解、分支连续、闭环误差与 5° 最小夹角……");
     worker.onmessage = (event: MessageEvent<VariableLegWorkerResponse>) => {
       const response = event.data;
@@ -1546,8 +1533,7 @@ export function VariableGeometryLegLab() {
     updateProject(() => result.project, undefined, true);
     setFeasibility(null);
     setFeasibilitySourceKey(null);
-    const names = result.clampedModeIds.map((id) => project.modes.find((mode) => mode.id === id)?.name ?? id);
-    setMessage(names.length ? `已应用推荐范围；${names.join("、")}的锁止值已吸附到最近边界。` : "已应用推荐范围；所有工况锁止值均无需调整。");
+    setMessage(result.clampedModeIds.length ? `已应用推荐范围；${result.clampedModeIds.length} 处锁止值已吸附到最近边界。` : "已应用推荐范围；所有锁止值均无需调整。");
   };
 
   const cancelSynthesis = () => {
@@ -1563,7 +1549,7 @@ export function VariableGeometryLegLab() {
       setSession(setCandidatePreview(sessionRef.current, reference, materializeCandidateProject));
       setWorkspaceStep(2);
       setResultsOpen(true);
-      setMessage("已切换为候选草稿：画布、结构标签、工况指标和警告均来自该候选；当前项目尚未修改。");
+      setMessage("已切换为候选草稿：画布、结构标签、工程指标和警告均来自该候选；当前项目尚未修改。");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "候选预览失败。");
     }
@@ -1835,7 +1821,7 @@ export function VariableGeometryLegLab() {
             <em>选择{choice.count}条腿 →</em>
           </button>)}
         </div>
-        <small className={styles.conditionLandingHint}>下一步再选择工况和目标；腿数之后也可以随时修改。</small>
+        <small className={styles.conditionLandingHint}>下一步直接调整机构、步态和整机部署；腿数之后也可以随时修改。</small>
       </section> : <div className={`${styles.layout} ${quickStart ? styles.quickStartLayout : ""}`}>
         <aside className={styles.panel}>
           <div className={styles.panelTitle}>
@@ -1958,7 +1944,7 @@ export function VariableGeometryLegLab() {
             <div className={styles.stepHeading}>
               <span>STEP 02</span>
               <h2>选择机构与调节方式</h2>
-              <p>先确定机构拓扑，再选择移动铰点或伸缩杆，以及每个工况对应的锁止值。</p>
+              <p>先确定机构拓扑，再选择移动铰点或伸缩杆，并设定锁止位置。</p>
             </div>
             <label>基础拓扑
               <select value={project.topology} onChange={(event) => changeTopology(event.target.value as VariableLegTopology)}>
@@ -1997,39 +1983,31 @@ export function VariableGeometryLegLab() {
                     title={`基础值 ${project.adjustment.kind === "telescopic-bar" ? project.adjustment.baseLength.toFixed(1) : "0.0"}`}
                     style={{ left: `${Math.max(0, Math.min(100, ((project.adjustment.kind === "telescopic-bar" ? project.adjustment.baseLength : 0) - visibleFeasibility.minimum) / Math.max(1e-9, visibleFeasibility.maximum - visibleFeasibility.minimum) * 100))}%` }}
                   />
-                  {project.modes.filter((mode) => enabledModeIds.has(mode.id)).map((mode) => <span
+                  {[activeMode].map((mode) => <span
                     key={mode.id}
                     className={styles.modeRangeMarker}
-                    title={`${mode.name} ${mode.adjustmentValue.toFixed(1)}`}
+                    title={`当前锁止位置 ${mode.adjustmentValue.toFixed(1)}`}
                     style={{ left: `${Math.max(0, Math.min(100, (mode.adjustmentValue - visibleFeasibility.minimum) / Math.max(1e-9, visibleFeasibility.maximum - visibleFeasibility.minimum) * 100))}%`, background: mode.color }}
                   />)}
                 </div>
                 <small>{visibleFeasibility.recommendedInterval
                   ? `推荐 ${visibleFeasibility.recommendedInterval.minimum.toFixed(1)} – ${visibleFeasibility.recommendedInterval.maximum.toFixed(1)}`
                   : "当前锁止值不在连续可行区间内"}</small>
-              </> : <small>扫描 41 个调节值；每个值检查全部工况的 36 个相位。</small>}
+              </> : <small>扫描 41 个调节值；每个值检查 36 个相位。</small>}
             </div>
           </section>}
 
-          {workspaceStep === 2 && <><div className={styles.modeHeader}><b>设置各工况锁止值</b><span>{enabledRequirements.length} 个已启用</span></div>
-          <div className={styles.modeTabs}>
-            {enabledRequirements.map((requirement) => {
-              const mode = project.modes.find((item) => item.id === requirement.modeId);
-              return mode ? <button type="button" key={mode.id} className={mode.id === activeMode.id ? styles.activeMode : ""} style={{ borderColor: mode.color }} onClick={() => selectMode(mode.id)}>{mode.name}</button> : null;
-            })}
-          </div></>}
           {workspaceStep === 2 && <section className={styles.modeEditor}>
             <div className={styles.lockValueHeader}>
-              <span><i style={{ background: activeMode.color }} /><b>{activeMode.name}</b></span>
               <label>锁止值 <input type="number" value={Number(activeMode.adjustmentValue.toFixed(2))} onChange={(event) => updateActiveMode((mode) => ({ ...mode, adjustmentValue: Number(event.target.value) }))} /></label>
             </div>
-            <input className={styles.adjustmentSlider} aria-label="当前工况锁止值" type="range" min={project.adjustment.minimum} max={project.adjustment.maximum} step="0.1" value={activeMode.adjustmentValue} onPointerDown={beginTransaction} onKeyDown={beginTransaction} onChange={(event) => replace({ ...projectRef.current, modes: projectRef.current.modes.map((mode) => mode.id === activeMode.id ? { ...mode, adjustmentValue: Number(event.target.value) } : mode), candidates: [] })} onPointerUp={finalizeSliderTransaction} onKeyUp={finalizeSliderTransaction} />
+            <input className={styles.adjustmentSlider} aria-label="调节锁止值" type="range" min={project.adjustment.minimum} max={project.adjustment.maximum} step="0.1" value={activeMode.adjustmentValue} onPointerDown={beginTransaction} onKeyDown={beginTransaction} onChange={(event) => replace({ ...projectRef.current, modes: projectRef.current.modes.map((mode) => mode.id === activeMode.id ? { ...mode, adjustmentValue: Number(event.target.value) } : mode), candidates: [] })} onPointerUp={finalizeSliderTransaction} onKeyUp={finalizeSliderTransaction} />
             <div className={styles.advancedRangeOverlay} aria-label="离线安全区、当前可行区和动态相位包络">
               {advancedStaticBounds.map((interval, index) => <i key={`static-${index}`} className={styles.staticSafeRange} style={{ left: `${Math.max(0, Math.min(100, (interval.minimum - project.adjustment.minimum) / Math.max(1e-9, project.adjustment.maximum - project.adjustment.minimum) * 100))}%`, width: `${Math.max(0, Math.min(100, (interval.maximum - interval.minimum) / Math.max(1e-9, project.adjustment.maximum - project.adjustment.minimum) * 100))}%` }} />)}
               {visibleFeasibility?.intervals.map((interval, index) => <i key={`feasible-${index}`} className={styles.currentSafeRange} style={{ left: `${Math.max(0, Math.min(100, (interval.minimum - project.adjustment.minimum) / Math.max(1e-9, project.adjustment.maximum - project.adjustment.minimum) * 100))}%`, width: `${Math.max(0, Math.min(100, (interval.maximum - interval.minimum) / Math.max(1e-9, project.adjustment.maximum - project.adjustment.minimum) * 100))}%` }} />)}
               {advancedDynamicEnvelope?.intervals.map((interval, index) => <i key={`dynamic-${index}`} className={styles.dynamicSafeRange} style={{ left: `${Math.max(0, Math.min(100, (interval.minimum - project.adjustment.minimum) / Math.max(1e-9, project.adjustment.maximum - project.adjustment.minimum) * 100))}%`, width: `${Math.max(0, Math.min(100, (interval.maximum - interval.minimum) / Math.max(1e-9, project.adjustment.maximum - project.adjustment.minimum) * 100))}%` }} />)}
             </div>
-            <div className={styles.advancedLegend}><span><i />离线基线</span><span><i />当前工况可行</span><span><i />动态相位包络</span></div>
+            <div className={styles.advancedLegend}><span><i />离线基线</span><span><i />当前可行</span><span><i />动态相位包络</span></div>
             <div className={styles.impactSummary}><b>继续增大锁止值，预计：</b>{adjustmentImpact.map((impact) => <span key={impact.label} className={impact.favorable ? styles.impactGood : styles.impactBad}>{impact.label} {impact.delta >= 0 ? "+" : ""}{impact.delta.toFixed(1)} {impact.unit}</span>)}</div>
             <small>{project.adjustment.kind === "moving-pivot" ? "单位为沿导轨的位移 mm" : "单位为锁定后的有效杆长 mm"}</small>
           </section>}
@@ -2228,7 +2206,7 @@ export function VariableGeometryLegLab() {
               ref={svgRef}
               viewBox={viewport.viewBox}
               role="img"
-              aria-label={viewMode === "mechanism" ? "可变几何克兰或简森步行腿、导轨、锁止位置与多工况足端轨迹" : `${displayProject.deployment.legCount} 条可变几何步行腿整机步态与落足记录`}
+              aria-label={viewMode === "mechanism" ? "可变几何克兰或简森步行腿、导轨、锁止位置与足端轨迹" : `${displayProject.deployment.legCount} 条可变几何步行腿整机步态与落足记录`}
               className={viewport.isPanning ? styles.panning : viewMode === "mechanism" && canvasMode === "draw" ? styles.drawing : undefined}
               onPointerDown={startCanvasPointer}
               onPointerMove={moveCanvasPointer}
@@ -2252,7 +2230,7 @@ export function VariableGeometryLegLab() {
                 const end = pointAt(displayProject.adjustment.maximum);
                 return <g className={styles.rail}>
                   <line x1={start.x} y1={start.y} x2={end.x} y2={end.y} />
-                  {displayProject.modes.filter((mode) => enabledModeIds.has(mode.id)).map((mode) => { const point = pointAt(mode.adjustmentValue); return <g key={mode.id}><circle cx={point.x} cy={point.y} r={mode.id === activeMode.id ? 11 : 7} style={{ fill: mode.color }} /><text x={point.x + 9} y={point.y - 10}>{mode.name}</text></g>; })}
+                  {(() => { const point = pointAt(activeMode.adjustmentValue); return <g><circle cx={point.x} cy={point.y} r="11" style={{ fill: activeMode.color }} /></g>; })()}
                 </g>;
                 })()}
 
@@ -2287,13 +2265,13 @@ export function VariableGeometryLegLab() {
                 footprints={footprints}
                 selectedBarId={selectedBarId}
                 onSelectBar={selectBarForInspection}
+                view={viewport.view}
               />}
             </svg>
             {searching && <div className={styles.searchOverlay}><strong>{Math.round(searchProgress.progress * 100)}%</strong><span>{searchProgress.message}</span></div>}
           </div>
           <div className={styles.legend}>
             {viewMode === "mechanism" ? <>
-              <span><i style={{ background: activeMode.color }} />当前工况 · {activeMode.name}</span>
               <span><i className={styles.legendTarget} />虚线目标 / 实线实际</span>
             </> : <>
               <span><i className={styles.legendStance} />支撑相</span><span><i className={styles.legendSwing} />摆动相</span><span>足迹 {footprints.length}/80</span>
@@ -2432,9 +2410,9 @@ export function VariableGeometryLegLab() {
             </div>
           </div> : <div className={styles.emptyState}><b>尚未选择杆件</b><p>在单腿或整机画布中点击任意杆件，同编号杆件会同步高亮并显示整周检查结果。</p></div>}
 
-          <div className={styles.analysisSectionTitle}><span>单腿机构</span><b>{activeMode.name}</b></div>
+          <div className={styles.analysisSectionTitle}><span>单腿机构</span><b>足端轨迹</b></div>
           <div className={styles.modeSummary}>
-            <div><span>{activeMode.name}轨迹 RMSE</span><strong>{Number.isFinite(activeMetrics.rmse) ? activeMetrics.rmse.toFixed(1) : "—"}<small>mm</small></strong></div>
+            <div><span>轨迹 RMSE</span><strong>{Number.isFinite(activeMetrics.rmse) ? activeMetrics.rmse.toFixed(1) : "—"}<small>mm</small></strong></div>
             <div><span>最大误差</span><strong>{Number.isFinite(activeMetrics.maxError) ? activeMetrics.maxError.toFixed(1) : "—"}<small>mm</small></strong></div>
             <div><span>整周求解率</span><strong>{(activeMetrics.validRatio * 100).toFixed(1)}<small>%</small></strong></div>
             <div><span>实际步长 / 摆动净离地</span><strong>{activeMetrics.stepLength.toFixed(0)}<small> / {activeMetrics.liftHeight.toFixed(0)} mm</small></strong></div>
@@ -2446,19 +2424,11 @@ export function VariableGeometryLegLab() {
             <div><span>轨迹族综合评分</span><strong>{analysis.score.toFixed(0)}<small>/100</small></strong></div>
           </div>
 
-          <div className={styles.comparisonTable}>
-            <div className={styles.tableHead}><span>工况</span><span>RMSE</span><span>可达</span><span>落地速度</span></div>
-            {displayProject.modes.filter((mode) => enabledModeIds.has(mode.id)).map((mode) => {
-              const metric = analysis.metrics.find((item) => item.modeId === mode.id)!;
-              return <button type="button" key={mode.id} onClick={() => selectMode(mode.id)}><span style={{ color: mode.color }}>{mode.name}</span><span>{Number.isFinite(metric.rmse) ? metric.rmse.toFixed(1) : "—"}</span><span>{(metric.validRatio * 100).toFixed(0)}%</span><span>{metric.landingVerticalSpeed.toFixed(0)}</span></button>;
-            })}
-          </div>
-
           <div className={warnings.length ? styles.healthWarn : styles.healthGood}>
             <b>{warnings.length ? `${warnings.length} 项工程提示` : "当前运动学检查通过"}</b>
-            {warnings.length ? <ul>{warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul> : <p>当前工况整周连续，未发现装配分支跳变或明显奇异位置。</p>}
+            {warnings.length ? <ul>{warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul> : <p>机构整周连续，未发现装配分支跳变或明显奇异位置。</p>}
           </div>
-          <p className={styles.disclaimer}>这里的“高速、越障”仅代表目标足迹工况。当前版本不计算质量、地面接触力、弹簧储能、结构应力或整机稳定性。</p>
+          <p className={styles.disclaimer}>当前版本不计算质量、地面接触力、弹簧储能、结构应力或整机稳定性。</p>
             </div>
           </details>
         </aside>

@@ -24,6 +24,7 @@ type VariableLegDeploymentViewProps = {
   footprints: VariableLegFootprint[];
   selectedBarId: string | null;
   onSelectBar: (barId: string) => void;
+  view: { x: number; y: number; width: number; height: number };
 };
 
 export function VariableLegDeploymentView({
@@ -36,6 +37,7 @@ export function VariableLegDeploymentView({
   footprints,
   selectedBarId,
   onSelectBar,
+  view,
 }: VariableLegDeploymentViewProps) {
   const language = useLanguage();
   const visualScale = ({ 2: 0.82, 4: 0.72, 6: 0.63, 8: 0.56 } as const)[deployment.legCount];
@@ -73,8 +75,8 @@ export function VariableLegDeploymentView({
       </pattern>
       <clipPath id="variable-leg-footprint-clip"><rect x="-540" y="244" width="1080" height="108" /></clipPath>
     </defs>
-    <rect x="-560" y="-360" width="1120" height="760" fill="url(#variable-leg-deployment-grid)" />
-    <line x1="-560" y1={groundY} x2="560" y2={groundY} className={styles.deploymentGround} />
+    <rect x={view.x} y={view.y} width={view.width} height={view.height} fill="url(#variable-leg-deployment-grid)" />
+    <line x1={view.x} y1={groundY} x2={view.x + view.width} y2={groundY} className={styles.deploymentGround} />
     <g className={styles.chassis}>
       <rect x={chassis.x} y={chassis.y} width={chassis.width} height={chassis.height} rx="14" />
       <line x1={chassis.x + 28} y1={chassis.y + chassis.height / 2} x2={chassis.x + chassis.width - 28} y2={chassis.y + chassis.height / 2} />

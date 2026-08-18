@@ -210,6 +210,7 @@
 .chassis rect { fill:#b7bcb3; stroke:#83887f; stroke-width:4; }
 .chassis .horseTorso { fill:#b7bcb3; stroke:none; }
 .frameStrut { stroke:#83887f; stroke-width:7; stroke-linecap:round; opacity:.8; }
+.frameAxle { stroke:#5f645c; stroke-width:6; stroke-linecap:round; opacity:.7; }
 .chassis line { stroke:#5f645c; stroke-width:3; opacity:.65; }
 .chassis text { fill:#171b19; font:16px "Cascadia Mono",Consolas,monospace; text-anchor:middle; letter-spacing:.06em; }
 .deployedLeg { transition:opacity .12s ease; }
@@ -245,6 +246,10 @@
 .transport { padding:12px 18px; display:flex; align-items:center; gap:14px; border-top:1px solid #c5c6be; background:#f2f1eb; color:#686e68; font:10px "Cascadia Mono",Consolas,monospace; }
 .transport button { width:44px; height:44px; flex:none; border:0; border-radius:50%; background:#111515; color:#c8ff3d; cursor:pointer; }
 .transport input { flex:1; accent-color:#111515; }
+.transport .transportRpm { display:flex; align-items:center; gap:5px; flex:none; }
+.transport .transportRpm button { width:24px; height:24px; border-radius:6px; font-size:13px; line-height:1; }
+.transport .transportRpm input { width:52px; flex:none; padding:5px 4px; border:1px solid #c5c6be; background:#f4f3ed; color:#171b19; font:12px "Cascadia Mono",Consolas,monospace; text-align:center; }
+.transport .transportRpm b { color:#202522; }
 .quickTransport button { width:auto; min-width:112px; padding:0 18px; border-radius:24px; font-size:11px; font-weight:750; }
 .quickTransport input { accent-color:#8dbd24; }
 .candidateList { padding:12px 0; }

@@ -1720,6 +1720,12 @@ export function VariableGeometryLegLab() {
     setWorkspaceStep(step);
   };
 
+  const changeTransportRpm = (requested: number) => {
+    const next = Math.max(5, Math.min(90, Math.round(Number.isFinite(requested) ? requested : activeMode.rpm)));
+    if (next === activeMode.rpm) return;
+    updateActiveMode((mode) => ({ ...mode, rpm: next }), `主轴速度已调整为 ${next} rpm。`);
+  };
+
   const toggleResultsDrawer = () => {
     if (resultsOpen) {
       setResultsOpen(false);
@@ -2292,7 +2298,13 @@ export function VariableGeometryLegLab() {
           <div className={`${styles.transport} ${quickStart ? styles.quickTransport : ""}`}>
             <button type="button" onClick={() => setPlaying((current) => !current)} aria-label={playing ? "暂停可变几何腿动画" : "播放可变几何腿动画"}>{quickStart ? playing ? "Ⅱ 暂停" : "▶ 播放看看" : playing ? "Ⅱ" : "▶"}</button>
             <input aria-label="主轴相位" type="range" min="0" max={Math.PI * 2} step="0.001" value={phase} onChange={(event) => { setPlaying(false); setMotionPhase(Number(event.target.value)); }} />
-            <span>{(phase * 180 / Math.PI).toFixed(1)}°</span><b>{activeMode.rpm} rpm</b>
+            <span>{(phase * 180 / Math.PI).toFixed(1)}°</span>
+            <span className={styles.transportRpm}>
+              <button type="button" aria-label="降低主轴速度" onClick={() => changeTransportRpm(activeMode.rpm - 1)}>−</button>
+              <input aria-label="主轴速度" type="number" min="5" max="90" step="1" value={activeMode.rpm} onChange={(event) => changeTransportRpm(Number(event.target.value))} />
+              <b>rpm</b>
+              <button type="button" aria-label="提高主轴速度" onClick={() => changeTransportRpm(activeMode.rpm + 1)}>+</button>
+            </span>
           </div>
         </section>
 

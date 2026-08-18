@@ -57,31 +57,48 @@ const FRAME_RAIL_CLEARANCE = 8;
 const FRAME_LABEL_BAND = 36;
 const FRAME_HORSE_HEIGHT = 280;
 
-// 桁架式机架几何：横梁让开整条连杆（克兰的膝部三角高出固定铰平面），
-// 竖杠从横梁下沿接到各固定铰点；视口按需上扩以容纳马身。
+// 机架几何按拓扑区分：克兰（三个固定铰高低分布大）用桁架——横梁让开整条连杆，
+// 竖杠接到各固定铰点；简森（曲柄与髋点几乎同高）用髋部横梁——梁覆盖固定铰带，
+// 各腿曲柄共轴，画一根贯穿全机的曲柄轴线。视口均按需上扩以容纳马身。
 export function variableLegChassisFrame(samples: VariableLegSample[], legCount: VariableLegDeployment["legCount"]) {
   const visualScale = VARIABLE_LEG_DEPLOYMENT_SCALE[legCount];
-  const fixed = samples[0]?.project.joints.filter((joint) => joint.fixed) ?? [];
+  const frame = samples[0]?.project;
+  const fixed = frame?.joints.filter((joint) => joint.fixed) ?? [];
   const anchor = {
     x: fixed.length ? fixed.reduce((sum, joint) => sum + joint.x, 0) / fixed.length : 80,
     y: fixed.length ? fixed.reduce((sum, joint) => sum + joint.y, 0) / fixed.length : -80,
   };
-  let topmost = Infinity;
-  for (const sample of samples) {
-    for (const joint of sample.project.joints) {
-      const y = anchor.y + (joint.y - anchor.y) * visualScale;
-      if (y < topmost) topmost = y;
+  const renderedY = (rawY: number) => anchor.y + (rawY - anchor.y) * visualScale;
+  const truss = fixed.length >= 3;
+  let railTop: number;
+  let railBottom: number;
+  if (truss) {
+    let topmost = Infinity;
+    for (const sample of samples) {
+      for (const joint of sample.project.joints) {
+        const y = renderedY(joint.y);
+        if (y < topmost) topmost = y;
+      }
     }
+    if (!Number.isFinite(topmost)) topmost = anchor.y - 200;
+    railTop = topmost - FRAME_RAIL_CLEARANCE - FRAME_RAIL_HEIGHT;
+    railBottom = railTop + FRAME_RAIL_HEIGHT;
+  } else {
+    const fixedYs = fixed.map((joint) => renderedY(joint.y));
+    const fixedTop = fixedYs.length ? Math.min(...fixedYs) : anchor.y;
+    railBottom = (fixedYs.length ? Math.max(...fixedYs) : anchor.y) + 8;
+    railTop = Math.min(fixedTop - 8, railBottom - 30);
   }
-  if (!Number.isFinite(topmost)) topmost = anchor.y - 200;
-  const railBottom = topmost - FRAME_RAIL_CLEARANCE;
-  const railTop = railBottom - FRAME_RAIL_HEIGHT;
+  const driverBar = frame?.bars.find((bar) => bar.id === frame.driverId);
+  const axleJoint = driverBar ? [driverBar.a, driverBar.b].map((id) => fixed.find((joint) => joint.id === id)).find((joint) => Boolean(joint)) : undefined;
   const horseTop = railTop - FRAME_HORSE_HEIGHT;
   return {
     anchor,
+    truss,
     railTop,
     railBottom,
     railBottomRaw: anchor.y + (railBottom - anchor.y) / visualScale,
+    axleY: axleJoint && !truss ? renderedY(axleJoint.y) : null,
     horseHeight: FRAME_HORSE_HEIGHT,
     horseTop,
     requiredViewportTop: Math.min(-360, horseTop - FRAME_LABEL_BAND),
@@ -160,8 +177,9 @@ export function VariableLegDeploymentView({
     <rect x={view.x} y={view.y} width={view.width} height={view.height} fill="url(#variable-leg-deployment-grid)" />
     <line x1={view.x} y1={groundY} x2={view.x + view.width} y2={groundY} className={styles.deploymentGround} />
     <g className={styles.chassis}>
-      <rect x={chassis.x} y={frame.railTop} width={chassis.width} height={FRAME_RAIL_HEIGHT} rx="8" />
-      <line x1={chassis.x + 24} y1={frame.railTop + FRAME_RAIL_HEIGHT / 2} x2={chassis.x + chassis.width - 24} y2={frame.railTop + FRAME_RAIL_HEIGHT / 2} />
+      <rect x={chassis.x} y={frame.railTop} width={chassis.width} height={frame.railBottom - frame.railTop} rx="8" />
+      <line x1={chassis.x + 24} y1={frame.railTop + (frame.railBottom - frame.railTop) / 2} x2={chassis.x + chassis.width - 24} y2={frame.railTop + (frame.railBottom - frame.railTop) / 2} />
+      {frame.axleY !== null && <line x1={chassis.x + 10} y1={frame.axleY} x2={chassis.x + chassis.width - 10} y2={frame.axleY} className={styles.frameAxle} />}
       {showHorse && <path className={styles.horseTorso} d={horseFrame.path} />}
       {showHorse
         ? <text
@@ -188,7 +206,7 @@ export function VariableLegDeploymentView({
           transform={transform}
           className={`${styles.deployedLeg} ${isStance ? styles.deployedLegStance : styles.deployedLegSwing} ${leg.side === "right" ? styles.deployedLegRear : ""}`}
         >
-          {sample.project.joints.filter((joint) => joint.fixed).map((joint) => joint.y - frame.railBottomRaw > 16
+          {frame.truss && sample.project.joints.filter((joint) => joint.fixed).map((joint) => joint.y - frame.railBottomRaw > 16
             ? <line
                 key={`strut-${joint.id}`}
                 x1={joint.x}

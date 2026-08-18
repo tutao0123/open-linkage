@@ -27,6 +27,7 @@ type VariableLegDeploymentViewProps = {
   onSelectBar: (barId: string) => void;
   view: { x: number; y: number; width: number; height: number };
   showHorse: boolean;
+  showFrame: boolean;
 };
 
 // 马形机架：复用特洛伊木马描摹轮廓（马首朝行进方向）。马身与马尾分别裁剪——
@@ -54,7 +55,7 @@ export const VARIABLE_LEG_DEPLOYMENT_SCALE = { 2: 0.82, 4: 0.72, 6: 0.63, 8: 0.5
 
 const FRAME_RAIL_HEIGHT = 16;
 const FRAME_RAIL_CLEARANCE = 8;
-const FRAME_LABEL_BAND = 36;
+const FRAME_TOP_MARGIN = 10;
 const FRAME_HORSE_HEIGHT = 280;
 
 // 机架几何按拓扑区分：克兰（三个固定铰高低分布大）用桁架——横梁让开整条连杆，
@@ -101,7 +102,7 @@ export function variableLegChassisFrame(samples: VariableLegSample[], legCount: 
     axleY: axleJoint && !truss ? renderedY(axleJoint.y) : null,
     horseHeight: FRAME_HORSE_HEIGHT,
     horseTop,
-    requiredViewportTop: Math.min(-360, horseTop - FRAME_LABEL_BAND),
+    requiredViewportTop: Math.min(-360, horseTop - FRAME_TOP_MARGIN),
   };
 }
 
@@ -117,6 +118,7 @@ export function VariableLegDeploymentView({
   onSelectBar,
   view,
   showHorse,
+  showFrame,
 }: VariableLegDeploymentViewProps) {
   const language = useLanguage();
   const visualScale = VARIABLE_LEG_DEPLOYMENT_SCALE[deployment.legCount];
@@ -158,7 +160,6 @@ export function VariableLegDeploymentView({
     return {
       railTop,
       path,
-      labelX: originX + rumpWidth + barrelWidth / 2,
       top: railTop - height,
     };
   }, [chassis, frame]);
@@ -177,17 +178,12 @@ export function VariableLegDeploymentView({
     <rect x={view.x} y={view.y} width={view.width} height={view.height} fill="url(#variable-leg-deployment-grid)" />
     <line x1={view.x} y1={groundY} x2={view.x + view.width} y2={groundY} className={styles.deploymentGround} />
     <g className={styles.chassis}>
-      <rect x={chassis.x} y={frame.railTop} width={chassis.width} height={frame.railBottom - frame.railTop} rx="8" />
-      <line x1={chassis.x + 24} y1={frame.railTop + (frame.railBottom - frame.railTop) / 2} x2={chassis.x + chassis.width - 24} y2={frame.railTop + (frame.railBottom - frame.railTop) / 2} />
-      {frame.axleY !== null && <line x1={chassis.x + 10} y1={frame.axleY} x2={chassis.x + chassis.width - 10} y2={frame.axleY} className={styles.frameAxle} />}
+      {showFrame && <>
+        <rect x={chassis.x} y={frame.railTop} width={chassis.width} height={frame.railBottom - frame.railTop} rx="8" />
+        <line x1={chassis.x + 24} y1={frame.railTop + (frame.railBottom - frame.railTop) / 2} x2={chassis.x + chassis.width - 24} y2={frame.railTop + (frame.railBottom - frame.railTop) / 2} />
+        {frame.axleY !== null && <line x1={chassis.x + 10} y1={frame.axleY} x2={chassis.x + chassis.width - 10} y2={frame.axleY} className={styles.frameAxle} />}
+      </>}
       {showHorse && <path className={styles.horseTorso} d={horseFrame.path} />}
-      {showHorse
-        ? <text
-            x={horseFrame.labelX}
-            y={frame.railTop - (frame.railTop - horseFrame.top) * 0.42}
-            style={{ fontSize: `${Math.round(Math.max(14, Math.min(24, (frame.railTop - horseFrame.top) * 0.17)))}px` }}
-          >OPENLINKAGE · {deployment.legCount} LEGS</text>
-        : <text x={chassis.x + chassis.width / 2} y={frame.railTop + 34} style={{ fontSize: "14px" }}>OPENLINKAGE · {deployment.legCount} LEGS</text>}
     </g>
 
     {orderedLegs.map((leg) => {
@@ -206,7 +202,7 @@ export function VariableLegDeploymentView({
           transform={transform}
           className={`${styles.deployedLeg} ${isStance ? styles.deployedLegStance : styles.deployedLegSwing} ${leg.side === "right" ? styles.deployedLegRear : ""}`}
         >
-          {frame.truss && sample.project.joints.filter((joint) => joint.fixed).map((joint) => joint.y - frame.railBottomRaw > 16
+          {showFrame && frame.truss && sample.project.joints.filter((joint) => joint.fixed).map((joint) => joint.y - frame.railBottomRaw > 16
             ? <line
                 key={`strut-${joint.id}`}
                 x1={joint.x}
@@ -234,12 +230,6 @@ export function VariableLegDeploymentView({
         </g>)}
         {sample.tracer && <circle cx={sample.tracer.x} cy={sample.tracer.y} r="10" className={styles.deployedFoot} />}
         </g>
-        <text
-          x={mountX + anchor.x}
-          y={(showHorse ? horseFrame.top : frame.railTop) - (leg.side === "right" ? 26 : 10)}
-          className={styles.deployedLegLabel}
-          textAnchor="middle"
-        >{leg.label} · {Math.round(leg.phaseOffset * 360)}°</text>
       </g>;
     })}
 

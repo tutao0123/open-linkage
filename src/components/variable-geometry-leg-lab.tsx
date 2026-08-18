@@ -472,6 +472,7 @@ export function VariableGeometryLegLab() {
   const [playing, setPlaying] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>("mechanism");
   const [horseVisible, setHorseVisible] = useState(true);
+  const [frameVisible, setFrameVisible] = useState(true);
   const [workspaceStep, setWorkspaceStep] = useState<WorkspaceStep>(1);
   const [landingDone, setLandingDone] = useState(false);
   const [quickStart, setQuickStart] = useState(true);
@@ -2214,7 +2215,13 @@ export function VariableGeometryLegLab() {
                 <button type="button" onClick={() => updateActiveMode((mode) => ({ ...mode, targetPath: [] }), "当前目标轨迹已清除。")}>清除</button>
               </> : <>
                 <span className={styles.canvasActionDivider} />
-                <button type="button" onClick={() => setHorseVisible((visible) => !visible)}>{horseVisible ? "隐藏马" : "显示马"}</button>
+                <button type="button" onClick={() => {
+                  // 循环：隐藏马 → 隐藏机架 → 显示马 → 显示机架
+                  if (horseVisible && frameVisible) setHorseVisible(false);
+                  else if (!horseVisible && frameVisible) setFrameVisible(false);
+                  else if (!horseVisible && !frameVisible) setHorseVisible(true);
+                  else setFrameVisible(true);
+                }}>{horseVisible && frameVisible ? "隐藏马" : !horseVisible && frameVisible ? "隐藏机架" : !horseVisible && !frameVisible ? "显示马" : "显示机架"}</button>
                 <button type="button" onClick={resetGaitTrail}>清除足迹</button>
               </>)}
             </div>
@@ -2284,6 +2291,7 @@ export function VariableGeometryLegLab() {
                 onSelectBar={selectBarForInspection}
                 view={viewport.view}
                 showHorse={horseVisible}
+                showFrame={frameVisible}
               />}
             </svg>
             {searching && <div className={styles.searchOverlay}><strong>{Math.round(searchProgress.progress * 100)}%</strong><span>{searchProgress.message}</span></div>}

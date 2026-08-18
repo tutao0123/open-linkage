@@ -212,7 +212,6 @@
 .frameStrut { stroke:#83887f; stroke-width:7; stroke-linecap:round; opacity:.8; }
 .frameAxle { stroke:#5f645c; stroke-width:6; stroke-linecap:round; opacity:.7; }
 .chassis line { stroke:#5f645c; stroke-width:3; opacity:.65; }
-.chassis text { fill:#171b19; font:16px "Cascadia Mono",Consolas,monospace; text-anchor:middle; letter-spacing:.06em; }
 .deployedLeg { transition:opacity .12s ease; }
 .deployedLegRear { opacity:.46; }
 .deployedLegSwing { opacity:.6; }
@@ -225,7 +224,6 @@
 .deployedJoint circle { fill:#f1f1eb; stroke:#1d2220; stroke-width:3; }
 .deployedFoot { fill:#171b19; stroke:#d4663b; stroke-width:4; }
 .deployedLegStance .deployedFoot { fill:#c8ff3d; stroke:#111515; stroke-width:5; }
-.deployedLegLabel { fill:#4f564f; font:9px "Cascadia Mono",Consolas,monospace; }
 .footprintPlot>rect { fill:rgb(242 241 235 / 92%); stroke:#b8bbb2; stroke-width:2; }
 .footprintPlot>line { stroke:#b6bab1; stroke-width:2; stroke-dasharray:7 5; }
 .footprintPlot>text { fill:#656b65; font:9px "Cascadia Mono",Consolas,monospace; }

@@ -50,6 +50,44 @@ const HORSE_TORSO_POINTS = (() => {
   });
 })();
 
+export const VARIABLE_LEG_DEPLOYMENT_SCALE = { 2: 0.82, 4: 0.72, 6: 0.63, 8: 0.56 } as const;
+
+const FRAME_RAIL_HEIGHT = 16;
+const FRAME_RAIL_CLEARANCE = 8;
+const FRAME_LABEL_BAND = 36;
+const FRAME_HORSE_HEIGHT = 280;
+
+// 桁架式机架几何：横梁让开整条连杆（克兰的膝部三角高出固定铰平面），
+// 竖杠从横梁下沿接到各固定铰点；视口按需上扩以容纳马身。
+export function variableLegChassisFrame(samples: VariableLegSample[], legCount: VariableLegDeployment["legCount"]) {
+  const visualScale = VARIABLE_LEG_DEPLOYMENT_SCALE[legCount];
+  const fixed = samples[0]?.project.joints.filter((joint) => joint.fixed) ?? [];
+  const anchor = {
+    x: fixed.length ? fixed.reduce((sum, joint) => sum + joint.x, 0) / fixed.length : 80,
+    y: fixed.length ? fixed.reduce((sum, joint) => sum + joint.y, 0) / fixed.length : -80,
+  };
+  let topmost = Infinity;
+  for (const sample of samples) {
+    for (const joint of sample.project.joints) {
+      const y = anchor.y + (joint.y - anchor.y) * visualScale;
+      if (y < topmost) topmost = y;
+    }
+  }
+  if (!Number.isFinite(topmost)) topmost = anchor.y - 200;
+  const railBottom = topmost - FRAME_RAIL_CLEARANCE;
+  const railTop = railBottom - FRAME_RAIL_HEIGHT;
+  const horseTop = railTop - FRAME_HORSE_HEIGHT;
+  return {
+    anchor,
+    railTop,
+    railBottom,
+    railBottomRaw: anchor.y + (railBottom - anchor.y) / visualScale,
+    horseHeight: FRAME_HORSE_HEIGHT,
+    horseTop,
+    requiredViewportTop: Math.min(-360, horseTop - FRAME_LABEL_BAND),
+  };
+}
+
 export function VariableLegDeploymentView({
   samples,
   deployment,
@@ -64,14 +102,9 @@ export function VariableLegDeploymentView({
   showHorse,
 }: VariableLegDeploymentViewProps) {
   const language = useLanguage();
-  const visualScale = ({ 2: 0.82, 4: 0.72, 6: 0.63, 8: 0.56 } as const)[deployment.legCount];
-  const anchor = useMemo(() => {
-    const fixed = samples[0]?.project.joints.filter((joint) => joint.fixed) ?? [];
-    return {
-      x: fixed.length ? fixed.reduce((sum, joint) => sum + joint.x, 0) / fixed.length : 80,
-      y: fixed.length ? fixed.reduce((sum, joint) => sum + joint.y, 0) / fixed.length : -80,
-    };
-  }, [samples]);
+  const visualScale = VARIABLE_LEG_DEPLOYMENT_SCALE[deployment.legCount];
+  const frame = useMemo(() => variableLegChassisFrame(samples, deployment.legCount), [samples, deployment.legCount]);
+  const anchor = frame.anchor;
   const rawGroundY = Number.isFinite(metrics.stanceGroundY) ? metrics.stanceGroundY : 190;
   const groundY = anchor.y + (rawGroundY - anchor.y) * visualScale + 8;
   const chassis = useMemo(() => {
@@ -88,9 +121,9 @@ export function VariableLegDeploymentView({
     };
   }, [deployment.mountSpan, samples]);
   const horseFrame = useMemo(() => {
-    const beamTop = chassis.y + chassis.height - 30;
+    const railTop = frame.railTop;
     const beamWidth = chassis.width - 8;
-    const height = Math.min(beamWidth / 2.02, 300);
+    const height = Math.min(beamWidth / 2.02, frame.horseHeight);
     const naturalWidth = height * 2.02;
     const originX = chassis.x + 4;
     const rumpWidth = 0.2 * naturalWidth;
@@ -104,14 +137,14 @@ export function VariableLegDeploymentView({
         ? originX + rumpWidth + ((nx - 0.2) / 0.604) * barrelWidth
         : originX + rumpWidth + barrelWidth + ((nx - 0.804) / 0.196) * headWidth;
     const closed = [...HORSE_TORSO_POINTS, HORSE_TORSO_POINTS[0]];
-    const path = `M ${closed.map((point) => `${mapX(point.x).toFixed(1)} ${(beamTop - height + point.y * height).toFixed(1)}`).join(" L ")} Z`;
+    const path = `M ${closed.map((point) => `${mapX(point.x).toFixed(1)} ${(railTop - height + point.y * height).toFixed(1)}`).join(" L ")} Z`;
     return {
-      beamTop,
+      railTop,
       path,
       labelX: originX + rumpWidth + barrelWidth / 2,
-      top: beamTop - height,
+      top: railTop - height,
     };
-  }, [chassis]);
+  }, [chassis, frame]);
   const orderedLegs = [...deployment.legs].sort((first, second) => {
     if (first.side === second.side) return first.station - second.station;
     return first.side === "right" ? -1 : 1;
@@ -127,16 +160,16 @@ export function VariableLegDeploymentView({
     <rect x={view.x} y={view.y} width={view.width} height={view.height} fill="url(#variable-leg-deployment-grid)" />
     <line x1={view.x} y1={groundY} x2={view.x + view.width} y2={groundY} className={styles.deploymentGround} />
     <g className={styles.chassis}>
-      <rect x={chassis.x} y={horseFrame.beamTop} width={chassis.width} height={30} rx="15" />
-      <line x1={chassis.x + 30} y1={horseFrame.beamTop + 15} x2={chassis.x + chassis.width - 30} y2={horseFrame.beamTop + 15} />
+      <rect x={chassis.x} y={frame.railTop} width={chassis.width} height={FRAME_RAIL_HEIGHT} rx="8" />
+      <line x1={chassis.x + 24} y1={frame.railTop + FRAME_RAIL_HEIGHT / 2} x2={chassis.x + chassis.width - 24} y2={frame.railTop + FRAME_RAIL_HEIGHT / 2} />
       {showHorse && <path className={styles.horseTorso} d={horseFrame.path} />}
       {showHorse
         ? <text
             x={horseFrame.labelX}
-            y={horseFrame.beamTop - (horseFrame.beamTop - horseFrame.top) * 0.42}
-            style={{ fontSize: `${Math.round(Math.max(14, Math.min(24, (horseFrame.beamTop - horseFrame.top) * 0.17)))}px` }}
+            y={frame.railTop - (frame.railTop - horseFrame.top) * 0.42}
+            style={{ fontSize: `${Math.round(Math.max(14, Math.min(24, (frame.railTop - horseFrame.top) * 0.17)))}px` }}
           >OPENLINKAGE · {deployment.legCount} LEGS</text>
-        : <text x={chassis.x + chassis.width / 2} y={horseFrame.beamTop + 21} style={{ fontSize: "14px" }}>OPENLINKAGE · {deployment.legCount} LEGS</text>}
+        : <text x={chassis.x + chassis.width / 2} y={frame.railTop + 34} style={{ fontSize: "14px" }}>OPENLINKAGE · {deployment.legCount} LEGS</text>}
     </g>
 
     {orderedLegs.map((leg) => {
@@ -155,7 +188,17 @@ export function VariableLegDeploymentView({
           transform={transform}
           className={`${styles.deployedLeg} ${isStance ? styles.deployedLegStance : styles.deployedLegSwing} ${leg.side === "right" ? styles.deployedLegRear : ""}`}
         >
-        {sample.project.bodies.map((body) => {
+          {sample.project.joints.filter((joint) => joint.fixed).map((joint) => joint.y - frame.railBottomRaw > 16
+            ? <line
+                key={`strut-${joint.id}`}
+                x1={joint.x}
+                y1={frame.railBottomRaw + 2}
+                x2={joint.x}
+                y2={joint.y - 4}
+                className={styles.frameStrut}
+              />
+            : null)}
+          {sample.project.bodies.map((body) => {
           const points = body.jointIds.map((id) => jointMap.get(id)).filter((joint): joint is NonNullable<typeof joint> => Boolean(joint));
           return points.length >= 3 ? <polygon key={body.id} points={points.map((joint) => `${joint.x},${joint.y}`).join(" ")} className={styles.deployedBody} /> : null;
         })}
@@ -175,7 +218,7 @@ export function VariableLegDeploymentView({
         </g>
         <text
           x={mountX + anchor.x}
-          y={(showHorse ? horseFrame.top : horseFrame.beamTop) - (leg.side === "right" ? 26 : 10)}
+          y={(showHorse ? horseFrame.top : frame.railTop) - (leg.side === "right" ? 26 : 10)}
           className={styles.deployedLegLabel}
           textAnchor="middle"
         >{leg.label} · {Math.round(leg.phaseOffset * 360)}°</text>

@@ -209,6 +209,7 @@
 .deploymentGround { stroke:#8d9189; stroke-width:4; }
 .chassis rect { fill:#b7bcb3; stroke:#83887f; stroke-width:4; }
 .chassis .horseTorso { fill:#b7bcb3; stroke:none; }
+.frameStrut { stroke:#83887f; stroke-width:7; stroke-linecap:round; opacity:.8; }
 .chassis line { stroke:#5f645c; stroke-width:3; opacity:.65; }
 .chassis text { fill:#171b19; font:16px "Cascadia Mono",Consolas,monospace; text-anchor:middle; letter-spacing:.06em; }
 .deployedLeg { transition:opacity .12s ease; }

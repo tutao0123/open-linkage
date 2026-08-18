@@ -112,7 +112,7 @@ import { SvgViewportControls } from "./svg-viewport-controls";
 import { useLanguage } from "./locale-shell";
 import { useSnapshotHistory } from "./use-snapshot-history";
 import { useSvgViewport } from "./use-svg-viewport";
-import { VariableLegDeploymentView } from "./variable-leg-deployment-view";
+import { VariableLegDeploymentView, variableLegChassisFrame } from "./variable-leg-deployment-view";
 import styles from "./variable-geometry-leg-lab.module.css";
 
 const STORAGE_KEY = "open-linkage:variable-leg-project:v3";
@@ -518,8 +518,6 @@ export function VariableGeometryLegLab() {
   const cloudBootstrapCompleteRef = useRef(false);
   const cloudSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const pendingCloudSessionRef = useRef<LegSession | null>(null);
-  const viewportBase = useMemo(() => ({ x: -560, y: -360, width: 1120, height: 760 }), []);
-  const viewport = useSvgViewport(viewportBase, svgRef);
 
   const displayProject = session.draftProject ?? project;
   const activeMode = displayProject.modes.find((mode) => mode.id === project.activeModeId)
@@ -531,6 +529,14 @@ export function VariableGeometryLegLab() {
     () => sampleVariableLeg(displayProject.baseProject, displayProject.adjustment, activeMode.adjustmentValue, 72, 90),
     [activeMode.adjustmentValue, displayProject.adjustment, displayProject.baseProject],
   );
+  const viewportBase = useMemo(() => {
+    const base = { x: -560, y: -360, width: 1120, height: 760 };
+    if (viewMode !== "deployment") return base;
+    const frame = variableLegChassisFrame(cycleSamples, project.deployment.legCount);
+    if (frame.requiredViewportTop >= base.y) return base;
+    return { ...base, y: frame.requiredViewportTop, height: base.y + base.height - frame.requiredViewportTop };
+  }, [cycleSamples, project.deployment.legCount, viewMode]);
+  const viewport = useSvgViewport(viewportBase, svgRef);
   const analysis = useMemo(() => analyzeVariableLegProject(displayProject), [displayProject]);
   const workingAnalysis = useMemo(() => analyzeVariableLegProject(project), [project]);
   const activeMetrics = analysis.metrics.find((metric) => metric.modeId === activeMode.id) ?? analysis.metrics[0];

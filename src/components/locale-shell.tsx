@@ -27,6 +27,8 @@ export function LocaleShell({ language, children }: { language: Language; childr
 
 function LanguageSwitcher({ language }: { language: Language }) {
   const pathname = usePathname();
+  // 语言切换只在主页提供，子页面保持当前语言。
+  if (!/^\/(?:zh|en)?\/?$/.test(pathname)) return null;
   const switchTo = (nextLanguage: Language) => {
     const nextPath = pathname.replace(/^\/(?:zh|en)(?=\/|$)/, `/${nextLanguage}`);
     window.location.assign(`${nextPath}${window.location.search}${window.location.hash}`);

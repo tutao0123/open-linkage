@@ -243,11 +243,11 @@
 .legendTarget { background:repeating-linear-gradient(90deg,#333 0 5px,transparent 5px 8px); }
 .legendStance { background:#c8ff3d; border:1px solid #151918; }
 .legendSwing { background:#757b76; opacity:.5; }
-.transport { padding:12px 18px; display:flex; align-items:center; gap:14px; border-top:1px solid #c5c6be; background:#f2f1eb; color:#686e68; font:10px "Cascadia Mono",Consolas,monospace; }
+.transport { padding:12px 18px; display:flex; flex-wrap:wrap; align-items:center; gap:14px; border-top:1px solid #c5c6be; background:#f2f1eb; color:#686e68; font:10px "Cascadia Mono",Consolas,monospace; }
 .transport button { width:44px; height:44px; flex:none; border:0; border-radius:50%; background:#111515; color:#c8ff3d; cursor:pointer; }
 .transport input { flex:1; accent-color:#111515; }
 .transport .transportRpm { display:flex; align-items:center; gap:5px; flex:none; }
-.transport .transportRpm button { width:24px; height:24px; border-radius:6px; font-size:13px; line-height:1; }
+.transport .transportRpm button { width:24px; min-width:0; height:24px; border-radius:6px; font-size:13px; line-height:1; }
 .transport .transportRpm input { width:52px; flex:none; padding:5px 4px; border:1px solid #c5c6be; background:#f4f3ed; color:#171b19; font:12px "Cascadia Mono",Consolas,monospace; text-align:center; }
 .transport .transportRpm b { color:#202522; }
 .quickTransport button { width:auto; min-width:112px; padding:0 18px; border-radius:24px; font-size:11px; font-weight:750; }

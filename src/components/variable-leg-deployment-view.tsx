@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 
 import { localizeReactTree } from "@/lib/i18n";
+import { TROJAN_HORSE_TARGET_CURVE } from "@/lib/sketch-linkage";
 import type { VariableLegMode, VariableLegModeMetrics, VariableLegSample } from "@/lib/variable-leg";
 import {
   phaseIsInVariableLegStance,
@@ -25,7 +26,29 @@ type VariableLegDeploymentViewProps = {
   selectedBarId: string | null;
   onSelectBar: (barId: string) => void;
   view: { x: number; y: number; width: number; height: number };
+  showHorse: boolean;
 };
+
+// 马形机架：复用特洛伊木马描摹轮廓（马首朝行进方向）。马身与马尾分别裁剪——
+// 马身裁掉自身四肢贴齐横梁，马尾单独加深裁剪线保留垂坠感；x 分区映射见 horseFrame。
+const HORSE_TORSO_POINTS = (() => {
+  const curve = TROJAN_HORSE_TARGET_CURVE;
+  const xs = curve.map((point) => point.x);
+  const ys = curve.map((point) => point.y);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  // 0.79 恰好在马腹底线（≈0.77）之下、大腿根之上：腹部曲线完整保留，仅四肢被裁；
+  // 尾区（nx<0.115，尾部与后腿的分界）不裁剪，保留垂坠的尾巴。
+  const bodyCut = minY + (maxY - minY) * 0.79;
+  const range = bodyCut - minY;
+  return curve.map((point) => {
+    const nx = (point.x - minX) / (maxX - minX);
+    const cut = nx < 0.115 ? maxY : bodyCut;
+    return { x: nx, y: (Math.min(point.y, cut) - minY) / range };
+  });
+})();
 
 export function VariableLegDeploymentView({
   samples,
@@ -38,6 +61,7 @@ export function VariableLegDeploymentView({
   selectedBarId,
   onSelectBar,
   view,
+  showHorse,
 }: VariableLegDeploymentViewProps) {
   const language = useLanguage();
   const visualScale = ({ 2: 0.82, 4: 0.72, 6: 0.63, 8: 0.56 } as const)[deployment.legCount];
@@ -63,6 +87,31 @@ export function VariableLegDeploymentView({
       height: 72,
     };
   }, [deployment.mountSpan, samples]);
+  const horseFrame = useMemo(() => {
+    const beamTop = chassis.y + chassis.height - 30;
+    const beamWidth = chassis.width - 8;
+    const height = Math.min(beamWidth / 2.02, 300);
+    const naturalWidth = height * 2.02;
+    const originX = chassis.x + 4;
+    const rumpWidth = 0.2 * naturalWidth;
+    const headWidth = 0.196 * naturalWidth;
+    const barrelWidth = Math.max(40, beamWidth - rumpWidth);
+    // 后躯与头颈保持自然比例，中段马身拉伸补宽；胸口（0.804 为贴梁区前边界）对齐横梁前端，
+    // 马首因此探出梁外，尾部垂坠覆盖梁尾端。
+    const mapX = (nx: number) => nx < 0.2
+      ? originX + (nx / 0.2) * rumpWidth
+      : nx < 0.804
+        ? originX + rumpWidth + ((nx - 0.2) / 0.604) * barrelWidth
+        : originX + rumpWidth + barrelWidth + ((nx - 0.804) / 0.196) * headWidth;
+    const closed = [...HORSE_TORSO_POINTS, HORSE_TORSO_POINTS[0]];
+    const path = `M ${closed.map((point) => `${mapX(point.x).toFixed(1)} ${(beamTop - height + point.y * height).toFixed(1)}`).join(" L ")} Z`;
+    return {
+      beamTop,
+      path,
+      labelX: originX + rumpWidth + barrelWidth / 2,
+      top: beamTop - height,
+    };
+  }, [chassis]);
   const orderedLegs = [...deployment.legs].sort((first, second) => {
     if (first.side === second.side) return first.station - second.station;
     return first.side === "right" ? -1 : 1;
@@ -78,9 +127,16 @@ export function VariableLegDeploymentView({
     <rect x={view.x} y={view.y} width={view.width} height={view.height} fill="url(#variable-leg-deployment-grid)" />
     <line x1={view.x} y1={groundY} x2={view.x + view.width} y2={groundY} className={styles.deploymentGround} />
     <g className={styles.chassis}>
-      <rect x={chassis.x} y={chassis.y} width={chassis.width} height={chassis.height} rx="14" />
-      <line x1={chassis.x + 28} y1={chassis.y + chassis.height / 2} x2={chassis.x + chassis.width - 28} y2={chassis.y + chassis.height / 2} />
-      <text x={chassis.x + chassis.width / 2} y={chassis.y + 26}>OPENLINKAGE · {deployment.legCount} LEGS</text>
+      <rect x={chassis.x} y={horseFrame.beamTop} width={chassis.width} height={30} rx="15" />
+      <line x1={chassis.x + 30} y1={horseFrame.beamTop + 15} x2={chassis.x + chassis.width - 30} y2={horseFrame.beamTop + 15} />
+      {showHorse && <path className={styles.horseTorso} d={horseFrame.path} />}
+      {showHorse
+        ? <text
+            x={horseFrame.labelX}
+            y={horseFrame.beamTop - (horseFrame.beamTop - horseFrame.top) * 0.42}
+            style={{ fontSize: `${Math.round(Math.max(14, Math.min(24, (horseFrame.beamTop - horseFrame.top) * 0.17)))}px` }}
+          >OPENLINKAGE · {deployment.legCount} LEGS</text>
+        : <text x={chassis.x + chassis.width / 2} y={horseFrame.beamTop + 21} style={{ fontSize: "14px" }}>OPENLINKAGE · {deployment.legCount} LEGS</text>}
     </g>
 
     {orderedLegs.map((leg) => {
@@ -119,7 +175,7 @@ export function VariableLegDeploymentView({
         </g>
         <text
           x={mountX + anchor.x}
-          y={chassis.y - (leg.side === "right" ? 26 : 10)}
+          y={(showHorse ? horseFrame.top : horseFrame.beamTop) - (leg.side === "right" ? 26 : 10)}
           className={styles.deployedLegLabel}
           textAnchor="middle"
         >{leg.label} · {Math.round(leg.phaseOffset * 360)}°</text>
@@ -132,7 +188,7 @@ export function VariableLegDeploymentView({
       <line x1="-520" y1="286" x2="520" y2="286" />
       <line x1="-520" y1="326" x2="520" y2="326" />
       <text x="-535" y="290">左</text><text x="-535" y="330">右</text>
-      {deployment.showFootprints && <g clipPath="url(#variable-leg-footprint-clip)">
+      <g clipPath="url(#variable-leg-footprint-clip)">
         {footprints.map((footprint) => {
           const x = footprint.worldX - bodyWorldX;
           const y = footprint.side === "left" ? 286 : 326;
@@ -141,7 +197,7 @@ export function VariableLegDeploymentView({
             <text x="0" y="-10">{footprint.sequence}</text>
           </g>;
         })}
-      </g>}
+      </g>
     </g>
   </>, language);
 }

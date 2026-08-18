@@ -207,9 +207,10 @@
 .fixedJoint text,.movingJoint text,.rail text { fill:#555c55; font:9px "Cascadia Mono",Consolas,monospace; }
 .foot { fill:#111515; stroke:#c8ff3d; stroke-width:5; }
 .deploymentGround { stroke:#8d9189; stroke-width:4; }
-.chassis rect { fill:#262b28; stroke:#111515; stroke-width:4; }
-.chassis line { stroke:#c8ff3d; stroke-width:3; opacity:.7; }
-.chassis text { fill:#e8e8e1; font:10px "Cascadia Mono",Consolas,monospace; text-anchor:middle; }
+.chassis rect { fill:#b7bcb3; stroke:#83887f; stroke-width:4; }
+.chassis .horseTorso { fill:#b7bcb3; stroke:none; }
+.chassis line { stroke:#5f645c; stroke-width:3; opacity:.65; }
+.chassis text { fill:#171b19; font:16px "Cascadia Mono",Consolas,monospace; text-anchor:middle; letter-spacing:.06em; }
 .deployedLeg { transition:opacity .12s ease; }
 .deployedLegRear { opacity:.46; }
 .deployedLegSwing { opacity:.6; }

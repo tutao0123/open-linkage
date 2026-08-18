@@ -471,6 +471,7 @@ export function VariableGeometryLegLab() {
   const [phase, setPhase] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>("mechanism");
+  const [horseVisible, setHorseVisible] = useState(true);
   const [workspaceStep, setWorkspaceStep] = useState<WorkspaceStep>(1);
   const [landingDone, setLandingDone] = useState(false);
   const [quickStart, setQuickStart] = useState(true);
@@ -1704,24 +1705,6 @@ export function VariableGeometryLegLab() {
     });
   };
 
-  const toggleFootprintVisibility = () => {
-    const next = {
-      ...cloneVariableLegProject(projectRef.current),
-      deployment: {
-        ...projectRef.current.deployment,
-        showFootprints: !projectRef.current.deployment.showFootprints,
-      },
-    };
-    commit(next);
-    setSession((current) => ({
-      ...current,
-      workingProject: cloneVariableLegProject(next),
-      draftProject: current.draftProject
-        ? { ...current.draftProject, deployment: { ...current.draftProject.deployment, showFootprints: next.deployment.showFootprints } }
-        : null,
-    }));
-  };
-
   const changeWorkspaceStep = (step: WorkspaceStep) => {
     if (workspaceStep > 1 || step > 1) setLandingDone(true);
     if (step <= 2 && sessionRef.current.draftProject) {
@@ -2219,7 +2202,7 @@ export function VariableGeometryLegLab() {
                 <button type="button" onClick={() => updateActiveMode((mode) => ({ ...mode, targetPath: [] }), "当前目标轨迹已清除。")}>清除</button>
               </> : <>
                 <span className={styles.canvasActionDivider} />
-                <button type="button" onClick={toggleFootprintVisibility}>{project.deployment.showFootprints ? "隐藏足迹" : "显示足迹"}</button>
+                <button type="button" onClick={() => setHorseVisible((visible) => !visible)}>{horseVisible ? "隐藏马" : "显示马"}</button>
                 <button type="button" onClick={resetGaitTrail}>清除足迹</button>
               </>)}
             </div>
@@ -2288,6 +2271,7 @@ export function VariableGeometryLegLab() {
                 selectedBarId={selectedBarId}
                 onSelectBar={selectBarForInspection}
                 view={viewport.view}
+                showHorse={horseVisible}
               />}
             </svg>
             {searching && <div className={styles.searchOverlay}><strong>{Math.round(searchProgress.progress * 100)}%</strong><span>{searchProgress.message}</span></div>}

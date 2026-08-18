@@ -142,6 +142,8 @@ const EN_OVERRIDES: Record<string, string> = {
   "简森步行腿": "Jansen Walking Leg",
   "可变几何克兰或简森步行腿、导轨、锁止位置与足端轨迹":
     "Variable-geometry Klann or Jansen walking legs with rails, lock positions, and foot-end trajectories.",
+  "隐藏马": "Hide Horse",
+  "显示马": "Show Horse",
   "改为移动副": "Change to Prismatic Joint",
   "固定到机架": "Fix to Ground",
   "相对运动副": "Relative Joints",

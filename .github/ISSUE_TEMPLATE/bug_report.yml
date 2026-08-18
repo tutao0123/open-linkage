@@ -1,0 +1,56 @@
+name: Bug report
+description: Report a reproducible problem in OpenLinkage
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve OpenLinkage. Please avoid sharing sensitive information in a public issue.
+  - type: input
+    id: workbench
+    attributes:
+      label: Workbench or page
+      description: Which workbench or URL shows the problem?
+      placeholder: Variable-geometry Walking Leg
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: Tell us what you expected and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open …
+        2. Select …
+        3. Observe …
+    validations:
+      required: true
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and operating system
+      placeholder: Chrome 128 on Windows 11
+    validations:
+      required: true
+  - type: textarea
+    id: project
+    attributes:
+      label: Project data or screenshots
+      description: Attach a non-sensitive project JSON, screenshot, or recording if it helps reproduce the problem.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues for the same problem.
+          required: true
+        - label: I removed private or sensitive information from attachments.
+          required: true

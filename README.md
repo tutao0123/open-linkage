@@ -1,50 +1,65 @@
 # OpenLinkage
 
-[中文](README.md) | [English](README.en.md)
+**Design, simulate, and synthesize planar linkages—directly in your browser.**
 
-OpenLinkage 是一个开源、浏览器端的平面机构设计与自动综合平台。你可以快速分析经典机构，也可以从铰点和杆件开始搭建自己的平面机构。
+[Live app](https://linkage.wtt.autos/en) · [简体中文](README.zh-CN.md) · [Report an issue](https://github.com/tutao0123/open-linkage/issues)
 
-## 功能概览
+OpenLinkage is an open-source workbench for planar mechanism design. It combines interactive kinematic simulation, trajectory analysis, and goal-driven synthesis in one browser-based interface—from four-bar linkages to walking legs and free-form mechanisms.
 
-- 四杆机构参数编辑、运动分析、轨迹绘制与尺寸综合
-- 六杆腿足端轨迹绘制、多候选方案综合与传动性能评价
-- 克兰腿、简森腿等可变几何步行腿的多工况轨迹综合
-- 瓦特、彻比雪夫、霍肯、波塞利耶等经典直线机构对比
-- 支持任意平面拓扑的自由机构设计器
+No installation is required for the online version, and the design calculations run locally in your browser.
 
-## 本地开发
+## Workbenches
+
+| Workbench | What you can do | Open |
+| --- | --- | --- |
+| Four-bar Design | Analyze crank-rocker, double-crank, and double-rocker mechanisms; draw a target path and fit link dimensions. | [Launch](https://linkage.wtt.autos/en/lab) |
+| Six-bar Leg Synthesis | Draw a foot trajectory and compare Watt-type six-bar candidates by accuracy and transmission quality. | [Launch](https://linkage.wtt.autos/en/leg) |
+| Variable-geometry Walking Leg | Adapt Klann and Jansen legs to cruise, fast, and obstacle-crossing conditions using movable pivots or lockable telescopic links. | [Launch](https://linkage.wtt.autos/en/variable-leg) |
+| Straight-line Mechanisms | Compare Watt, Chebyshev, Hoekens, and Peaucellier–Lipkin mechanisms by stroke and straightness. | [Launch](https://linkage.wtt.autos/en/straight-line) |
+| Free Mechanism Designer | Build a planar mechanism from joints and links, choose its input, and inspect its motion and trajectories. | [Launch](https://linkage.wtt.autos/en/designer) |
+
+## Highlights
+
+- Interactive SVG workbenches with direct manipulation and animated motion
+- Browser-side solvers for kinematic analysis and mechanism synthesis
+- Target-path drawing, candidate generation, comparison, and engineering metrics
+- Precomputed walkable references for a reliable variable-leg starting point
+- Project JSON import and export in supported workbenches
+- English and Simplified Chinese interfaces
+
+## Run locally
+
+### Requirements
+
+- Node.js 20.9 or newer
+- npm
 
 ```bash
-npm install
+git clone https://github.com/tutao0123/open-linkage.git
+cd open-linkage
+npm ci
 npm run dev
 ```
 
-打开 <http://localhost:3000>。
+Open [http://localhost:3000/en](http://localhost:3000/en).
 
-常用命令：
+## Useful commands
 
-```bash
-npm run lint   # 检查代码
-npm test       # 运行测试
-npm run build  # 构建生产版本
-```
+| Command | Purpose |
+| --- | --- |
+| `npm run dev` | Start the local development server |
+| `npm test` | Run the test suite |
+| `npm run lint` | Run ESLint |
+| `npm run build` | Create a production build |
+| `npm run i18n:generate` | Regenerate the translation dictionary |
+| `npm run reference-library` | Regenerate variable-leg reference trajectories |
 
-## 在线体验
+## Project status
 
-- 官网：<https://linkage.wtt.autos>
-- 四杆实验室：<https://linkage.wtt.autos/lab>
-- 六杆腿实验室：<https://linkage.wtt.autos/leg>
-- 可变几何步行腿：<https://linkage.wtt.autos/variable-leg>
-- 自由机构设计器：<https://linkage.wtt.autos/designer>
+OpenLinkage is under active development. It is intended for learning, mechanism exploration, and early-stage design—not as a substitute for tolerance analysis, structural verification, safety review, or physical prototyping.
 
-## 路线图
+Ideas, bug reports, and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) before contributing. Please report security issues according to [SECURITY.md](SECURITY.md).
 
-- 0.1：四杆机构基础设计与分析（已上线）
-- 0.2：通用平面约束机构
-- 0.3：手绘闭合轨迹与浏览器端四杆自动拟合（基础版已上线）
-- 0.4：Watt 类六杆腿轨迹综合与传动性能评价（已上线）
-- 0.5：克兰/简森可变几何步行腿、多工况轨迹族综合与自由设计器传递（已上线）
+## License
 
-## 许可证
-
-本项目采用 [MIT License](LICENSE) 开源。
+OpenLinkage is available under the [MIT License](LICENSE).

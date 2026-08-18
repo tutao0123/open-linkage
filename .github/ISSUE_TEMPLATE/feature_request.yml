@@ -1,0 +1,49 @@
+name: Feature request
+description: Suggest an improvement to OpenLinkage
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: input
+    id: goal
+    attributes:
+      label: Design goal
+      description: What are you trying to accomplish?
+      placeholder: Compare several feasible walking gaits without configuring advanced constraints.
+    validations:
+      required: true
+  - type: textarea
+    id: current
+    attributes:
+      label: Current difficulty
+      description: What makes this hard or unclear today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Suggested experience
+      description: Describe the workflow or result you would find useful.
+    validations:
+      required: true
+  - type: dropdown
+    id: workbench
+    attributes:
+      label: Related area
+      options:
+        - Home and navigation
+        - Four-bar Design
+        - Six-bar Leg Synthesis
+        - Variable-geometry Walking Leg
+        - Straight-line Mechanisms
+        - Free Mechanism Designer
+        - Project import or export
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: references
+    attributes:
+      label: References or examples
+      description: Add sketches, papers, links, or screenshots that clarify the idea.

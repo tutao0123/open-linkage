@@ -140,6 +140,8 @@ const EN_OVERRIDES: Record<string, string> = {
   "自由机构画布操作": "Free Mechanism Canvas Tools",
   "克兰步行腿": "Klann Walking Leg",
   "简森步行腿": "Jansen Walking Leg",
+  "可变几何克兰或简森步行腿、导轨、锁止位置与足端轨迹":
+    "Variable-geometry Klann or Jansen walking legs with rails, lock positions, and foot-end trajectories.",
   "改为移动副": "Change to Prismatic Joint",
   "固定到机架": "Fix to Ground",
   "相对运动副": "Relative Joints",

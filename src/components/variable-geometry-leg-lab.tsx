@@ -472,6 +472,7 @@ export function VariableGeometryLegLab() {
   const [playing, setPlaying] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>("mechanism");
   const [workspaceStep, setWorkspaceStep] = useState<WorkspaceStep>(1);
+  const [landingDone, setLandingDone] = useState(false);
   const [quickStart, setQuickStart] = useState(true);
   const [synthesisEnabled, setSynthesisEnabled] = useState(false);
   const [quickPresetId, setQuickPresetId] = useState<ReferencePresetId>("smooth");
@@ -1722,6 +1723,7 @@ export function VariableGeometryLegLab() {
   };
 
   const changeWorkspaceStep = (step: WorkspaceStep) => {
+    if (workspaceStep > 1 || step > 1) setLandingDone(true);
     if (step <= 2 && sessionRef.current.draftProject) {
       setSession(clearCandidatePreview(sessionRef.current));
       setMessage("已退出候选草稿，正在编辑当前项目。");
@@ -1740,6 +1742,7 @@ export function VariableGeometryLegLab() {
   };
 
   const startWithLegCount = (legCount: VariableLegCount) => {
+    setLandingDone(true);
     setViewMode("deployment");
     if (project.deployment.legCount === legCount) {
       setMessage(`保持 ${legCount} 条腿的整机部署；接下来选择机构与调节方式。`);
@@ -1807,7 +1810,7 @@ export function VariableGeometryLegLab() {
       </header>
       <p className={styles.srOnly} role="status" aria-live="polite">{message}</p>
 
-      {!quickStart && workspaceStep === 1 ? <section className={styles.conditionLanding}>
+      {!quickStart && workspaceStep === 1 && !landingDone ? <section className={styles.conditionLanding}>
         <div className={styles.conditionLandingIntro}>
           <span>VARIABLE GEOMETRY LEG</span>
           <h1>先定几条腿</h1>
@@ -1939,6 +1942,25 @@ export function VariableGeometryLegLab() {
               onClick={() => changeWorkspaceStep(step.id)}
             ><span>{step.id}</span><b>{step.label}</b></button>)}
           </div>}
+
+          {!quickStart && workspaceStep === 1 && <section className={styles.configSection}>
+            <div className={styles.stepHeading}>
+              <span>STEP 01</span>
+              <h2>调整整机腿数</h2>
+              <p>切换腿数只重建整机部署，机构与工况保持不变；已生成的候选会标记为过期，可撤销。</p>
+            </div>
+            <div className={styles.deploymentHeader}><b>整机部署</b><span>{project.deployment.legCount} 条腿</span></div>
+            <section className={styles.deploymentEditor}>
+              <div className={styles.legCountTabs} role="group" aria-label="整机腿数">
+                {([2, 4, 6, 8] as const).map((legCount) => <button
+                  type="button"
+                  key={legCount}
+                  className={project.deployment.legCount === legCount ? styles.activeLegCount : ""}
+                  onClick={() => setDeploymentLegCount(legCount)}
+                >{legCount} 腿</button>)}
+              </div>
+            </section>
+          </section>}
 
           {workspaceStep === 2 && <section className={styles.configSection}>
             <div className={styles.stepHeading}>

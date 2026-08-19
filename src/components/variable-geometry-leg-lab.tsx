@@ -448,9 +448,18 @@ const CLOUD_STATUS_COPY: Record<VariableLegCloudStatus, string> = {
   unavailable: "云端暂不可用",
 };
 
-export function VariableGeometryLegLab() {
+type VariableGeometryLegLabProps = {
+  variant?: "default" | "odyssey";
+};
+
+export function VariableGeometryLegLab({ variant = "default" }: VariableGeometryLegLabProps) {
   const language = useLanguage();
-  const initialProject = useMemo(() => createVariableLegReferenceProject("smooth"), []);
+  const initialProject = useMemo(() => {
+    const reference = createVariableLegReferenceProject("smooth");
+    return variant === "odyssey"
+      ? { ...reference, deployment: changeVariableLegCount(reference.deployment, 4) }
+      : reference;
+  }, [variant]);
   const quickStartPresets = useMemo(() => listVariableLegReferencePresets(), []);
   const history = useSnapshotHistory(initialProject, cloneVariableLegProject);
   const {
@@ -470,7 +479,7 @@ export function VariableGeometryLegLab() {
   const sessionRef = useRef(session);
   const [phase, setPhase] = useState(0);
   const [playing, setPlaying] = useState(false);
-  const [viewMode, setViewMode] = useState<ViewMode>("mechanism");
+  const [viewMode, setViewMode] = useState<ViewMode>(variant === "odyssey" ? "deployment" : "mechanism");
   const [horseVisible, setHorseVisible] = useState(true);
   const [frameVisible, setFrameVisible] = useState(true);
   const [workspaceStep, setWorkspaceStep] = useState<WorkspaceStep>(1);
@@ -844,6 +853,10 @@ export function VariableGeometryLegLab() {
   }, [session]);
 
   useEffect(() => {
+    if (variant === "odyssey") {
+      const timer = window.setTimeout(() => setLocalHydrated(true), 0);
+      return () => window.clearTimeout(timer);
+    }
     const timer = window.setTimeout(() => {
       const synthesisFlag = new URLSearchParams(window.location.search).get("synthesis");
       if (synthesisFlag === "1" || synthesisFlag === "true" || synthesisFlag === "on") setSynthesisEnabled(true);
@@ -905,7 +918,7 @@ export function VariableGeometryLegLab() {
       }
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [resetHistory, setMotionPhase]);
+  }, [resetHistory, setMotionPhase, variant]);
 
   useEffect(() => {
     if (quickStart) return;
@@ -1785,7 +1798,7 @@ export function VariableGeometryLegLab() {
 
   if (!localHydrated) {
     return localizeReactTree((
-      <main className={styles.workspace} aria-busy="true">
+      <main className={`${styles.workspace} ${variant === "odyssey" ? styles.odysseyWorkspace : ""}`} aria-busy="true">
         <section className={styles.hydrationState} role="status" aria-live="polite">
           <span className={styles.referenceReady}>OPENLINKAGE</span>
           <h1>正在恢复本地项目</h1>
@@ -1796,7 +1809,7 @@ export function VariableGeometryLegLab() {
   }
 
   return localizeReactTree((
-    <main className={styles.workspace}>
+    <main className={`${styles.workspace} ${variant === "odyssey" ? styles.odysseyWorkspace : ""}`}>
       <header className={styles.header}>
         <Link className={styles.brand} href="/"><span className={styles.brandMark} />OpenLinkage</Link>
         <nav>

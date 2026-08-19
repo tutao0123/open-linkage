@@ -1,4 +1,27 @@
 .workspace { min-height:100vh; background:#e8e8e1; color:#111515; font-family:"Geist","Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; }
+.odysseyWorkspace { position:relative; background:#d8cfb8; }
+.odysseyWorkspace .resultDrawerButton { position:absolute; }
+.odysseyWorkspace .hydrationState { background:#e8dfcb; }
+.odysseyWorkspace .header { border-color:#33372f; background:#111513; color:#f0eadb; }
+.odysseyWorkspace .brandMark { border-color:#c8ff3d; }
+.odysseyWorkspace .brandMark::after { background:#c8ff3d; }
+.odysseyWorkspace .header nav { color:#b9bcae; }
+.odysseyWorkspace .header nav span { color:#c8ff3d; }
+.odysseyWorkspace .panel { border-color:#8f8a79; background:#e9e1cf; }
+.odysseyWorkspace .stage { background:#d8cfb8; }
+.odysseyWorkspace .quickStage { background:radial-gradient(circle at 50% 36%,#f0e8d4 0,#dcd3bd 55%,#cfc5ad 100%); }
+.odysseyWorkspace .stageHeader,
+.odysseyWorkspace .legend { border-color:#948e7d; color:#58584f; }
+.odysseyWorkspace .canvasActions { border-color:#918a78; background:rgb(239 232 215 / 94%); }
+.odysseyWorkspace .transport { border-color:#8f8a79; background:#171b18; color:#c6c2b5; }
+.odysseyWorkspace .transport b { color:#f0eadb; }
+.odysseyWorkspace .grid { stroke:#b9af98; }
+.odysseyWorkspace .chassis .horseTorso { fill:#4d3b2c; }
+.odysseyWorkspace .chassis rect { fill:#65503b; stroke:#2a241f; }
+.odysseyWorkspace .deployedLink { stroke:#171b18; }
+.odysseyWorkspace .deployedLegStance .deployedLink { stroke:#0b0d0c; }
+.odysseyWorkspace .deployedJoint circle { fill:#171b18; stroke:#c8ff3d; }
+.odysseyWorkspace .deployedFoot { stroke:#c8ff3d; }
 .hydrationState { min-height:100vh; display:grid; place-content:center; gap:10px; padding:32px; text-align:center; background:#f2f1eb; }
 .hydrationState h1 { margin:0; font-size:22px; letter-spacing:-.03em; }
 .hydrationState p { margin:0; color:#687068; font-size:12px; }
@@ -224,6 +247,21 @@
 .deployedJoint circle { fill:#f1f1eb; stroke:#1d2220; stroke-width:3; }
 .deployedFoot { fill:#171b19; stroke:#d4663b; stroke-width:4; }
 .deployedLegStance .deployedFoot { fill:#c8ff3d; stroke:#111515; stroke-width:5; }
+.odysseyHeroMechanism .deployedLeg,
+.odysseyHeroMechanism .deployedLegRear,
+.odysseyHeroMechanism .deployedLegSwing,
+.odysseyHeroMechanism .deployedLegRear.deployedLegSwing { opacity:1; transition:none; }
+.odysseyHeroMechanism .odysseyWoodBarBase { stroke:#1d140e; stroke-width:19; stroke-linecap:round; filter:drop-shadow(0 3px 2px rgb(25 15 9 / 25%)); }
+.odysseyHeroMechanism .deployedLink { stroke:#47301f; stroke-width:13; }
+.odysseyHeroMechanism .deployedDriver { stroke:#54371f; stroke-width:14; }
+.odysseyHeroMechanism .odysseyWoodGrain { stroke:#9a7652; stroke-width:1.8; stroke-linecap:round; stroke-dasharray:8 5 2 9 13 4; opacity:.55; pointer-events:none; }
+.odysseyHeroMechanism .deployedJoint circle:first-child { fill:#302219; stroke:#997342; stroke-width:4; }
+.odysseyHeroMechanism .deployedJoint circle:last-child { fill:#c1a36a; stroke:#281b13; stroke-width:1.4; }
+.odysseyHeroMechanism .deployedBody { fill:rgb(72 46 29 / 32%); stroke:#302016; }
+.odysseyHeroMechanism .deployedFoot { fill:#302219; stroke:#997342; stroke-width:5; }
+.odysseyMountingFrame rect { fill:#3b281b; stroke:#1d140e; stroke-width:6; filter:drop-shadow(0 4px 3px rgb(25 15 9 / 28%)); }
+.odysseyMountingFrame line { stroke:#9a7652; stroke-width:2; opacity:.58; }
+.odysseyHeroMechanism .frameStrut { stroke:#352318; stroke-width:12; stroke-linecap:round; opacity:1; filter:drop-shadow(0 3px 2px rgb(25 15 9 / 24%)); }
 .footprintPlot>rect { fill:rgb(242 241 235 / 92%); stroke:#b8bbb2; stroke-width:2; }
 .footprintPlot>line { stroke:#b6bab1; stroke-width:2; stroke-dasharray:7 5; }
 .footprintPlot>text { fill:#656b65; font:9px "Cascadia Mono",Consolas,monospace; }

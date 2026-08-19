@@ -28,6 +28,10 @@ type VariableLegDeploymentViewProps = {
   view: { x: number; y: number; width: number; height: number };
   showHorse: boolean;
   showFrame: boolean;
+  showScene?: boolean;
+  interactive?: boolean;
+  tone?: "default" | "odyssey";
+  legSide?: "all" | "left" | "right" | "none";
 };
 
 // 马形机架：复用特洛伊木马描摹轮廓（马首朝行进方向）。马身与马尾分别裁剪——
@@ -119,6 +123,10 @@ export function VariableLegDeploymentView({
   view,
   showHorse,
   showFrame,
+  showScene = true,
+  interactive = true,
+  tone = "default",
+  legSide = "all",
 }: VariableLegDeploymentViewProps) {
   const language = useLanguage();
   const visualScale = VARIABLE_LEG_DEPLOYMENT_SCALE[deployment.legCount];
@@ -163,10 +171,15 @@ export function VariableLegDeploymentView({
       top: railTop - height,
     };
   }, [chassis, frame]);
-  const orderedLegs = [...deployment.legs].sort((first, second) => {
-    if (first.side === second.side) return first.station - second.station;
-    return first.side === "right" ? -1 : 1;
-  });
+  const orderedLegs = [...deployment.legs]
+    .filter((leg) => legSide === "all" || leg.side === legSide)
+    .sort((first, second) => {
+      if (first.side === second.side) return first.station - second.station;
+      return first.side === "right" ? -1 : 1;
+    });
+  const rail = tone === "odyssey"
+    ? { x: chassis.x + 18, y: frame.railTop - 34, width: chassis.width - 36, height: 34 }
+    : { x: chassis.x, y: frame.railTop, width: chassis.width, height: frame.railBottom - frame.railTop };
 
   return localizeReactTree(<>
     <defs>
@@ -175,17 +188,18 @@ export function VariableLegDeploymentView({
       </pattern>
       <clipPath id="variable-leg-footprint-clip"><rect x="-540" y="244" width="1080" height="108" /></clipPath>
     </defs>
-    <rect x={view.x} y={view.y} width={view.width} height={view.height} fill="url(#variable-leg-deployment-grid)" />
-    <line x1={view.x} y1={groundY} x2={view.x + view.width} y2={groundY} className={styles.deploymentGround} />
-    <g className={styles.chassis}>
+    {showScene && <rect x={view.x} y={view.y} width={view.width} height={view.height} fill="url(#variable-leg-deployment-grid)" />}
+    {showScene && <line x1={view.x} y1={groundY} x2={view.x + view.width} y2={groundY} className={styles.deploymentGround} />}
+    <g className={`${styles.chassis} ${tone === "odyssey" ? styles.odysseyMountingFrame : ""}`}>
       {showFrame && <>
-        <rect x={chassis.x} y={frame.railTop} width={chassis.width} height={frame.railBottom - frame.railTop} rx="8" />
-        <line x1={chassis.x + 24} y1={frame.railTop + (frame.railBottom - frame.railTop) / 2} x2={chassis.x + chassis.width - 24} y2={frame.railTop + (frame.railBottom - frame.railTop) / 2} />
-        {frame.axleY !== null && <line x1={chassis.x + 10} y1={frame.axleY} x2={chassis.x + chassis.width - 10} y2={frame.axleY} className={styles.frameAxle} />}
+        <rect x={rail.x} y={rail.y} width={rail.width} height={rail.height} rx="8" />
+        <line x1={rail.x + 24} y1={rail.y + rail.height / 2} x2={rail.x + rail.width - 24} y2={rail.y + rail.height / 2} />
+        {tone !== "odyssey" && frame.axleY !== null && <line x1={chassis.x + 10} y1={frame.axleY} x2={chassis.x + chassis.width - 10} y2={frame.axleY} className={styles.frameAxle} />}
       </>}
       {showHorse && <path className={styles.horseTorso} d={horseFrame.path} />}
     </g>
 
+    <g className={tone === "odyssey" ? styles.odysseyHeroMechanism : undefined}>
     {orderedLegs.map((leg) => {
       const sample = samples[variableLegSampleIndex(phase, leg.phaseOffset, samples.length)];
       if (!sample) return null;
@@ -220,20 +234,24 @@ export function VariableLegDeploymentView({
           const a = jointMap.get(bar.a);
           const b = jointMap.get(bar.b);
           if (!a || !b) return null;
-          return <g key={bar.id} role="button" tabIndex={0} aria-label={`检查${leg.label}杆件 ${bar.id}`} className={styles.selectableBar} onPointerDown={(event) => { event.stopPropagation(); onSelectBar(bar.id); }} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelectBar(bar.id); } }}>
+          return <g key={bar.id} role={interactive ? "button" : undefined} tabIndex={interactive ? 0 : undefined} aria-label={interactive ? `检查${leg.label}杆件 ${bar.id}` : undefined} className={interactive ? styles.selectableBar : undefined} onPointerDown={interactive ? (event) => { event.stopPropagation(); onSelectBar(bar.id); } : undefined} onKeyDown={interactive ? (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelectBar(bar.id); } } : undefined}>
             <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} className={styles.barHitArea} />
+            {tone === "odyssey" && <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} className={styles.odysseyWoodBarBase} />}
             <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} className={`${styles.deployedLink} ${bar.id === sample.project.driverId ? styles.deployedDriver : ""} ${bar.id === selectedBarId ? styles.selectedBar : ""}`} />
+            {tone === "odyssey" && <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} className={styles.odysseyWoodGrain} />}
           </g>;
         })}
         {sample.project.joints.map((joint) => <g key={joint.id} className={styles.deployedJoint}>
           <circle cx={joint.x} cy={joint.y} r={joint.fixed ? 7 : 6} />
+          {tone === "odyssey" && <circle cx={joint.x} cy={joint.y} r={joint.fixed ? 2.5 : 2.1} />}
         </g>)}
         {sample.tracer && <circle cx={sample.tracer.x} cy={sample.tracer.y} r="10" className={styles.deployedFoot} />}
         </g>
       </g>;
     })}
+    </g>
 
-    <g className={styles.footprintPlot}>
+    {showScene && <g className={styles.footprintPlot}>
       <rect x="-548" y="238" width="1096" height="122" rx="8" />
       <text x="-528" y="258">落足记录 · 世界坐标跟随</text>
       <line x1="-520" y1="286" x2="520" y2="286" />
@@ -249,6 +267,6 @@ export function VariableLegDeploymentView({
           </g>;
         })}
       </g>
-    </g>
+    </g>}
   </>, language);
 }

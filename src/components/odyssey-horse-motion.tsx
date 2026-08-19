@@ -72,20 +72,20 @@ export function OdysseyHorseMotion() {
 
   return <>
     <svg className={`${styles.mechanismOverlay} ${styles.rearMechanismLayer}`} viewBox="-410 -293 820 550" aria-hidden="true">
-      <g transform="translate(0 -18) translate(0 -80) scale(1 1.15) translate(0 80)">
+      <g transform="translate(0 -32) translate(0 -80) scale(1 1.15) translate(0 80)">
         {renderMechanismLayer("right", false)}
       </g>
     </svg>
     <Image
       className={styles.horseBodyOcclusion}
-      src="/odyssey-horse-shell-no-cart-clean.png"
+      src="/odyssey-horse-shell-flat-belly.png"
       alt=""
       fill
       sizes="(max-width: 860px) 100vw, 48vw"
       aria-hidden="true"
     />
     <svg className={`${styles.mechanismOverlay} ${styles.frontMechanismLayer}`} viewBox="-410 -293 820 550" role="img" aria-label="OpenLinkage Jansen linkage legs walking from inside the Trojan horse shell">
-      <g transform="translate(0 -18) translate(0 -80) scale(1 1.15) translate(0 80)">
+      <g transform="translate(0 -32) translate(0 -80) scale(1 1.15) translate(0 80)">
         {renderMechanismLayer("left", false)}
       </g>
     </svg>

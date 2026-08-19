@@ -63,7 +63,7 @@ export function OdysseyVariableLegExperience({ language }: { language: Language 
       <div className={styles.heroVisual}>
         <div className={styles.imageFrame}>
           <Image
-            src="/odyssey-horse-shell-no-cart-clean.png"
+            src="/odyssey-horse-shell-flat-belly.png"
             alt="A suspended dark wooden Trojan horse shell on an ancient engineering drawing"
             fill
             priority

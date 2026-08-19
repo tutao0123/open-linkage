@@ -17,7 +17,7 @@
 .imageFrame>img { object-fit:cover; }
 .mechanismOverlay { width:93%; height:43%; position:absolute; left:3.5%; top:43%; overflow:visible; filter:drop-shadow(0 7px 5px rgb(25 20 14 / 28%)); }
 .rearMechanismLayer { z-index:1; }
-.horseBodyOcclusion { z-index:2; object-fit:cover; clip-path:polygon(4% 39%,80% 39%,80% 64%,4% 64%); pointer-events:none; }
+.horseBodyOcclusion { z-index:2; object-fit:cover; clip-path:polygon(4% 39%,80% 39%,80% 72%,4% 72%); pointer-events:none; }
 .frontMechanismLayer { z-index:3; }
 .motionControl { min-width:132px; min-height:38px; padding:0 10px 0 13px; position:absolute; z-index:4; right:14px; bottom:14px; display:flex; align-items:center; justify-content:space-between; gap:14px; border:1px solid #161a17; background:rgb(232 223 203 / 92%); color:#171b18; cursor:pointer; font:9px "Geist Mono","Cascadia Mono",Consolas,monospace; backdrop-filter:blur(8px); }
 .motionControl b { padding:4px 6px; background:#171b18; color:var(--odyssey-acid); font-size:8px; letter-spacing:.08em; }

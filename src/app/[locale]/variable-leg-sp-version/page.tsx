@@ -19,7 +19,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     openGraph: {
       title,
       description,
-      images: [{ url: "https://linkage.wtt.autos/odyssey-horse-shell-no-cart-clean.png", width: 1024, height: 1536, alt: "Trojan horse mechanism study" }],
+      images: [{ url: "https://linkage.wtt.autos/odyssey-horse-shell-flat-belly.png", width: 1024, height: 1536, alt: "Trojan horse mechanism study" }],
     },
   };
 }

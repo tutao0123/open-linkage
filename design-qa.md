@@ -105,6 +105,15 @@ The focused mechanism views show the same J/F/P joint-marker construction and fi
 
 final result: passed
 
+## Odyssey pivot seating refinement
+
+- Evidence: `C:/Users/39007/.codex/visualizations/2026/08/18/01a01502-1d57-7621-bf10-36fbdca82ad2/odyssey-variable-leg-sp/raised-pivots-qa2.png`.
+- The hero linkage transform moved upward from `-18` to `-32` SVG units, seating both visible rotating pivots farther inside the wooden shell while preserving the horse-body occlusion layer.
+- Browser verification at 1280 × 720 reports two rear and two near hero legs, all at computed opacity `1`; linkage geometry remains animated during playback.
+- The final desktop capture shows both upper pivots landing on the lower timber shell rather than hanging below it. No new crop, clipping, typography, color, image, or copy issue was introduced.
+
+final result: passed
+
 ## Odyssey frame integration and occlusion pass
 
 ### Evidence
@@ -246,5 +255,32 @@ final result: passed
 - The far-side linkage is occluded by the actual horse-body image layer while the near-side linkage remains visible in front.
 - The mechanism continues to change geometry during playback and the chassis rail is absent.
 - No actionable P0, P1, or P2 issue remains for the requested direct-on-image construction.
+
+final result: passed
+
+## Odyssey flat-belly shell refinement
+
+### Evidence and comparison
+
+- Previous implementation: `C:/Users/39007/.codex/visualizations/2026/08/18/01a01502-1d57-7621-bf10-36fbdca82ad2/odyssey-variable-leg-sp/raised-pivots-qa2.png`.
+- Final implementation: `C:/Users/39007/.codex/visualizations/2026/08/18/01a01502-1d57-7621-bf10-36fbdca82ad2/odyssey-variable-leg-sp/flat-belly-desktop-1280.png`.
+- Same-view comparison: `C:/Users/39007/.codex/visualizations/2026/08/18/01a01502-1d57-7621-bf10-36fbdca82ad2/odyssey-variable-leg-sp/flat-belly-comparison.png`.
+- Final browser capture: 1280 × 720 CSS px; the implementation screenshot is 1280 × 720 captured px at the explicit viewport override. The comparison input records the previous and final states side by side; the earlier narrow capture is retained only as a focused mechanism reference.
+
+### Findings and fix
+
+- P2 — The original shell's underside varied in height across the rear barrel and front chest, so the two live pivot points did not share a believable mounting datum.
+- Fix — Generated and integrated `public/odyssey-horse-shell-flat-belly.png`: a more abstract carved-wood horse shell with the existing walnut grain, riveted bands, parchment engineering background, and a continuous horizontal lower timber sill. The live linkage remains code-native and mounts directly against that sill; no chassis rail, wheels, or legs were added to the raster.
+- Fonts and typography: unchanged.
+- Spacing and layout rhythm: the shell crop and hero composition remain stable; the flat sill creates a clearer mechanical datum without moving the copy or controls.
+- Colors and visual tokens: the dark walnut and warm aged highlights remain consistent with the rod material and existing page palette.
+- Image quality and asset fidelity: the final image is a project-local raster asset generated through built-in ImageGen edit mode; no placeholder or handcrafted illustration was introduced.
+- Copy and content: unchanged.
+
+### Verification
+
+- The two rotating pivots visually meet the continuous shell edge.
+- Four hero leg groups remain present at computed opacity `1`, and motion geometry changes during playback.
+- Production build, targeted lint, and all 132 tests pass.
 
 final result: passed

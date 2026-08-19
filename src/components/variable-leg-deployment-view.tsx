@@ -210,7 +210,8 @@ export function VariableLegDeploymentView({
       );
       const jointMap = new Map(sample.project.joints.map((joint) => [joint.id, joint]));
       const mountX = variableLegMountX(leg, deployment);
-      const transform = `translate(${mountX} 0) translate(${anchor.x} ${anchor.y}) scale(${visualScale}) translate(${-anchor.x} ${-anchor.y})`;
+      const scaleOriginY = tone === "odyssey" ? 80 : -anchor.y;
+      const transform = `translate(${mountX} 0) translate(${anchor.x} ${anchor.y}) scale(${visualScale}) translate(${-anchor.x} ${scaleOriginY})`;
       return <g key={leg.id}>
         <g
           transform={transform}

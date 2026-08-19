@@ -284,3 +284,44 @@ final result: passed
 - Production build, targeted lint, and all 132 tests pass.
 
 final result: passed
+
+## Odyssey replacement artwork and lowered linkage
+
+### Evidence and comparison
+
+- Source visual truth: `C:/Users/39007/Documents/Codex/open-linkage/public/863689e7-d348-4759-a1ca-0cbdbfeb54fa.png` (1024 × 1536 px, 2:3 portrait asset).
+- Implementation evidence: `C:/Users/39007/.codex/visualizations/2026/08/18/01a01502-1d57-7621-bf10-36fbdca82ad2/odyssey-image-swap/implementation-narrow-lowered.png` (768 × 937 captured px, default in-app browser viewport, 1× capture).
+- Same-input review: the supplied horse image and the rendered SP hero were inspected together; the source image's open belly, walnut shell, and Greek-key parchment remain legible after placement.
+- State: live four-leg animation playing; front and rear linkage layers active; user-requested image replacement applied.
+
+### Findings and fix
+
+- P2 — The replacement artwork has a lower, more horizontal belly opening than the previous flat-belly shell, so the existing linkage sat slightly high against the new shell.
+- Fix — Both live linkage layers moved down by 12 SVG units together. The occlusion image uses the same replacement asset, preserving the far-side/near-side depth treatment and keeping the fixed pivots mounted against the wooden body.
+
+### Required fidelity surfaces
+
+- Fonts and typography: unchanged from the existing SP page.
+- Spacing and layout rhythm: the 2:3 asset fits the existing portrait frame without a new crop; the small downward adjustment keeps the rods inside the horse plate and clear of the motion control.
+- Colors and visual tokens: the supplied parchment, Greek-key border, dark walnut, and aged-brass palette carry through without added overlays.
+- Image quality and asset fidelity: the exact user-supplied raster is used for both the visible shell and the occlusion layer; no substitute or hand-drawn image was introduced.
+- Copy and content: unchanged apart from the image alt text describing the open-belly shell.
+
+### Interaction verification
+
+- Pause/Play toggles continue to work after the asset swap.
+- Both replacement images load successfully, and the animated linkage SVG remains at computed opacity `1`.
+- The narrow hero was reloaded and inspected with the linkage visibly seated lower in the belly opening.
+
+No actionable P0, P1, or P2 issue remains for this image replacement and position adjustment.
+
+final result: passed
+
+## Odyssey scale-origin seating and far-side occlusion
+
+- The hero per-leg transform's last translate Y is `80` for `tone="odyssey"` instead of `-anchor.y`, seating the live pivots on the open-belly sill. The workbench deployment view is unchanged.
+- The horse-body occluder clip extends to `72%` so the far-side legs remain behind the lower timber after the downward shift.
+- Layer order is unchanged: rear legs `z-index:1`, body crop `z-index:2`, near-side legs `z-index:3`.
+- Browser check at 1280×800: two rear and two near legs at opacity `1`. Hiding the front layer leaves only the hanging far-side bars; their upper rods stay covered by the wooden body. Removing the body crop reveals those upper rods over the shell.
+
+final result: passed

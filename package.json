@@ -4,7 +4,7 @@
   "private": true,
   "description": "Browser-based planar linkage design, kinematic simulation, and mechanism synthesis.",
   "license": "MIT",
-  "homepage": "https://linkage.wtt.autos",
+  "homepage": "https://open-linkage.vercel.app",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/tutao0123/open-linkage.git"

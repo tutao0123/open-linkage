@@ -2,7 +2,7 @@
 
 **直接在浏览器中设计、仿真并综合平面连杆机构。**
 
-[在线体验](https://linkage.wtt.autos/zh) · [English](README.md) · [反馈问题](https://github.com/tutao0123/open-linkage/issues)
+[在线体验](https://open-linkage.vercel.app/zh) · [English](README.md) · [反馈问题](https://github.com/tutao0123/open-linkage/issues)
 
 OpenLinkage 是一个开源的平面机构设计工作台，将交互式运动学仿真、轨迹分析和目标驱动的机构综合整合在浏览器中，覆盖四杆机构、步行腿和自由拓扑机构。
 
@@ -12,11 +12,11 @@ OpenLinkage 是一个开源的平面机构设计工作台，将交互式运动�
 
 | 工作台 | 可以做什么 | 打开 |
 | --- | --- | --- |
-| 四杆机构设计 | 分析曲柄摇杆、双曲柄和双摇杆机构；绘制目标轨迹并自动拟合杆长。 | [进入](https://linkage.wtt.autos/zh/lab) |
-| 六杆腿机构综合 | 绘制足端轨迹，按照精度和传动性能比较多套 Watt 类六杆方案。 | [进入](https://linkage.wtt.autos/zh/leg) |
-| 可变几何步行腿 | 通过移动固定铰点或可锁止伸缩杆，让克兰腿和简森腿适配巡航、高速和越障工况。 | [进入](https://linkage.wtt.autos/zh/variable-leg) |
-| 经典直线机构 | 比较瓦特、彻比雪夫、霍肯和波塞利耶–利普金机构的行程与直线度。 | [进入](https://linkage.wtt.autos/zh/straight-line) |
-| 自由机构设计器 | 从铰点和杆件开始自由搭建平面机构，指定主动件并观察运动和轨迹。 | [进入](https://linkage.wtt.autos/zh/designer) |
+| 四杆机构设计 | 分析曲柄摇杆、双曲柄和双摇杆机构；绘制目标轨迹并自动拟合杆长。 | [进入](https://open-linkage.vercel.app/zh/lab) |
+| 六杆腿机构综合 | 绘制足端轨迹，按照精度和传动性能比较多套 Watt 类六杆方案。 | [进入](https://open-linkage.vercel.app/zh/leg) |
+| 可变几何步行腿 | 通过移动固定铰点或可锁止伸缩杆，让克兰腿和简森腿适配巡航、高速和越障工况。 | [进入](https://open-linkage.vercel.app/zh/variable-leg) |
+| 经典直线机构 | 比较瓦特、彻比雪夫、霍肯和波塞利耶–利普金机构的行程与直线度。 | [进入](https://open-linkage.vercel.app/zh/straight-line) |
+| 自由机构设计器 | 从铰点和杆件开始自由搭建平面机构，指定主动件并观察运动和轨迹。 | [进入](https://open-linkage.vercel.app/zh/designer) |
 
 ## 主要特点
 

@@ -74,7 +74,7 @@ export default async function VariableLegSpecialPage({ params }: Props) {
 
       <footer className={styles.footer}>
         <span>{zh ? "#重返奥德赛 · 用连杆机构重演荷马" : "#重返奥德赛 · Homer, replayed by linkages"}</span>
-        <span>linkage.wtt.autos</span>
+        <span>open-linkage.vercel.app</span>
       </footer>
     </main>
   );

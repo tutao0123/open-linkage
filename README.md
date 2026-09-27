@@ -2,7 +2,7 @@
 
 **Design, simulate, and synthesize planar linkages—directly in your browser.**
 
-[Live app](https://linkage.wtt.autos/en) · [简体中文](README.zh-CN.md) · [Report an issue](https://github.com/tutao0123/open-linkage/issues)
+[Live app](https://open-linkage.vercel.app/en) · [简体中文](README.zh-CN.md) · [Report an issue](https://github.com/tutao0123/open-linkage/issues)
 
 OpenLinkage is an open-source workbench for planar mechanism design. It combines interactive kinematic simulation, trajectory analysis, and goal-driven synthesis in one browser-based interface—from four-bar linkages to walking legs and free-form mechanisms.
 
@@ -12,11 +12,11 @@ No installation is required for the online version, and the design calculations 
 
 | Workbench | What you can do | Open |
 | --- | --- | --- |
-| Four-bar Design | Analyze crank-rocker, double-crank, and double-rocker mechanisms; draw a target path and fit link dimensions. | [Launch](https://linkage.wtt.autos/en/lab) |
-| Six-bar Leg Synthesis | Draw a foot trajectory and compare Watt-type six-bar candidates by accuracy and transmission quality. | [Launch](https://linkage.wtt.autos/en/leg) |
-| Variable-geometry Walking Leg | Adapt Klann and Jansen legs to cruise, fast, and obstacle-crossing conditions using movable pivots or lockable telescopic links. | [Launch](https://linkage.wtt.autos/en/variable-leg) |
-| Straight-line Mechanisms | Compare Watt, Chebyshev, Hoekens, and Peaucellier–Lipkin mechanisms by stroke and straightness. | [Launch](https://linkage.wtt.autos/en/straight-line) |
-| Free Mechanism Designer | Build a planar mechanism from joints and links, choose its input, and inspect its motion and trajectories. | [Launch](https://linkage.wtt.autos/en/designer) |
+| Four-bar Design | Analyze crank-rocker, double-crank, and double-rocker mechanisms; draw a target path and fit link dimensions. | [Launch](https://open-linkage.vercel.app/en/lab) |
+| Six-bar Leg Synthesis | Draw a foot trajectory and compare Watt-type six-bar candidates by accuracy and transmission quality. | [Launch](https://open-linkage.vercel.app/en/leg) |
+| Variable-geometry Walking Leg | Adapt Klann and Jansen legs to cruise, fast, and obstacle-crossing conditions using movable pivots or lockable telescopic links. | [Launch](https://open-linkage.vercel.app/en/variable-leg) |
+| Straight-line Mechanisms | Compare Watt, Chebyshev, Hoekens, and Peaucellier–Lipkin mechanisms by stroke and straightness. | [Launch](https://open-linkage.vercel.app/en/straight-line) |
+| Free Mechanism Designer | Build a planar mechanism from joints and links, choose its input, and inspect its motion and trajectories. | [Launch](https://open-linkage.vercel.app/en/designer) |
 
 ## Highlights
 

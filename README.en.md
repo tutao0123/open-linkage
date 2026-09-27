@@ -31,11 +31,11 @@ npm run build  # create a production build
 
 ## Live demos
 
-- Website: <https://linkage.wtt.autos>
-- Four-bar lab: <https://linkage.wtt.autos/lab>
-- Six-bar leg lab: <https://linkage.wtt.autos/leg>
-- Variable-geometry walking leg: <https://linkage.wtt.autos/variable-leg>
-- Free mechanism designer: <https://linkage.wtt.autos/designer>
+- Website: <https://open-linkage.vercel.app>
+- Four-bar lab: <https://open-linkage.vercel.app/lab>
+- Six-bar leg lab: <https://open-linkage.vercel.app/leg>
+- Variable-geometry walking leg: <https://open-linkage.vercel.app/variable-leg>
+- Free mechanism designer: <https://open-linkage.vercel.app/designer>
 
 ## Roadmap
 

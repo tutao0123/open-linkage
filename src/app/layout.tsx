@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://open-linkage.vercel.app"),
   title: "OpenLinkage · 机构设计 / Mechanism Design",
   description: "开源、浏览器端的平面机构设计与自动综合平台。An open-source, browser-based platform for planar mechanism design and automated synthesis.",
 };
